@@ -107,6 +107,10 @@ nexuspay:
     namespace: ${TEMPORAL_NAMESPACE:default}
     task-queue: ${TEMPORAL_TASK_QUEUE:nexuspay-main}
     worker-threads: ${TEMPORAL_WORKER_THREADS:4}
+  reconciliation:
+    amount-tolerance: ${RECON_AMOUNT_TOLERANCE:1}     # Minor units (1 = $0.01)
+    date-range-days: ${RECON_DATE_RANGE_DAYS:7}       # Settlement date tolerance
+    max-batch-size: ${RECON_MAX_BATCH_SIZE:10000}
 
 # Resilience4j
 resilience4j:

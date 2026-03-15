@@ -26,6 +26,9 @@ public final class PrefixedId {
     public static final String API_KEY = "key_";
     public static final String AUDIT = "aud_";
     public static final String WEBHOOK_ENDPOINT = "we_";
+    public static final String RECONCILIATION_RUN = "rec_";
+    public static final String SETTLEMENT_RECORD = "stl_";
+    public static final String RECONCILIATION_EXCEPTION = "rex_";
 
     /**
      * Generates a new prefixed ID with a random UUID (hyphens removed).
@@ -84,5 +87,17 @@ public final class PrefixedId {
 
     public static String webhookEndpoint() {
         return generate(WEBHOOK_ENDPOINT);
+    }
+
+    public static String reconciliationRun() {
+        return generate(RECONCILIATION_RUN);
+    }
+
+    public static String settlementRecord() {
+        return generate(SETTLEMENT_RECORD);
+    }
+
+    public static String reconciliationException() {
+        return generate(RECONCILIATION_EXCEPTION);
     }
 }

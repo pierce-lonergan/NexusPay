@@ -48,10 +48,10 @@ NexusPay is an enterprise payment platform built **on top of** HyperSwitch (open
 | `payment-orchestration` | `io.nexuspay.payment` | HyperSwitch client, webhook receiver, outbox relay, payment domain events | 1.2 |
 | `ledger` | `io.nexuspay.ledger` | Double-entry bookkeeping, journal entries, balance management | 1.3 |
 | `iam` | `io.nexuspay.iam` | Keycloak integration, API key auth, RBAC, maker-checker, audit logging | 1.5 |
-| `reconciliation` | `io.nexuspay.reconciliation` | Automated reconciliation (stub in Phase 1) | 2+ |
-| `observability` | `io.nexuspay.observability` | Metrics, alerting, dashboards (stub in Phase 1) | 2+ |
-| `dispute` | `io.nexuspay.dispute` | Chargeback/dispute management (stub in Phase 1) | 2+ |
-| `workflow` | `io.nexuspay.workflow` | Temporal-based workflow orchestration (stub in Phase 1) | 2+ |
+| `reconciliation` | `io.nexuspay.reconciliation` | Automated reconciliation (stub in Phase 1) | 2.3 |
+| `observability` | `io.nexuspay.observability` | Metrics, alerting, dashboards (stub in Phase 1) | 2.7 |
+| `dispute` | `io.nexuspay.dispute` | Chargeback/dispute management (stub in Phase 1) | 2.4 |
+| `workflow` | `io.nexuspay.workflow` | Temporal-based durable workflow orchestration (PaymentWithRetryWorkflow) | 2.2 |
 | `app` | `io.nexuspay.app` | Spring Boot main class, unified configuration, Modulith verification | 1.1 |
 
 ## 4. Hexagonal Package Convention
@@ -88,41 +88,55 @@ io.nexuspay.{module}/
 | Identity | Keycloak | 26 | OIDC, 3 roles, realm auto-import |
 | Resilience | Resilience4j | 2.2.0 | Circuit breaker on HyperSwitch calls |
 | Payment Engine | HyperSwitch | Latest | Router + Consumer (drainer) |
+| Secrets | HashiCorp Vault | 1.17 | Dev mode with seed script; Spring Cloud Vault (Sprint 2.1) |
+| CDC | Debezium | 2.7 | Outbox Event Router via Kafka Connect (Sprint 2.2) |
+| Workflows | Temporal | 1.25 | Durable payment orchestration with retry + signal (Sprint 2.2) |
 | Logging | Logback + Logstash encoder | — | JSON structured in production, human-readable in dev |
 | API Docs | Springdoc OpenAPI | — | Auto-generated at `/v1/api-docs` |
 
 ## 6. Infrastructure Topology (Local Development)
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Docker Compose Network                        │
-│                                                                 │
-│  ┌──────────────┐  ┌───────────────┐  ┌──────────────────────┐ │
-│  │ nexuspay-pg  │  │    kafka      │  │      valkey          │ │
-│  │ :5432        │  │ :9092/:29092  │  │      :6379           │ │
-│  │ (NexusPay DB)│  │ (KRaft mode)  │  │  (dedup/idempotency) │ │
-│  └──────────────┘  └───────────────┘  └──────────────────────┘ │
-│                                                                 │
-│  ┌──────────────┐  ┌───────────────┐  ┌──────────────────────┐ │
-│  │ hyperswitch- │  │ hyperswitch-  │  │  hyperswitch-pg      │ │
-│  │   router     │  │   consumer    │  │  :5433               │ │
-│  │   :8080      │  │  (drainer)    │  │ (HyperSwitch DB)     │ │
-│  └──────────────┘  └───────────────┘  └──────────────────────┘ │
-│                                                                 │
-│  ┌──────────────┐  ┌───────────────┐                           │
-│  │ hyperswitch- │  │   keycloak    │                           │
-│  │    redis     │  │   :8180       │                           │
-│  │   :6380      │  │ (realm import)│                           │
-│  └──────────────┘  └───────────────┘                           │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                       Docker Compose Network (12 containers)              │
+│                                                                          │
+│  ┌──────────────┐  ┌───────────────┐  ┌──────────────────────┐          │
+│  │ nexuspay-pg  │  │    kafka      │  │      valkey          │          │
+│  │ :5432        │  │ :9092/:29092  │  │      :6379           │          │
+│  │ (WAL=logical)│  │ (KRaft mode)  │  │  (dedup/idempotency) │          │
+│  └──────────────┘  └───────────────┘  └──────────────────────┘          │
+│                                                                          │
+│  ┌──────────────┐  ┌───────────────┐  ┌──────────────────────┐          │
+│  │ hyperswitch- │  │ hyperswitch-  │  │  hyperswitch-pg      │          │
+│  │   router     │  │    redis      │  │  :5433               │          │
+│  │   :8080      │  │   :6380       │  │ (HyperSwitch DB)     │          │
+│  └──────────────┘  └───────────────┘  └──────────────────────┘          │
+│                                                                          │
+│  ┌──────────────┐  ┌───────────────┐  ┌──────────────────────┐          │
+│  │   keycloak   │  │    vault      │  │   kafka-connect      │          │
+│  │   :8180      │  │   :8200       │  │   :8083 (Debezium)   │          │
+│  │ (realm import│  │ (dev mode)    │  │  (Outbox CDC relay)  │          │
+│  └──────────────┘  └───────────────┘  └──────────────────────┘          │
+│                                                                          │
+│  ┌──────────────┐  ┌───────────────┐  ┌──────────────────────┐          │
+│  │  temporal     │  │ temporal-pg   │  │   temporal-ui        │          │
+│  │  :7233       │  │  :5434        │  │   :8280              │          │
+│  │ (auto-setup) │  │ (Temporal DB) │  │  (workflow dashboard) │          │
+│  └──────────────┘  └───────────────┘  └──────────────────────┘          │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Port allocations**:
 - `8090` — NexusPay application (host, not containerized in dev)
 - `8080` — HyperSwitch Router API
 - `8180` — Keycloak Admin Console (avoids HyperSwitch port conflict)
-- `5432` — NexusPay PostgreSQL
+- `8200` — HashiCorp Vault (dev mode, Sprint 2.1)
+- `8083` — Kafka Connect / Debezium (Sprint 2.2)
+- `8280` — Temporal UI (Sprint 2.2)
+- `7233` — Temporal gRPC (Sprint 2.2)
+- `5432` — NexusPay PostgreSQL (WAL=logical for CDC)
 - `5433` — HyperSwitch PostgreSQL
+- `5434` — Temporal PostgreSQL
 - `9092` — Kafka (internal), `29092` (host access)
 - `6379` — Valkey
 - `6380` — HyperSwitch Redis
@@ -141,7 +155,8 @@ io.nexuspay.{module}/
 ### Health Checks
 - Spring Boot Actuator aggregates PostgreSQL, Kafka, Valkey health
 - Custom `HealthIndicator` for HyperSwitch (GET /health)
-- Keycloak health indicator planned for Sprint 1.5
+- Custom `KeycloakHealthIndicator` (calls realm endpoint, Sprint 1.5)
+- Custom `VaultHealthIndicator` (calls /v1/sys/health, Sprint 2.1)
 
 ### Configuration
 - Single `application.yml` with namespaced keys (`nexuspay.hyperswitch.*`, `nexuspay.ledger.*`, `nexuspay.iam.*`)
@@ -150,14 +165,23 @@ io.nexuspay.{module}/
 
 ## 8. Data Flow Summary
 
+### Standard Payment Flow
 1. **Merchant** sends payment request → **Gateway API** (auth + rate limit + idempotency)
 2. **Gateway API** delegates to **Payment Orchestration** use case
 3. **Payment Orchestration** calls **HyperSwitch** via `PaymentGatewayPort` (circuit-breaker protected)
 4. **HyperSwitch** processes payment through PSP connector, fires webhook
 5. **Webhook Controller** receives callback → persists raw payload → dedup → writes to **event_outbox**
-6. **Outbox Relay** polls outbox → publishes to **Kafka** topic `nexuspay.payments`
+6. **Debezium CDC** captures outbox INSERT via WAL → routes to **Kafka** topic `nexuspay.payments`
+   - (Fallback: polling **Outbox Relay** if CDC disabled via feature flag)
 7. **Ledger** consumes event → creates balanced **journal entry** (double-entry)
 8. All operations logged to **audit_log** with correlation IDs
+
+### Durable Workflow Flow (Sprint 2.2+)
+1. **Gateway API** starts Temporal **PaymentWithRetryWorkflow** with payment details
+2. **Workflow** creates payment in HyperSwitch (activity), waits for confirmation signal
+3. **Webhook Controller** signals workflow with payment status via Temporal signal
+4. **Workflow** publishes outbox event on success, retries on failure (up to 3 attempts)
+5. On timeout (5 min) or exhausted retries: void payment, emit failure event
 
 ## 9. Module Dependency Rules (Enforced by Spring Modulith)
 

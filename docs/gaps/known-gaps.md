@@ -1,6 +1,6 @@
 # NexusPay Known Gaps Analysis
 
-Last updated: 2026-03-15 (Sprint 2.2 in progress — event infrastructure upgrade)
+Last updated: 2026-03-15 (Sprint 2.3 in progress — reconciliation engine)
 
 This document tracks known gaps, technical debt, and deferred decisions in the NexusPay system. Each gap is categorized by severity, the sprint it was identified, and the planned resolution timeline.
 
@@ -144,11 +144,11 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Status**: Resolved
 - **Description**: `KafkaConsumerConfig` now applies `DefaultErrorHandler` with `DeadLetterPublishingRecoverer` and `FixedBackOff(1000, 3)` to all consumer container factories. Failed messages are published to `.DLT` topics after 3 retries.
 
-### GAP-023: No Multi-Currency Reconciliation Reporting
+### ~~GAP-023: No Multi-Currency Reconciliation Reporting~~ (PARTIALLY ADDRESSED Sprint 2.3)
 - **Identified**: Sprint 1.3
-- **Status**: Open
-- **Description**: The balance reconciliation job checks all accounts but doesn't report per-currency summaries. As more currencies are added, operators need visibility into aggregate positions per currency.
-- **Resolution**: Phase 2 — add per-currency balance summary to reconciliation report.
+- **Status**: Partially addressed — Sprint 2.3
+- **Description**: Reconciliation engine implemented with full 3-way matching (settlement ↔ payment ↔ ledger). `ThreeWayMatchingService` validates amounts, currencies, and ledger entries. Settlement records track currency per record. Per-currency aggregate summary reporting deferred.
+- **Remaining**: Per-currency aggregate balance summary view in reconciliation dashboard.
 
 ### GAP-024: SERIALIZABLE Isolation Throughput Ceiling
 - **Identified**: Sprint 1.3
@@ -214,8 +214,9 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 | Sprint 1.6 | GAP-009, GAP-010, GAP-016, GAP-025 |
 | Sprint 1.7 | GAP-005, GAP-006, GAP-007, GAP-014, GAP-017, GAP-019, GAP-030, GAP-031 |
 | Sprint 2.1 (in progress) | GAP-001 (RLS), GAP-003 (Vault) |
-| Sprint 2.2 (in progress) | GAP-011 (Debezium CDC), GAP-012 (partial — event upcaster chain) |
-| Phase 2 (remaining) | GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-020, GAP-021, GAP-023, GAP-026, GAP-027 |
+| Sprint 2.2 (complete) | GAP-011 (Debezium CDC), GAP-012 (partial — event upcaster chain) |
+| Sprint 2.3 (in progress) | GAP-023 (partial — reconciliation engine) |
+| Phase 2 (remaining) | GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-020, GAP-021, GAP-026, GAP-027 |
 | Phase 3 | GAP-012 (full Schema Registry) |
 
 ## Summary
