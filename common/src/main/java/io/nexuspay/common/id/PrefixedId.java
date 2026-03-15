@@ -32,6 +32,12 @@ public final class PrefixedId {
     public static final String DISPUTE = "dp_";
     public static final String DISPUTE_EVIDENCE = "dpe_";
     public static final String DISPUTE_EVENT = "dpev_";
+    public static final String PRODUCT = "prod_";
+    public static final String PRICE = "price_";
+    public static final String SUBSCRIPTION = "sub_";
+    public static final String INVOICE = "inv_";
+    public static final String INVOICE_LINE_ITEM = "ili_";
+    public static final String DUNNING_ATTEMPT = "dun_";
 
     /**
      * Generates a new prefixed ID with a random UUID (hyphens removed).
@@ -114,5 +120,29 @@ public final class PrefixedId {
 
     public static String disputeEvent() {
         return generate(DISPUTE_EVENT);
+    }
+
+    public static String product() {
+        return generate(PRODUCT);
+    }
+
+    public static String price() {
+        return generate(PRICE);
+    }
+
+    public static String subscription() {
+        return generate(SUBSCRIPTION);
+    }
+
+    public static String invoice() {
+        return generate(INVOICE);
+    }
+
+    public static String invoiceLineItem() {
+        return generate(INVOICE_LINE_ITEM);
+    }
+
+    public static String dunningAttempt() {
+        return generate(DUNNING_ATTEMPT);
     }
 }

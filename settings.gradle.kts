@@ -10,5 +10,6 @@ include(
     "observability",
     "dispute",
     "workflow",
+    "billing",
     "app"
 )

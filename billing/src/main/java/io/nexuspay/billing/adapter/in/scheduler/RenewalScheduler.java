@@ -1,0 +1,98 @@
+package io.nexuspay.billing.adapter.in.scheduler;
+
+import io.nexuspay.billing.application.port.out.ProductRepository;
+import io.nexuspay.billing.application.port.out.SubscriptionRepository;
+import io.nexuspay.billing.application.service.DunningService;
+import io.nexuspay.billing.application.service.InvoiceGenerationService;
+import io.nexuspay.billing.domain.Invoice;
+import io.nexuspay.billing.domain.Price;
+import io.nexuspay.billing.domain.Subscription;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+import java.time.Instant;
+import java.util.List;
+
+/**
+ * Daily scheduler that finds subscriptions due for renewal,
+ * generates invoices, and collects payment.
+ *
+ * @since 0.2.5 (Sprint 2.5a)
+ */
+@Component
+public class RenewalScheduler {
+
+    private static final Logger log = LoggerFactory.getLogger(RenewalScheduler.class);
+
+    private final SubscriptionRepository subscriptionRepository;
+    private final ProductRepository productRepository;
+    private final InvoiceGenerationService invoiceService;
+    private final DunningService dunningService;
+
+    public RenewalScheduler(SubscriptionRepository subscriptionRepository,
+                             ProductRepository productRepository,
+                             InvoiceGenerationService invoiceService,
+                             DunningService dunningService) {
+        this.subscriptionRepository = subscriptionRepository;
+        this.productRepository = productRepository;
+        this.invoiceService = invoiceService;
+        this.dunningService = dunningService;
+    }
+
+    /**
+     * Runs daily at 2:00 AM — processes subscription renewals.
+     */
+    @Scheduled(cron = "0 0 2 * * *")
+    public void processRenewals() {
+        log.info("Starting subscription renewal cycle");
+
+        List<Subscription> due = subscriptionRepository.findDueForRenewal(Instant.now(), 500);
+        int renewed = 0;
+        int failed = 0;
+
+        for (Subscription sub : due) {
+            try {
+                Price price = productRepository.findPriceById(sub.getPriceId()).orElse(null);
+                if (price == null) {
+                    log.warn("Price not found for subscription {}, skipping", sub.getId());
+                    continue;
+                }
+
+                // Generate invoice for next period
+                Invoice invoice = invoiceService.generateInvoice(sub, price);
+
+                // Attempt payment
+                boolean paid = invoiceService.collectPayment(invoice, sub.getPaymentMethodId());
+
+                if (paid) {
+                    sub.renew(price);
+                    subscriptionRepository.save(sub);
+                    renewed++;
+                } else {
+                    // Payment failed — initiate dunning
+                    dunningService.initiateDunning(sub, invoice);
+                    failed++;
+                }
+            } catch (Exception e) {
+                log.error("Renewal failed for subscription {}: {}", sub.getId(), e.getMessage(), e);
+                failed++;
+            }
+        }
+
+        log.info("Renewal cycle complete: processed={}, renewed={}, failed={}",
+                due.size(), renewed, failed);
+    }
+
+    /**
+     * Runs every 4 hours — processes pending dunning retries.
+     */
+    @Scheduled(cron = "0 0 */4 * * *")
+    public void processDunning() {
+        int processed = dunningService.processPendingAttempts();
+        if (processed > 0) {
+            log.info("Dunning cycle complete: {} attempts processed", processed);
+        }
+    }
+}

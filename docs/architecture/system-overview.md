@@ -52,6 +52,7 @@ NexusPay is an enterprise payment platform built **on top of** HyperSwitch (open
 | `observability` | `io.nexuspay.observability` | Metrics, alerting, dashboards (stub in Phase 1) | 2.7 |
 | `dispute` | `io.nexuspay.dispute` | Dispute lifecycle state machine, evidence collection, chargeback ledger, auto-representment | 2.4 |
 | `workflow` | `io.nexuspay.workflow` | Temporal-based durable workflow orchestration (PaymentWithRetryWorkflow) | 2.2 |
+| `billing` | `io.nexuspay.billing` | Subscription billing, product catalog, invoicing, dunning, proration | 2.5a |
 | `app` | `io.nexuspay.app` | Spring Boot main class, unified configuration, Modulith verification | 1.1 |
 
 ## 4. Hexagonal Package Convention
@@ -200,6 +201,23 @@ OPENED → EVIDENCE_NEEDED → EVIDENCE_SUBMITTED → WON (funds restored)
                          → EXPIRED (deadline missed — treated as LOST)
 ```
 
+### Subscription Billing Flow (Sprint 2.5a+)
+1. **Merchant** creates **Product** and **Price** (flat, per-unit, tiered, volume pricing)
+2. **Customer** subscribes → **SubscriptionLifecycleService** creates subscription (TRIALING or ACTIVE)
+3. Trial expires → **TrialExpirationScheduler** converts to ACTIVE, generates first invoice
+4. **RenewalScheduler** (daily 2AM) finds due subscriptions → **InvoiceGenerationService** creates invoice
+5. **PaymentPort** collects payment via payment-orchestration → invoice marked PAID
+6. On payment failure → **DunningService** initiates retry schedule (1, 3, 5, 7 days)
+7. Dunning success → subscription recovers to ACTIVE; exhausted → CANCELED
+8. Mid-cycle plan change → **ProrationService** calculates credit/charge adjustment
+
+### Subscription State Machine
+```
+TRIALING → ACTIVE → PAST_DUE → CANCELED (dunning exhausted)
+                   → PAUSED ↔ ACTIVE (admin action)
+                   → CANCELED (user/admin cancel)
+```
+
 ## 9. Module Dependency Rules (Enforced by Spring Modulith)
 
 ```
@@ -212,6 +230,7 @@ reconciliation  ← depends on: common, ledger
 observability   ← depends on: common
 dispute         ← depends on: common, ledger
 workflow        ← depends on: common, payment-orchestration
+billing         ← depends on: common, ledger
 ```
 
 Verified at build time via `ApplicationModules.of(NexusPayApplication.class).verify()`.

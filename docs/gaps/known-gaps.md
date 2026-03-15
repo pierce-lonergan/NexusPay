@@ -1,6 +1,6 @@
 # NexusPay Known Gaps Analysis
 
-Last updated: 2026-03-15 (Sprint 2.4 complete — dispute management)
+Last updated: 2026-03-15 (Sprint 2.5a complete — subscription billing core)
 
 This document tracks known gaps, technical debt, and deferred decisions in the NexusPay system. Each gap is categorized by severity, the sprint it was identified, and the planned resolution timeline.
 
@@ -169,6 +169,27 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Remaining**: Real Verifi/Ethoca API integration (Phase 3), S3 evidence storage, Temporal-based deadline tracking workflow, dispute dashboard UI.
 - **Resolution**: Phase 3 — network adapter implementations, S3 storage, Temporal deadline workflow.
 
+### GAP-034: Billing Payment Collection Uses Stub Adapter
+- **Identified**: Sprint 2.5a
+- **Status**: Open
+- **Description**: `PaymentOrchestrationAdapter` is a stub that always returns success. Real integration with `payment-orchestration` module's `PaymentGatewayPort` for actual payment collection is needed.
+- **Remaining**: Wire billing → payment-orchestration → HyperSwitch for real payment collection.
+- **Resolution**: Sprint 2.5b — connect billing dunning and renewal to real payment flow.
+
+### GAP-035: No Tax Calculation in Billing
+- **Identified**: Sprint 2.5a
+- **Status**: Open
+- **Description**: `Invoice.recalculate()` sets tax to 0. No tax engine integration (Avalara, TaxJar, etc.). Invoices only contain subtotal; tax line items deferred.
+- **Risk**: Invoices are not legally compliant for jurisdictions requiring tax collection.
+- **Resolution**: Phase 3 — integrate tax calculation service.
+
+### GAP-036: Billing Kafka Events Not Yet Published
+- **Identified**: Sprint 2.5a
+- **Status**: Open
+- **Description**: Subscription and invoice lifecycle events (SubscriptionCreated, InvoicePaid, DunningExhausted, etc.) are not yet published to the `nexuspay.billing` Kafka topic. The billing module operates synchronously only.
+- **Risk**: External systems cannot react to billing events asynchronously.
+- **Resolution**: Sprint 2.5b — add outbox events for billing lifecycle transitions.
+
 ### GAP-033: Dispute Deadline Tracking Not Automated
 - **Identified**: Sprint 2.4
 - **Status**: Open
@@ -231,13 +252,14 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 | Sprint 2.2 (complete) | GAP-011 (Debezium CDC), GAP-012 (partial — event upcaster chain) |
 | Sprint 2.3 (complete) | GAP-023 (partial — reconciliation engine) |
 | Sprint 2.4 (complete) | GAP-032 (dispute management — new) |
+| Sprint 2.5a (complete) | GAP-034, GAP-035, GAP-036 (billing module — new) |
 | Phase 2 (remaining) | GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-020, GAP-021, GAP-026, GAP-027 |
 | Phase 3 | GAP-012 (full Schema Registry) |
 
 ## Summary
 
-- **Total gaps tracked**: 33
+- **Total gaps tracked**: 36
 - **Resolved**: 19 (GAP-005, 006, 007, 009, 010, 013, 014, 016, 017, 019, 022, 025, 030, 031 + partial GAP-008)
 - **In Progress / Partially Addressed**: 6 (GAP-001, GAP-003, GAP-011, GAP-012, GAP-023, GAP-032)
-- **Open/Deferred**: 14 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-020, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033)
+- **Open/Deferred**: 17 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-020, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033, GAP-034, GAP-035, GAP-036)
 - **Accepted for Phase 1**: GAP-024, GAP-028, GAP-029
