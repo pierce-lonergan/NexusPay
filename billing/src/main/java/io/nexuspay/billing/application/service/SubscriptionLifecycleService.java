@@ -1,6 +1,6 @@
 package io.nexuspay.billing.application.service;
 
-import io.nexuspay.billing.application.port.out.PaymentPort;
+import io.nexuspay.billing.application.port.out.BillingOutboxPort;
 import io.nexuspay.billing.application.port.out.ProductRepository;
 import io.nexuspay.billing.application.port.out.SubscriptionRepository;
 import io.nexuspay.billing.domain.*;
@@ -16,7 +16,10 @@ import java.util.Optional;
 /**
  * Core service managing subscription lifecycle operations.
  *
- * @since 0.2.5 (Sprint 2.5a)
+ * <p>All state transitions publish outbox events for async downstream
+ * consumption via the {@code nexuspay.billing} Kafka topic.</p>
+ *
+ * @since 0.2.5 (Sprint 2.5a), enhanced 0.2.5b (Sprint 2.5b)
  */
 @Service
 public class SubscriptionLifecycleService {
@@ -26,13 +29,16 @@ public class SubscriptionLifecycleService {
     private final SubscriptionRepository subscriptionRepository;
     private final ProductRepository productRepository;
     private final InvoiceGenerationService invoiceService;
+    private final BillingOutboxPort outboxPort;
 
     public SubscriptionLifecycleService(SubscriptionRepository subscriptionRepository,
                                          ProductRepository productRepository,
-                                         InvoiceGenerationService invoiceService) {
+                                         InvoiceGenerationService invoiceService,
+                                         BillingOutboxPort outboxPort) {
         this.subscriptionRepository = subscriptionRepository;
         this.productRepository = productRepository;
         this.invoiceService = invoiceService;
+        this.outboxPort = outboxPort;
     }
 
     /**
@@ -57,6 +63,16 @@ public class SubscriptionLifecycleService {
             invoiceService.generateInvoice(sub, price);
         }
 
+        outboxPort.publishEvent("Subscription", sub.getId(),
+                "SubscriptionCreated", Map.of(
+                        "subscriptionId", sub.getId(),
+                        "customerId", customerId,
+                        "priceId", priceId,
+                        "quantity", quantity,
+                        "status", sub.getStatus().name(),
+                        "trialEnd", sub.getTrialEnd() != null ? sub.getTrialEnd().toString() : "none"
+                ), tenantId);
+
         log.info("Subscription created: id={}, customer={}, status={}, price={}",
                 sub.getId(), customerId, sub.getStatus(), priceId);
 
@@ -71,6 +87,14 @@ public class SubscriptionLifecycleService {
         Subscription sub = getOrThrow(subscriptionId);
         sub.cancel(atPeriodEnd);
         sub = subscriptionRepository.save(sub);
+
+        outboxPort.publishEvent("Subscription", sub.getId(),
+                "SubscriptionCanceled", Map.of(
+                        "subscriptionId", subscriptionId,
+                        "atPeriodEnd", atPeriodEnd,
+                        "reason", "user_requested"
+                ), sub.getTenantId());
+
         log.info("Subscription canceled: id={}, atPeriodEnd={}", subscriptionId, atPeriodEnd);
         return sub;
     }
@@ -83,6 +107,12 @@ public class SubscriptionLifecycleService {
         Subscription sub = getOrThrow(subscriptionId);
         sub.pause();
         sub = subscriptionRepository.save(sub);
+
+        outboxPort.publishEvent("Subscription", sub.getId(),
+                "SubscriptionPaused", Map.of(
+                        "subscriptionId", subscriptionId
+                ), sub.getTenantId());
+
         log.info("Subscription paused: id={}", subscriptionId);
         return sub;
     }
@@ -97,6 +127,13 @@ public class SubscriptionLifecycleService {
                 .orElseThrow(() -> new IllegalArgumentException("Price not found: " + sub.getPriceId()));
         sub.resume(price);
         sub = subscriptionRepository.save(sub);
+
+        outboxPort.publishEvent("Subscription", sub.getId(),
+                "SubscriptionResumed", Map.of(
+                        "subscriptionId", subscriptionId,
+                        "newPeriodEnd", sub.getCurrentPeriodEnd().toString()
+                ), sub.getTenantId());
+
         log.info("Subscription resumed: id={}", subscriptionId);
         return sub;
     }
@@ -107,11 +144,19 @@ public class SubscriptionLifecycleService {
     @Transactional
     public Subscription changePlan(String subscriptionId, String newPriceId) {
         Subscription sub = getOrThrow(subscriptionId);
+        String oldPriceId = sub.getPriceId();
         Price newPrice = productRepository.findPriceById(newPriceId)
                 .orElseThrow(() -> new IllegalArgumentException("Price not found: " + newPriceId));
 
         sub.setPriceId(newPriceId);
         sub = subscriptionRepository.save(sub);
+
+        outboxPort.publishEvent("Subscription", sub.getId(),
+                "SubscriptionPlanChanged", Map.of(
+                        "subscriptionId", subscriptionId,
+                        "oldPriceId", oldPriceId,
+                        "newPriceId", newPriceId
+                ), sub.getTenantId());
 
         log.info("Subscription plan changed: id={}, newPrice={}", subscriptionId, newPriceId);
         return sub;

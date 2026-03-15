@@ -20,7 +20,14 @@ public final class Topics {
     /** Dead letter topic for ledger events. */
     public static final String LEDGER_DLT = "nexuspay.ledger.DLT";
 
+    /** All billing lifecycle events (subscriptions, invoices, dunning). Partition key: subscription_id or invoice_id. */
+    public static final String BILLING = "nexuspay.billing";
+
+    /** Dead letter topic for billing events. */
+    public static final String BILLING_DLT = "nexuspay.billing.DLT";
+
     // Consumer group IDs
     public static final String LEDGER_CONSUMER_GROUP = "nexuspay-ledger-consumer";
     public static final String GATEWAY_CONSUMER_GROUP = "nexuspay-gateway-consumer";
+    public static final String BILLING_CONSUMER_GROUP = "nexuspay-billing-consumer";
 }

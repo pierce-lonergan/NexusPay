@@ -48,7 +48,9 @@ public class OutboxRelay {
     private static final Map<String, String> TOPIC_MAP = Map.of(
             EventTypes.AGGREGATE_PAYMENT, Topics.PAYMENTS,
             EventTypes.AGGREGATE_REFUND, Topics.PAYMENTS,
-            EventTypes.AGGREGATE_LEDGER, Topics.LEDGER
+            EventTypes.AGGREGATE_LEDGER, Topics.LEDGER,
+            EventTypes.AGGREGATE_SUBSCRIPTION, Topics.BILLING,
+            EventTypes.AGGREGATE_INVOICE, Topics.BILLING
     );
 
     private static final String DEFAULT_TOPIC = Topics.PAYMENTS;

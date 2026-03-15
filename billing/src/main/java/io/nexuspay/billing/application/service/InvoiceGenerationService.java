@@ -1,5 +1,6 @@
 package io.nexuspay.billing.application.service;
 
+import io.nexuspay.billing.application.port.out.BillingOutboxPort;
 import io.nexuspay.billing.application.port.out.InvoiceRepository;
 import io.nexuspay.billing.application.port.out.PaymentPort;
 import io.nexuspay.billing.domain.*;
@@ -10,12 +11,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
  * Generates invoices for subscriptions and handles payment collection.
  *
- * @since 0.2.5 (Sprint 2.5a)
+ * <p>All invoice lifecycle transitions publish outbox events for async
+ * downstream consumption via the {@code nexuspay.billing} Kafka topic.</p>
+ *
+ * @since 0.2.5 (Sprint 2.5a), enhanced 0.2.5b (Sprint 2.5b)
  */
 @Service
 public class InvoiceGenerationService {
@@ -24,11 +29,14 @@ public class InvoiceGenerationService {
 
     private final InvoiceRepository invoiceRepository;
     private final PaymentPort paymentPort;
+    private final BillingOutboxPort outboxPort;
 
     public InvoiceGenerationService(InvoiceRepository invoiceRepository,
-                                     PaymentPort paymentPort) {
+                                     PaymentPort paymentPort,
+                                     BillingOutboxPort outboxPort) {
         this.invoiceRepository = invoiceRepository;
         this.paymentPort = paymentPort;
+        this.outboxPort = outboxPort;
     }
 
     /**
@@ -57,6 +65,16 @@ public class InvoiceGenerationService {
         invoice = invoiceRepository.save(invoice);
         invoiceRepository.saveLineItem(lineItem);
 
+        outboxPort.publishEvent("Invoice", invoice.getId(),
+                "InvoiceCreated", Map.of(
+                        "invoiceId", invoice.getId(),
+                        "subscriptionId", subscription.getId(),
+                        "customerId", subscription.getCustomerId(),
+                        "total", invoice.getTotal(),
+                        "currency", invoice.getCurrency(),
+                        "status", invoice.getStatus().name()
+                ), subscription.getTenantId());
+
         log.info("Invoice generated: id={}, subscription={}, total={}",
                 invoice.getId(), subscription.getId(), invoice.getTotal());
 
@@ -84,6 +102,15 @@ public class InvoiceGenerationService {
         if (result.success()) {
             invoice.markPaid(result.paymentId());
             invoiceRepository.save(invoice);
+
+            outboxPort.publishEvent("Invoice", invoice.getId(),
+                    "InvoicePaid", Map.of(
+                            "invoiceId", invoice.getId(),
+                            "paymentId", result.paymentId(),
+                            "amount", invoice.getTotal(),
+                            "currency", invoice.getCurrency()
+                    ), invoice.getTenantId());
+
             log.info("Invoice paid: id={}, paymentId={}", invoice.getId(), result.paymentId());
             return true;
         } else {

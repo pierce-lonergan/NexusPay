@@ -52,7 +52,7 @@ NexusPay is an enterprise payment platform built **on top of** HyperSwitch (open
 | `observability` | `io.nexuspay.observability` | Metrics, alerting, dashboards (stub in Phase 1) | 2.7 |
 | `dispute` | `io.nexuspay.dispute` | Dispute lifecycle state machine, evidence collection, chargeback ledger, auto-representment | 2.4 |
 | `workflow` | `io.nexuspay.workflow` | Temporal-based durable workflow orchestration (PaymentWithRetryWorkflow) | 2.2 |
-| `billing` | `io.nexuspay.billing` | Subscription billing, product catalog, invoicing, dunning, proration | 2.5a |
+| `billing` | `io.nexuspay.billing` | Subscription billing, product catalog, invoicing, smart dunning, proration, Kafka events | 2.5a/b |
 | `app` | `io.nexuspay.app` | Spring Boot main class, unified configuration, Modulith verification | 1.1 |
 
 ## 4. Hexagonal Package Convention
@@ -201,15 +201,18 @@ OPENED → EVIDENCE_NEEDED → EVIDENCE_SUBMITTED → WON (funds restored)
                          → EXPIRED (deadline missed — treated as LOST)
 ```
 
-### Subscription Billing Flow (Sprint 2.5a+)
+### Subscription Billing Flow (Sprint 2.5a/b)
 1. **Merchant** creates **Product** and **Price** (flat, per-unit, tiered, volume pricing)
 2. **Customer** subscribes → **SubscriptionLifecycleService** creates subscription (TRIALING or ACTIVE)
 3. Trial expires → **TrialExpirationScheduler** converts to ACTIVE, generates first invoice
 4. **RenewalScheduler** (daily 2AM) finds due subscriptions → **InvoiceGenerationService** creates invoice
-5. **PaymentPort** collects payment via payment-orchestration → invoice marked PAID
-6. On payment failure → **DunningService** initiates retry schedule (1, 3, 5, 7 days)
-7. Dunning success → subscription recovers to ACTIVE; exhausted → CANCELED
-8. Mid-cycle plan change → **ProrationService** calculates credit/charge adjustment
+5. **PaymentOrchestrationAdapter** collects payment via **PaymentGatewayPort** → HyperSwitch → invoice marked PAID
+6. On payment failure → **DunningService** initiates smart retry schedule (configurable, card-type aware)
+7. **SmartRetryOptimizer** adjusts timing: customer timezone, card type (debit/credit), weekend avoidance
+8. Dunning success → subscription recovers to ACTIVE; exhausted → CANCELED
+9. Mid-cycle plan change → **ProrationService** calculates credit/charge adjustment
+10. All transitions publish events to **nexuspay.billing** Kafka topic via transactional outbox
+11. **BillingPaymentEventListener** consumes async payment results from `nexuspay.payments` topic
 
 ### Subscription State Machine
 ```
@@ -230,7 +233,7 @@ reconciliation  ← depends on: common, ledger
 observability   ← depends on: common
 dispute         ← depends on: common, ledger
 workflow        ← depends on: common, payment-orchestration
-billing         ← depends on: common, ledger
+billing         ← depends on: common, ledger, payment-orchestration
 ```
 
 Verified at build time via `ApplicationModules.of(NexusPayApplication.class).verify()`.

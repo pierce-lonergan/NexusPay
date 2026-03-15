@@ -1,5 +1,6 @@
 package io.nexuspay.billing.application.service;
 
+import io.nexuspay.billing.application.port.out.BillingOutboxPort;
 import io.nexuspay.billing.application.port.out.ProductRepository;
 import io.nexuspay.billing.application.port.out.SubscriptionRepository;
 import io.nexuspay.billing.domain.Price;
@@ -11,11 +12,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Manages trial periods and automatic conversion to paid subscriptions.
  *
- * @since 0.2.5 (Sprint 2.5a)
+ * @since 0.2.5 (Sprint 2.5a), enhanced 0.2.5b (Sprint 2.5b)
  */
 @Service
 public class TrialManagementService {
@@ -25,13 +27,16 @@ public class TrialManagementService {
     private final SubscriptionRepository subscriptionRepository;
     private final ProductRepository productRepository;
     private final InvoiceGenerationService invoiceService;
+    private final BillingOutboxPort outboxPort;
 
     public TrialManagementService(SubscriptionRepository subscriptionRepository,
                                    ProductRepository productRepository,
-                                   InvoiceGenerationService invoiceService) {
+                                   InvoiceGenerationService invoiceService,
+                                   BillingOutboxPort outboxPort) {
         this.subscriptionRepository = subscriptionRepository;
         this.productRepository = productRepository;
         this.invoiceService = invoiceService;
+        this.outboxPort = outboxPort;
     }
 
     /**
@@ -57,6 +62,14 @@ public class TrialManagementService {
 
                 // Generate first invoice
                 invoiceService.generateInvoice(sub, price);
+
+                outboxPort.publishEvent("Subscription", sub.getId(),
+                        "SubscriptionTrialConverted", Map.of(
+                                "subscriptionId", sub.getId(),
+                                "customerId", sub.getCustomerId(),
+                                "priceId", sub.getPriceId(),
+                                "newPeriodEnd", sub.getCurrentPeriodEnd().toString()
+                        ), sub.getTenantId());
 
                 converted++;
                 log.info("Trial converted to active: subscription={}", sub.getId());

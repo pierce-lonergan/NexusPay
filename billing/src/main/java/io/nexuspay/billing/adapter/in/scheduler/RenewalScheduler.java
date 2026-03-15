@@ -1,5 +1,6 @@
 package io.nexuspay.billing.adapter.in.scheduler;
 
+import io.nexuspay.billing.application.port.out.BillingOutboxPort;
 import io.nexuspay.billing.application.port.out.ProductRepository;
 import io.nexuspay.billing.application.port.out.SubscriptionRepository;
 import io.nexuspay.billing.application.service.DunningService;
@@ -14,12 +15,13 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Daily scheduler that finds subscriptions due for renewal,
  * generates invoices, and collects payment.
  *
- * @since 0.2.5 (Sprint 2.5a)
+ * @since 0.2.5 (Sprint 2.5a), enhanced 0.2.5b (Sprint 2.5b)
  */
 @Component
 public class RenewalScheduler {
@@ -30,15 +32,18 @@ public class RenewalScheduler {
     private final ProductRepository productRepository;
     private final InvoiceGenerationService invoiceService;
     private final DunningService dunningService;
+    private final BillingOutboxPort outboxPort;
 
     public RenewalScheduler(SubscriptionRepository subscriptionRepository,
                              ProductRepository productRepository,
                              InvoiceGenerationService invoiceService,
-                             DunningService dunningService) {
+                             DunningService dunningService,
+                             BillingOutboxPort outboxPort) {
         this.subscriptionRepository = subscriptionRepository;
         this.productRepository = productRepository;
         this.invoiceService = invoiceService;
         this.dunningService = dunningService;
+        this.outboxPort = outboxPort;
     }
 
     /**
@@ -69,6 +74,15 @@ public class RenewalScheduler {
                 if (paid) {
                     sub.renew(price);
                     subscriptionRepository.save(sub);
+
+                    outboxPort.publishEvent("Subscription", sub.getId(),
+                            "SubscriptionRenewed", Map.of(
+                                    "subscriptionId", sub.getId(),
+                                    "invoiceId", invoice.getId(),
+                                    "newPeriodStart", sub.getCurrentPeriodStart().toString(),
+                                    "newPeriodEnd", sub.getCurrentPeriodEnd().toString()
+                            ), sub.getTenantId());
+
                     renewed++;
                 } else {
                     // Payment failed — initiate dunning

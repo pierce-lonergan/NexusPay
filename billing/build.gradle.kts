@@ -5,9 +5,11 @@ plugins {
 dependencies {
     implementation(project(":common"))
     implementation(project(":ledger"))
+    implementation(project(":payment-orchestration"))
 
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+    implementation("org.springframework.kafka:spring-kafka")
     implementation("org.flywaydb:flyway-core")
     implementation("com.fasterxml.jackson.core:jackson-databind")
 }
