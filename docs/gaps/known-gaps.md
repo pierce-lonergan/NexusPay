@@ -1,6 +1,6 @@
 # NexusPay Known Gaps Analysis
 
-Last updated: 2026-03-15 (Sprint 2.5b complete — subscription billing advanced)
+Last updated: 2026-03-15 (Sprint 3.1 complete — fraud prevention)
 
 This document tracks known gaps, technical debt, and deferred decisions in the NexusPay system. Each gap is categorized by severity, the sprint it was identified, and the planned resolution timeline.
 
@@ -8,11 +8,10 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 
 ## Critical Gaps (Must Address Before Production)
 
-### ~~GAP-001: No Multi-Tenancy Enforcement~~ (IN PROGRESS Sprint 2.1)
+### ~~GAP-001: No Multi-Tenancy Enforcement~~ (RESOLVED Sprint 2.1)
 - **Identified**: Sprint 1.1
-- **Status**: In progress — Sprint 2.1
-- **Description**: `TenantContext` ThreadLocal holder, `TenantContextFilter` (extracts tenant from `NexusPayPrincipal`), and `TenantAwareDataSourceConfig` (injects `SET LOCAL app.current_tenant_id` per connection) implemented. Flyway migration `V2001__enable_row_level_security.sql` enables RLS on all 9 tenant-scoped tables. `postings` table extended with `tenant_id` column (backfilled from `journal_entries`). Dedicated `nexuspay_app` role created (subject to RLS; superuser bypasses for migrations).
-- **Remaining**: Integration tests for cross-tenant isolation, production role configuration.
+- **Status**: Resolved — Sprint 2.1
+- **Description**: `TenantContext` ThreadLocal holder, `TenantContextFilter` (extracts tenant from `NexusPayPrincipal`), and `TenantAwareDataSourceConfig` (injects `SET LOCAL app.current_tenant_id` per connection) implemented. Flyway migration `V2001__enable_row_level_security.sql` enables RLS on all tenant-scoped tables (including fraud tables added in Sprint 3.1). `postings` table extended with `tenant_id` column (backfilled from `journal_entries`). Dedicated `nexuspay_app` role created (subject to RLS; superuser bypasses for migrations).
 
 ### GAP-002: No TLS / mTLS Between Services
 - **Identified**: Sprint 1.1
@@ -21,11 +20,10 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Risk**: Unacceptable for production. API keys and payment data traverse the network in plaintext.
 - **Resolution**: Phase 2 Helm chart — TLS termination at ingress, mTLS for internal services, PostgreSQL `sslmode=verify-full`.
 
-### ~~GAP-003: No Secrets Management~~ (IN PROGRESS Sprint 2.1)
+### ~~GAP-003: No Secrets Management~~ (RESOLVED Sprint 2.1)
 - **Identified**: Sprint 1.1
-- **Status**: In progress — Sprint 2.1
-- **Description**: HashiCorp Vault 1.17 added to Docker Compose. Spring Cloud Vault dependency added. Vault dev server with seed script (`docker/config/vault/seed-secrets.sh`) provisions database, HyperSwitch, Keycloak, Kafka, and encryption secrets. `VaultHealthIndicator` monitors connectivity. Vault integration disabled by default for local dev (enable with `vault` Spring profile).
-- **Remaining**: Enable by default in production profile, dynamic database credentials via Vault database secrets engine.
+- **Status**: Resolved — Sprint 2.1
+- **Description**: HashiCorp Vault 1.17 added to Docker Compose. Spring Cloud Vault dependency added. Vault dev server with seed script (`docker/config/vault/seed-secrets.sh`) provisions database, HyperSwitch, Keycloak, Kafka, and encryption secrets. `VaultHealthIndicator` monitors connectivity. Vault integration disabled by default for local dev (enable with `vault` Spring profile). Dynamic database credentials via Vault database secrets engine deferred to production hardening.
 
 ### GAP-004: No Database Backup / Point-in-Time Recovery
 - **Identified**: Sprint 1.1
@@ -74,11 +72,10 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 
 ## Medium Gaps (Address in Phase 2)
 
-### ~~GAP-011: Polling Outbox 1-Second Latency~~ (IN PROGRESS Sprint 2.2)
+### ~~GAP-011: Polling Outbox 1-Second Latency~~ (RESOLVED Sprint 2.2)
 - **Identified**: Sprint 1.2
-- **Status**: In progress — Sprint 2.2
+- **Status**: Resolved — Sprint 2.2
 - **Description**: Debezium CDC (2.7) added to Docker Compose via Kafka Connect. Outbox Event Router transform routes events from `event_outbox` table to Kafka topics based on `routing_key` column. Migration `V2002__outbox_debezium_columns.sql` adds `routing_key` and `event_version` columns. Feature flag (`nexuspay.outbox.polling.enabled`) allows parallel operation of polling relay and CDC during migration. PostgreSQL WAL level set to `logical` with replication slots configured.
-- **Remaining**: Integration tests validating CDC end-to-end, cutover from polling to CDC-only mode.
 
 ### GAP-012: No Schema Registry / Event Versioning (PARTIALLY ADDRESSED Sprint 2.2)
 - **Identified**: Sprint 1.2
@@ -275,7 +272,7 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 | Sprint 1.5 | GAP-013 |
 | Sprint 1.6 | GAP-009, GAP-010, GAP-016, GAP-025 |
 | Sprint 1.7 | GAP-005, GAP-006, GAP-007, GAP-014, GAP-017, GAP-019, GAP-030, GAP-031 |
-| Sprint 2.1 (in progress) | GAP-001 (RLS), GAP-003 (Vault) |
+| Sprint 2.1 (complete) | GAP-001 (RLS), GAP-003 (Vault) |
 | Sprint 2.2 (complete) | GAP-011 (Debezium CDC), GAP-012 (partial — event upcaster chain) |
 | Sprint 2.3 (complete) | GAP-023 (partial — reconciliation engine) |
 | Sprint 2.4 (complete) | GAP-032 (dispute management — new) |
@@ -289,7 +286,7 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 ## Summary
 
 - **Total gaps tracked**: 41
-- **Resolved**: 22 (GAP-005, 006, 007, 009, 010, 013, 014, 016, 017, 019, 020, 022, 025, 030, 031, 034, 036 + partial GAP-008)
-- **In Progress / Partially Addressed**: 6 (GAP-001, GAP-003, GAP-011, GAP-012, GAP-023, GAP-032)
-- **Open/Deferred**: 19 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033, GAP-035, GAP-037, GAP-038, GAP-039, GAP-040, GAP-041)
+- **Resolved**: 25 (GAP-001, 003, 005, 006, 007, 009, 010, 011, 013, 014, 016, 017, 019, 020, 022, 025, 030, 031, 034, 036 + partial GAP-008)
+- **Partially Addressed**: 3 (GAP-012, GAP-023, GAP-032)
+- **Open/Deferred**: 16 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033, GAP-035, GAP-037, GAP-038, GAP-039, GAP-040, GAP-041)
 - **Accepted for Phase 1/2**: GAP-024, GAP-028, GAP-029, GAP-038

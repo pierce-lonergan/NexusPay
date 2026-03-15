@@ -2,6 +2,80 @@
 
 All notable changes to NexusPay are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased] — Phase 3 (v0.3.0)
+
+### Added
+
+**Sprint 3.1 — Fraud Prevention**
+- New `fraud` Gradle module with hexagonal architecture (12th module)
+- Rules engine with 5 rule types: VELOCITY, AMOUNT_THRESHOLD, GEO_RESTRICTION, BIN_CHECK, DEVICE_FINGERPRINT
+- Three-phase evaluation pipeline: pre-auth rules → scoring → decision (ALLOW/REVIEW/BLOCK)
+- External FRM provider integration: Sift (primary) + Signifyd (fallback) with fallback chain
+- Weighted risk scoring aggregator (configurable native vs FRM weights, default 60/40)
+- Device fingerprint matching with reputation scoring (0-100), flagging, and sighting tracking
+- A/B testing support for rules with configurable traffic splitting
+- Valkey-cached rule sets per tenant with TTL-based invalidation
+- Transactional outbox events: FraudCheckPassed/Failed/Review, RuleTriggered, FraudRule CRUD, FraudReview Approved/Rejected
+- 4 Flyway migrations with RLS policies on all fraud tables
+- 3 Kafka topics (assessments, events, rules changelog) + DLT
+- REST API: rule CRUD (`/v1/fraud/rules`), assessment review queue, approve/reject
+- Resilience4j circuit breakers for Sift and Signifyd FRM providers
+- Full persistence layer with JPA entities and domain model mapping
+
+## [0.2.0] — 2026-03-15 (Phase 2)
+
+### Added
+
+**Sprint 2.1 — Multi-Tenancy & Security**
+- PostgreSQL Row-Level Security (RLS) policies on all tables
+- HashiCorp Vault integration for secrets management (Spring Cloud Vault)
+- Tenant-aware security context and RLS filter
+- Vault health indicator
+
+**Sprint 2.2 — Event Infrastructure Upgrade**
+- Debezium CDC via Kafka Connect for outbox relay (replaces polling)
+- Temporal workflow engine integration (PaymentWithRetryWorkflow)
+- Temporal durable orchestration with retry, signal, and timeout
+- Temporal UI and PostgreSQL containers in Docker Compose
+- Kafka Connect container with Debezium outbox event router
+
+**Sprint 2.3 — Reconciliation Engine**
+- Automated 3-way reconciliation matching (PSP, ledger, bank)
+- Settlement file ingestion framework
+- Exception management for reconciliation mismatches
+- Daily reconciliation job with configurable tolerance
+
+**Sprint 2.4 — Dispute Management**
+- Dispute lifecycle state machine (OPENED → EVIDENCE_NEEDED → EVIDENCE_SUBMITTED → WON/LOST/EXPIRED)
+- Chargeback reserve ledger entries (DR reserve, CR merchant receivables)
+- Evidence collection and storage (local/S3)
+- Auto-representment service with eligibility evaluation
+- Dispute network port stubs (Verifi/Ethoca)
+- Configurable auto-submit threshold and evidence deadline
+
+**Sprint 2.5a — Subscription Billing Core**
+- Product catalog with multi-pricing models (flat, per-unit, tiered, volume)
+- Subscription lifecycle management (create, cancel, pause, resume, plan change)
+- Trial period support with automatic conversion
+- Invoice generation and proration service
+- Daily renewal scheduler and trial expiration scheduler
+
+**Sprint 2.5b — Subscription Billing Advanced**
+- Smart retry dunning with card-type aware timing (debit/credit/prepaid)
+- Customer timezone scheduling and weekend avoidance
+- Real payment integration (PaymentOrchestrationAdapter → HyperSwitch)
+- Kafka event publishing for all billing lifecycle transitions (17 event types)
+- BillingPaymentEventListener for async payment result handling
+- Configurable dunning properties (retry schedule, grace period, optimal hour)
+
+**Sprint 2.7 — Production Observability**
+- 10+ custom Micrometer metrics (PaymentMetrics, LedgerMetrics, BillingMetrics, InfrastructureMetrics)
+- Prometheus scraping with 6 alert rules (HighPaymentFailureRate, CircuitBreakerOpen, OutboxLagHigh, DatabaseConnectionPoolSaturation, KafkaConsumerLagHigh, HighP99Latency)
+- 4 Grafana dashboards (Payment Operations, Ledger Health, Infrastructure, Subscriptions & Billing)
+- AlertManager with severity-based routing
+- SLO/SLI recording rules (availability 99.9%, latency p99 <2s, error rate <0.1%, payment success >95%)
+- OutboxLagMonitor and KafkaConsumerHealthIndicator
+
 ## [0.1.0] - 2026-03-15
 
 ### Added

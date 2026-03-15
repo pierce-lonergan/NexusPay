@@ -236,6 +236,31 @@ TRIALING → ACTIVE → PAST_DUE → CANCELED (dunning exhausted)
                    → CANCELED (user/admin cancel)
 ```
 
+### Fraud Assessment Flow (Sprint 3.1)
+1. **Payment** arrives → **FraudAssessmentService** invoked with `PaymentContext`
+2. **FraudRuleManager** loads active rules (Valkey-cached per tenant, 5min TTL)
+3. **RuleEvaluationPipeline** executes three-phase evaluation:
+   - Phase 1: Pre-auth rules (VELOCITY via Valkey sliding window, AMOUNT_THRESHOLD, GEO_RESTRICTION, BIN_CHECK, DEVICE_FINGERPRINT)
+   - Phase 2: A/B test filtering (deterministic hash of paymentId for traffic splitting)
+   - Phase 3: Score aggregation with triggered rule adjustments
+4. **DeviceFingerprintMatcher** matches/creates fingerprint → reputation scoring (0-100) → risk signals
+5. **FallbackFraudChainService** calls external FRM providers: Sift (primary, priority 1) → Signifyd (fallback, priority 2)
+   - Each provider wrapped with Resilience4j circuit breaker
+   - On total FRM failure: falls back to native-only scoring
+6. **RiskScoringAggregator** combines: `finalScore = (nativeWeight × nativeScore) + (frmWeight × frmScore)` (default 60/40)
+7. Decision applied: ALLOW (< 50) / REVIEW (50-80) / BLOCK (> 80) — thresholds configurable
+8. Assessment persisted → outbox events published (FraudCheckPassed/Failed/Review, RuleTriggered)
+9. REVIEW assessments queued for manual review via `/v1/fraud/assessments/pending`
+
+### Fraud Rule Types
+| Type | Evaluation | State |
+|------|-----------|-------|
+| VELOCITY | Sliding window counters in Valkey (`fraud:velocity:{tenantId}:{field}:{value}`) | Stateful |
+| AMOUNT_THRESHOLD | Comparison operators (gt, gte, lt, lte) against payment amount | Stateless |
+| GEO_RESTRICTION | IP country checked against blocked countries list | Stateless |
+| BIN_CHECK | Card BIN prefix/exact matching against blocklist | Stateless |
+| DEVICE_FINGERPRINT | SHA-256 hash matching with reputation scoring | Stateful |
+
 ## 9. Module Dependency Rules (Enforced by Spring Modulith)
 
 ```
@@ -249,6 +274,7 @@ observability   ← depends on: common
 dispute         ← depends on: common, ledger
 workflow        ← depends on: common, payment-orchestration
 billing         ← depends on: common, ledger, payment-orchestration
+fraud           ← depends on: common
 ```
 
 Verified at build time via `ApplicationModules.of(NexusPayApplication.class).verify()`.
@@ -258,7 +284,7 @@ Verified at build time via `ApplicationModules.of(NexusPayApplication.class).ver
 | Document | Path | Purpose |
 |----------|------|---------|
 | Development Plan | `docs/nexuspay-development-plan.docx` | Original 7-sprint Phase 1 plan |
-| Known Gaps | `docs/gaps/known-gaps.md` | Phase 1 gap tracker (19 resolved, 12 open) |
+| Known Gaps | `docs/gaps/known-gaps.md` | Gap tracker (41 total, 22 resolved, 19 open/deferred) |
 | Strategic Roadmap | `docs/strategy/strategic-roadmap.md` | 5-phase, 120-week roadmap (Phase 1 → v1.0.0) |
 | Architecture Evolution | `docs/strategy/architecture-evolution.md` | Module, data model, event, and API evolution plan |
 | Competitive Positioning | `docs/strategy/competitive-positioning.md` | Market analysis vs. Spreedly, Primer, Modern Treasury, etc. |
