@@ -52,7 +52,10 @@ public class OutboxRelay {
             EventTypes.AGGREGATE_SUBSCRIPTION, Topics.BILLING,
             EventTypes.AGGREGATE_INVOICE, Topics.BILLING,
             EventTypes.AGGREGATE_FRAUD_ASSESSMENT, Topics.FRAUD_ASSESSMENTS,
-            EventTypes.AGGREGATE_FRAUD_RULE, Topics.FRAUD_RULES_CHANGELOG
+            EventTypes.AGGREGATE_FRAUD_RULE, Topics.FRAUD_RULES_CHANGELOG,
+            EventTypes.AGGREGATE_FX_RATE, Topics.FX_RATES,
+            EventTypes.AGGREGATE_FX_LOCK, Topics.FX_LOCKS,
+            EventTypes.AGGREGATE_FX_CONVERSION, Topics.FX_CONVERSIONS
     );
 
     private static final String DEFAULT_TOPIC = Topics.PAYMENTS;

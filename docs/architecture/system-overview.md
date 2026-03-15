@@ -261,6 +261,26 @@ TRIALING → ACTIVE → PAST_DUE → CANCELED (dunning exhausted)
 | BIN_CHECK | Card BIN prefix/exact matching against blocklist | Stateless |
 | DEVICE_FINGERPRINT | SHA-256 hash matching with reputation scoring | Stateful |
 
+### Cross-Border & FX Flow (Sprint 3.2)
+1. **Payment intent** created with presentment currency (e.g., EUR)
+2. **FxRateService** checks if conversion needed (merchant settlement currency ≠ presentment currency)
+3. **CrossBorderComplianceService** validates source/destination countries against sanctions list
+   - Sanctioned countries (KP, IR, SY, CU) → payment BLOCKED
+   - High-risk countries → flagged, enhanced due diligence required
+   - Cross-border above threshold → regulatory reporting metadata attached
+4. **FxRateLockService** locks the current rate from ECB/OER provider (Valkey-cached)
+   - Rate guaranteed for configurable duration (default 15min, max 1h)
+   - Lock assigned to payment, consumed at settlement
+5. **CurrencyRoutingService** selects PSP based on currency capabilities (presentment + settlement support)
+6. Payment processed through HyperSwitch → webhook → capture
+7. **PayoutCurrencyService** applies locked rate with merchant markup (basis points)
+8. **CreateFxConversionEntryUseCase** creates 3-leg journal entry:
+   - Leg 1: DR merchant_recv_{presentment} / CR customer_liab_{presentment}
+   - Leg 2: DR merchant_recv_{settlement} / CR merchant_recv_{presentment}
+   - Leg 3: DR/CR fx_gain_loss_{pair} (balancing entry)
+9. **FxGainLossAccount** tracks realized gains/losses per currency pair per tenant
+10. Events published: FxRateLocked, FxRateLockConsumed, CurrencyConversionCompleted
+
 ## 9. Module Dependency Rules (Enforced by Spring Modulith)
 
 ```
@@ -284,7 +304,7 @@ Verified at build time via `ApplicationModules.of(NexusPayApplication.class).ver
 | Document | Path | Purpose |
 |----------|------|---------|
 | Development Plan | `docs/nexuspay-development-plan.docx` | Original 7-sprint Phase 1 plan |
-| Known Gaps | `docs/gaps/known-gaps.md` | Gap tracker (41 total, 22 resolved, 19 open/deferred) |
+| Known Gaps | `docs/gaps/known-gaps.md` | Gap tracker (45 total, 25 resolved, 20 open/deferred) |
 | Strategic Roadmap | `docs/strategy/strategic-roadmap.md` | 5-phase, 120-week roadmap (Phase 1 → v1.0.0) |
 | Architecture Evolution | `docs/strategy/architecture-evolution.md` | Module, data model, event, and API evolution plan |
 | Competitive Positioning | `docs/strategy/competitive-positioning.md` | Market analysis vs. Spreedly, Primer, Modern Treasury, etc. |

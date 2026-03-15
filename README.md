@@ -105,6 +105,19 @@ Or use the quickstart script: `bash scripts/quickstart.sh`
 | POST | `/v1/fraud/assessments/{id}/approve` | Approve assessment | admin |
 | POST | `/v1/fraud/assessments/{id}/reject` | Reject assessment | admin |
 
+### FX & Cross-Border
+
+| Method | Path | Description | Auth |
+|--------|------|-------------|------|
+| GET | `/v1/fx/rates/{from}/{to}` | Get FX rate for currency pair | all |
+| GET | `/v1/fx/rates/{base}` | Get all rates for base currency | all |
+| POST | `/v1/fx/locks` | Lock FX rate for payment | admin, operator |
+| GET | `/v1/fx/locks/{id}` | Get rate lock details | all |
+| GET | `/v1/fx/routing/presentment/{ccy}` | Find PSPs supporting currency | admin, operator |
+| POST | `/v1/fx/compliance/validate` | Validate cross-border compliance | admin, operator |
+| GET | `/v1/merchant/currency-preferences` | Get merchant FX preferences | all |
+| PUT | `/v1/merchant/currency-preferences` | Update merchant FX preferences | admin |
+
 ### Webhooks & API Keys
 
 | Method | Path | Description | Auth |
@@ -159,6 +172,9 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8090/v1/payments
 | `nexuspay.fraud.assessments` | Fraud assessment results | 12 |
 | `nexuspay.fraud.events` | Fraud rule trigger events | 12 |
 | `nexuspay.fraud.rules.changelog` | Fraud rule CRUD changes | 6 |
+| `nexuspay.fx.rates` | FX rate update events | 3 |
+| `nexuspay.fx.conversions` | Currency conversion events | 12 |
+| `nexuspay.fx.locks` | FX rate lock events | 6 |
 
 ## Testing
 
@@ -188,7 +204,7 @@ helm install nexuspay ./nexuspay-helm -f nexuspay-helm/environments/dev/values.y
 - [IAM & Auth Flow](docs/diagrams/iam-auth-flow.md)
 - [Kafka Event Streaming](docs/diagrams/kafka-event-streaming.md)
 - [Gateway API Flow](docs/diagrams/gateway-api-flow.md)
-- [Known Gaps](docs/gaps/known-gaps.md) — 41 gaps tracked, 22 resolved
+- [Known Gaps](docs/gaps/known-gaps.md) — 45 gaps tracked, 25 resolved
 - [Architecture Decision Records](docs/decisions/)
 - [Strategic Roadmap](docs/strategy/strategic-roadmap.md)
 - [Phase 2 Plan](docs/roadmap/phase-2-production-hardening.md)

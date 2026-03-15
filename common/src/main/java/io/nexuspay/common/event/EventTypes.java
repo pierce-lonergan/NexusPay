@@ -56,6 +56,15 @@ public final class EventTypes {
     public static final String FRAUD_REVIEW_APPROVED = "FraudReviewApproved";
     public static final String FRAUD_REVIEW_REJECTED = "FraudReviewRejected";
 
+    // FX lifecycle (Sprint 3.2)
+    public static final String FX_RATE_UPDATED = "FxRateUpdated";
+    public static final String FX_RATE_LOCKED = "FxRateLocked";
+    public static final String FX_RATE_LOCK_EXPIRED = "FxRateLockExpired";
+    public static final String FX_RATE_LOCK_CONSUMED = "FxRateLockConsumed";
+    public static final String CURRENCY_CONVERSION_COMPLETED = "CurrencyConversionCompleted";
+    public static final String CROSS_BORDER_COMPLIANCE_BLOCKED = "CrossBorderComplianceBlocked";
+    public static final String CROSS_BORDER_REPORTING_REQUIRED = "CrossBorderReportingRequired";
+
     // Aggregate types
     public static final String AGGREGATE_PAYMENT = "Payment";
     public static final String AGGREGATE_REFUND = "Refund";
@@ -64,4 +73,7 @@ public final class EventTypes {
     public static final String AGGREGATE_INVOICE = "Invoice";
     public static final String AGGREGATE_FRAUD_ASSESSMENT = "FraudAssessment";
     public static final String AGGREGATE_FRAUD_RULE = "FraudRule";
+    public static final String AGGREGATE_FX_RATE = "FxRate";
+    public static final String AGGREGATE_FX_LOCK = "FxLock";
+    public static final String AGGREGATE_FX_CONVERSION = "FxConversion";
 }

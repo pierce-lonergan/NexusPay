@@ -160,6 +160,25 @@ nexuspay:
     device-fingerprint:
       enabled: true
       reputation-decay-days: 90
+  fx:
+    enabled: ${NEXUSPAY_FX_ENABLED:true}
+    default-provider: ecb
+    cache:
+      ttl: PT1H                                          # Fresh rate cache TTL
+      stale-ttl: PT24H                                   # Serve stale if provider unavailable
+      refresh-interval: PT30M                            # Background refresh interval
+    rate-lock:
+      default-duration: PT15M                            # Default rate lock duration
+      max-duration: PT1H                                 # Maximum allowed lock duration
+    ecb:
+      api-url: ${ECB_API_URL:https://data.ecb.europa.eu/service/data/EXR}
+      update-schedule: "0 16 * * 1-5"                    # ECB publishes daily 16:00 CET weekdays
+    open-exchange-rates:
+      api-url: ${OER_API_URL:https://openexchangerates.org/api}
+      app-id: ${OER_APP_ID:}                             # Set to enable OpenExchangeRates provider
+    compliance:
+      sanctioned-countries: KP,IR,SY,CU                  # OFAC-aligned sanctions list
+      cross-border-amount-reporting-threshold: 10000     # USD equivalent, triggers reporting
 
 # Resilience4j
 resilience4j:

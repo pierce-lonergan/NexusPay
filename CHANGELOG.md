@@ -22,6 +22,22 @@ All notable changes to NexusPay are documented here. Format follows [Keep a Chan
 - Resilience4j circuit breakers for Sift and Signifyd FRM providers
 - Full persistence layer with JPA entities and domain model mapping
 
+**Sprint 3.2 — Cross-Border & FX**
+- FX rate management with ECB (free, primary) and Open Exchange Rates (configurable) providers
+- Valkey-backed FX rate cache with stale-serving on provider outage (cache-aside pattern, 1h fresh / 24h stale TTL)
+- FX rate locking for payment lifecycle (lock at intent, consume at settlement, auto-refresh on expiry)
+- Currency conversion service with merchant-configurable markup (basis points) and settlement currency
+- Multi-leg journal entries for cross-currency settlements: presentment DR/CR, FX conversion, gain/loss balancing
+- FX gain/loss tracking per currency pair per tenant (realized + unrealized positions)
+- Currency-aware PSP routing: presentment, settlement, and DCC capability queries
+- Cross-border compliance: configurable sanctions list (KP, IR, SY, CU), high-risk country flagging, regulatory reporting threshold
+- Merchant currency preferences API: settlement currency, auto-convert, FX markup, rate provider, lock duration
+- REST API: `/v1/fx/rates/{from}/{to}`, `/v1/fx/locks`, `/v1/fx/routing`, `/v1/fx/compliance/validate`, `/v1/merchant/currency-preferences`
+- 4 Flyway migrations with RLS policies: fx_rate_locks, currency_capabilities, merchant_currency_prefs, fx_gain_loss_accounts
+- 3 Kafka topics: nexuspay.fx.rates, nexuspay.fx.conversions, nexuspay.fx.locks + DLT
+- Outbox relay extended with FX aggregate type → topic mappings
+- PSP currency capabilities seeded for Stripe, Adyen, and dummy_connector
+
 ## [0.2.0] — 2026-03-15 (Phase 2)
 
 ### Added
