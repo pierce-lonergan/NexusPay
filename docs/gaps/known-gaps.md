@@ -247,6 +247,24 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Risk**: If the drainer goes down, HyperSwitch webhooks stop firing and Redis→PostgreSQL persistence breaks. NexusPay wouldn't detect this.
 - **Resolution**: Research if HyperSwitch drainer exposes a health endpoint. If not, monitor indirectly via webhook arrival rate.
 
+### GAP-039: Fraud Module — No ML-Based Scoring
+- **Identified**: Sprint 3.1
+- **Status**: Deferred to Phase 4
+- **Description**: The fraud rules engine uses deterministic rule-based scoring. No ML model for anomaly detection, behavioral analysis, or adaptive risk scoring.
+- **Resolution**: Phase 4 — integrate ML model serving (e.g., TensorFlow Serving or SageMaker) for real-time fraud scoring alongside native rules.
+
+### GAP-040: Fraud Module — FRM Providers Not Fully Tested End-to-End
+- **Identified**: Sprint 3.1
+- **Status**: Open
+- **Description**: Sift and Signifyd adapters are implemented with correct API structures but require real API keys and sandbox testing to validate request/response mapping. Currently tested with WireMock stubs only.
+- **Resolution**: Obtain sandbox API keys from Sift and Signifyd for integration testing.
+
+### GAP-041: Fraud Module — No IP Geolocation Service
+- **Identified**: Sprint 3.1
+- **Status**: Open
+- **Description**: GEO_RESTRICTION rules rely on `ip_country` being provided in the PaymentContext. No automatic IP-to-country lookup service (e.g., MaxMind GeoIP) is integrated.
+- **Resolution**: Integrate MaxMind GeoLite2 or similar IP geolocation database for automatic country resolution.
+
 ---
 
 ## Gap Resolution Timeline
@@ -264,13 +282,14 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 | Sprint 2.5a (complete) | GAP-034, GAP-035, GAP-036 (billing module — new) |
 | Sprint 2.5b (complete) | GAP-034 (real payment), GAP-036 (Kafka events), GAP-037, GAP-038 (new) |
 | Sprint 2.7 (complete) | GAP-020 (metrics export — full observability stack) |
+| Sprint 3.1 (complete) | GAP-039, GAP-040, GAP-041 (fraud module — new gaps identified) |
 | Phase 2 (remaining) | GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-026, GAP-027 |
 | Phase 3 | GAP-012 (full Schema Registry) |
 
 ## Summary
 
-- **Total gaps tracked**: 38
+- **Total gaps tracked**: 41
 - **Resolved**: 22 (GAP-005, 006, 007, 009, 010, 013, 014, 016, 017, 019, 020, 022, 025, 030, 031, 034, 036 + partial GAP-008)
 - **In Progress / Partially Addressed**: 6 (GAP-001, GAP-003, GAP-011, GAP-012, GAP-023, GAP-032)
-- **Open/Deferred**: 16 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033, GAP-035, GAP-037, GAP-038)
+- **Open/Deferred**: 19 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033, GAP-035, GAP-037, GAP-038, GAP-039, GAP-040, GAP-041)
 - **Accepted for Phase 1/2**: GAP-024, GAP-028, GAP-029, GAP-038

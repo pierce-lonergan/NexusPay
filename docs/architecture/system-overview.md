@@ -25,6 +25,11 @@ NexusPay is an enterprise payment platform built **on top of** HyperSwitch (open
 │  │Observabil-│  │  Dispute   │  │ Workflow │  │     Common      │  │
 │  │    ity    │  │            │  │          │  │ (shared kernel) │  │
 │  └───────────┘  └────────────┘  └──────────┘  └─────────────────┘  │
+│                                                                      │
+│  ┌───────────┐  ┌────────────┐                                      │
+│  │  Billing  │  │   Fraud    │   ← Phase 3: Rules engine, FRM,     │
+│  │           │  │ Prevention │     device fingerprinting, scoring   │
+│  └───────────┘  └────────────┘                                      │
 └────────────────────────┬─────────────────────────────────────────────┘
                          │ REST API (with circuit breaker)
 ┌────────────────────────┴─────────────────────────────────────────────┐
@@ -53,6 +58,7 @@ NexusPay is an enterprise payment platform built **on top of** HyperSwitch (open
 | `dispute` | `io.nexuspay.dispute` | Dispute lifecycle state machine, evidence collection, chargeback ledger, auto-representment | 2.4 |
 | `workflow` | `io.nexuspay.workflow` | Temporal-based durable workflow orchestration (PaymentWithRetryWorkflow) | 2.2 |
 | `billing` | `io.nexuspay.billing` | Subscription billing, product catalog, invoicing, smart dunning, proration, Kafka events | 2.5a/b |
+| `fraud` | `io.nexuspay.fraud` | Fraud prevention rules engine, device fingerprinting, FRM provider integration (Sift/Signifyd), risk scoring, A/B testing | 3.1 |
 | `app` | `io.nexuspay.app` | Spring Boot main class, unified configuration, Modulith verification | 1.1 |
 
 ## 4. Hexagonal Package Convention

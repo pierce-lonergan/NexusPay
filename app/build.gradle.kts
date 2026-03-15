@@ -13,6 +13,8 @@ dependencies {
     implementation(project(":observability"))
     implementation(project(":dispute"))
     implementation(project(":workflow"))
+    implementation(project(":billing"))
+    implementation(project(":fraud"))
 
     implementation(rootProject.libs.spring.boot.starter.web)
     implementation(rootProject.libs.spring.boot.starter.actuator)

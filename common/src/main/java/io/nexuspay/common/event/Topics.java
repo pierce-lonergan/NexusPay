@@ -26,8 +26,21 @@ public final class Topics {
     /** Dead letter topic for billing events. */
     public static final String BILLING_DLT = "nexuspay.billing.DLT";
 
+    /** Fraud assessment events. Partition key: payment_id. */
+    public static final String FRAUD_ASSESSMENTS = "nexuspay.fraud.assessments";
+
+    /** Fraud detection events (checks, rule triggers). Partition key: assessment_id. */
+    public static final String FRAUD_EVENTS = "nexuspay.fraud.events";
+
+    /** Fraud rule changelog events. Partition key: rule_id. */
+    public static final String FRAUD_RULES_CHANGELOG = "nexuspay.fraud.rules.changelog";
+
+    /** Dead letter topic for fraud events. */
+    public static final String FRAUD_DLT = "nexuspay.fraud.DLT";
+
     // Consumer group IDs
     public static final String LEDGER_CONSUMER_GROUP = "nexuspay-ledger-consumer";
     public static final String GATEWAY_CONSUMER_GROUP = "nexuspay-gateway-consumer";
     public static final String BILLING_CONSUMER_GROUP = "nexuspay-billing-consumer";
+    public static final String FRAUD_CONSUMER_GROUP = "nexuspay-fraud-consumer";
 }

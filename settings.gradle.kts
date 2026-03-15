@@ -11,5 +11,6 @@ include(
     "dispute",
     "workflow",
     "billing",
+    "fraud",
     "app"
 )

@@ -132,6 +132,34 @@ nexuspay:
       grace-period-days: ${BILLING_GRACE_PERIOD:3}
       smart-retry-enabled: ${BILLING_SMART_RETRY:true}
       optimal-hour: 10                                # Retry at 10 AM local time
+  fraud:
+    enabled: ${NEXUSPAY_FRAUD_ENABLED:true}
+    native-rules:
+      cache-ttl: PT5M                                 # Valkey cache TTL for rule sets
+      default-block-threshold: 80                     # score >= 80 → BLOCK
+      default-review-threshold: 50                    # score >= 50 → REVIEW
+    scoring:
+      native-weight: 0.6                              # 60% weight to native rule score
+      frm-weight: 0.4                                 # 40% weight to FRM provider score
+    frm:
+      primary-provider: sift
+      fallback-provider: signifyd
+      timeout: PT2S
+      circuit-breaker:
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: PT30S
+        sliding-window-size: 20
+      sift:
+        api-url: ${SIFT_API_URL:https://api.sift.com/v205}
+        api-key: ${SIFT_API_KEY:}
+        account-id: ${SIFT_ACCOUNT_ID:}
+      signifyd:
+        api-url: ${SIGNIFYD_API_URL:https://api.signifyd.com/v2}
+        api-key: ${SIGNIFYD_API_KEY:}
+        team-id: ${SIGNIFYD_TEAM_ID:}
+    device-fingerprint:
+      enabled: true
+      reputation-decay-days: 90
 
 # Resilience4j
 resilience4j:
@@ -144,6 +172,20 @@ resilience4j:
         slow-call-duration-threshold: 5s
         slow-call-rate-threshold: 80
         permitted-number-of-calls-in-half-open-state: 3
+      sift-frm:
+        failure-rate-threshold: 50
+        sliding-window-size: 20
+        wait-duration-in-open-state: 30s
+        slow-call-duration-threshold: 2s
+        slow-call-rate-threshold: 80
+        permitted-number-of-calls-in-half-open-state: 5
+      signifyd-frm:
+        failure-rate-threshold: 50
+        sliding-window-size: 20
+        wait-duration-in-open-state: 30s
+        slow-call-duration-threshold: 2s
+        slow-call-rate-threshold: 80
+        permitted-number-of-calls-in-half-open-state: 5
 
 # SpringDoc
 springdoc:

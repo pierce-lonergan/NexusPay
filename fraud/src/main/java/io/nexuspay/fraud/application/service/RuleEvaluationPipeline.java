@@ -1,0 +1,188 @@
+package io.nexuspay.fraud.application.service;
+
+import io.nexuspay.fraud.application.dto.PaymentContext;
+import io.nexuspay.fraud.config.FraudProperties;
+import io.nexuspay.fraud.domain.model.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Service;
+
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Orchestrates three-phase fraud rule evaluation:
+ * <ol>
+ *   <li><b>Phase 1</b>: Pre-auth rules — velocity, geo, BIN, amount threshold</li>
+ *   <li><b>Phase 2</b>: Scoring — aggregate signals into numeric score (0-100)</li>
+ *   <li><b>Phase 3</b>: Decision — apply thresholds → ALLOW / REVIEW / BLOCK</li>
+ * </ol>
+ *
+ * @since 0.3.0 (Sprint 3.1)
+ */
+@Service
+public class RuleEvaluationPipeline {
+
+    private static final Logger log = LoggerFactory.getLogger(RuleEvaluationPipeline.class);
+
+    private final RuleEngine ruleEngine;
+    private final FraudProperties fraudProperties;
+    private final StringRedisTemplate redisTemplate;
+
+    public RuleEvaluationPipeline(RuleEngine ruleEngine,
+                                   FraudProperties fraudProperties,
+                                   StringRedisTemplate redisTemplate) {
+        this.ruleEngine = ruleEngine;
+        this.fraudProperties = fraudProperties;
+        this.redisTemplate = redisTemplate;
+    }
+
+    /**
+     * Evaluates active rules against the payment context and returns a native risk score.
+     *
+     * @param context     payment context
+     * @param activeRules active fraud rules for the tenant, sorted by priority
+     * @return native risk assessment with score and triggered rules
+     */
+    public NativeEvaluation evaluate(PaymentContext context, List<FraudRule> activeRules) {
+        List<RiskSignal> signals = new ArrayList<>();
+        List<String> triggeredRuleIds = new ArrayList<>();
+        boolean immediateBlock = false;
+        boolean flagForReview = false;
+
+        // Phase 1: Pre-auth rule evaluation
+        double abTestHash = computeAbTestHash(context.paymentId());
+
+        for (FraudRule rule : activeRules) {
+            if (!rule.shouldEvaluate(abTestHash)) continue;
+
+            // Special handling for velocity rules — check actual count in Valkey
+            if (rule.getRuleType() == RuleType.VELOCITY) {
+                RiskSignal velocitySignal = evaluateVelocityWithState(rule, context);
+                if (velocitySignal != null) {
+                    signals.add(velocitySignal);
+                    triggeredRuleIds.add(rule.getId().toString());
+                    if (rule.getAction() == RuleAction.BLOCK) immediateBlock = true;
+                    if (rule.getAction() == RuleAction.REVIEW) flagForReview = true;
+                }
+                continue;
+            }
+
+            RiskSignal signal = ruleEngine.evaluate(rule, context);
+            if (signal != null) {
+                signals.add(signal);
+                triggeredRuleIds.add(rule.getId().toString());
+                if (rule.getAction() == RuleAction.BLOCK) immediateBlock = true;
+                if (rule.getAction() == RuleAction.REVIEW) flagForReview = true;
+            }
+        }
+
+        // Phase 2: Score aggregation
+        int nativeScore = computeNativeScore(signals);
+
+        // Phase 3: Decision
+        RiskDecision preDecision;
+        if (immediateBlock || nativeScore >= fraudProperties.getNativeRules().getDefaultBlockThreshold()) {
+            preDecision = RiskDecision.BLOCK;
+        } else if (flagForReview || nativeScore >= fraudProperties.getNativeRules().getDefaultReviewThreshold()) {
+            preDecision = RiskDecision.REVIEW;
+        } else {
+            preDecision = RiskDecision.ALLOW;
+        }
+
+        // Increment velocity counters for this payment (sliding window)
+        incrementVelocityCounters(context, activeRules);
+
+        return new NativeEvaluation(nativeScore, preDecision, signals, triggeredRuleIds);
+    }
+
+    /**
+     * Evaluates a velocity rule by checking the count in Valkey.
+     */
+    private RiskSignal evaluateVelocityWithState(FraudRule rule, PaymentContext context) {
+        String field = rule.getCondition().getString("field");
+        int maxCount = rule.getCondition().getInt("max_count", Integer.MAX_VALUE);
+        int windowMinutes = rule.getCondition().getInt("window_minutes", 60);
+
+        String fieldValue = resolveVelocityField(field, context);
+        if (fieldValue == null) return null;
+
+        String key = String.format("fraud:velocity:%s:%s:%s", context.tenantId(), field, fieldValue);
+
+        try {
+            String countStr = redisTemplate.opsForValue().get(key);
+            int count = countStr != null ? Integer.parseInt(countStr) : 0;
+
+            if (count >= maxCount) {
+                return new RiskSignal(
+                        "velocity_rule",
+                        rule.getRuleName(),
+                        rule.getScoreAdjustment(),
+                        String.format("Velocity exceeded: %d/%d in %d minutes for %s=%s",
+                                count, maxCount, windowMinutes, field, fieldValue)
+                );
+            }
+        } catch (Exception e) {
+            log.warn("Failed to check velocity in Valkey for rule {}: {}", rule.getRuleName(), e.getMessage());
+            // Fail open — don't block on cache failure
+        }
+        return null;
+    }
+
+    /**
+     * After evaluation, increment velocity counters so the next payment has accurate counts.
+     */
+    private void incrementVelocityCounters(PaymentContext context, List<FraudRule> activeRules) {
+        for (FraudRule rule : activeRules) {
+            if (rule.getRuleType() != RuleType.VELOCITY) continue;
+
+            String field = rule.getCondition().getString("field");
+            int windowMinutes = rule.getCondition().getInt("window_minutes", 60);
+            String fieldValue = resolveVelocityField(field, context);
+            if (fieldValue == null) continue;
+
+            String key = String.format("fraud:velocity:%s:%s:%s", context.tenantId(), field, fieldValue);
+            try {
+                redisTemplate.opsForValue().increment(key);
+                redisTemplate.expire(key, Duration.ofMinutes(windowMinutes));
+            } catch (Exception e) {
+                log.warn("Failed to increment velocity counter: {}", e.getMessage());
+            }
+        }
+    }
+
+    private String resolveVelocityField(String field, PaymentContext context) {
+        if (field == null) return null;
+        return switch (field) {
+            case "card_hash" -> context.cardHash();
+            case "customer_id" -> context.customerId();
+            case "ip_address" -> context.ipAddress();
+            case "customer_email" -> context.customerEmail();
+            case "device_fingerprint" -> context.deviceFingerprintHash();
+            default -> null;
+        };
+    }
+
+    private int computeNativeScore(List<RiskSignal> signals) {
+        if (signals.isEmpty()) return 0;
+        int totalScore = signals.stream().mapToInt(RiskSignal::score).sum();
+        return Math.max(0, Math.min(100, totalScore));
+    }
+
+    private double computeAbTestHash(String paymentId) {
+        // Deterministic hash for A/B test traffic splitting
+        return Math.abs(paymentId.hashCode() % 10000) / 10000.0;
+    }
+
+    /**
+     * Result of native rule evaluation before FRM provider scores are combined.
+     */
+    public record NativeEvaluation(
+            int nativeScore,
+            RiskDecision preDecision,
+            List<RiskSignal> signals,
+            List<String> triggeredRuleIds
+    ) {}
+}

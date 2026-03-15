@@ -45,10 +45,23 @@ public final class EventTypes {
     public static final String DUNNING_RECOVERED = "DunningRecovered";
     public static final String DUNNING_EXHAUSTED = "DunningExhausted";
 
+    // Fraud lifecycle (Sprint 3.1)
+    public static final String FRAUD_CHECK_PASSED = "FraudCheckPassed";
+    public static final String FRAUD_CHECK_FAILED = "FraudCheckFailed";
+    public static final String FRAUD_CHECK_REVIEW = "FraudCheckReview";
+    public static final String FRAUD_RULE_TRIGGERED = "RuleTriggered";
+    public static final String FRAUD_RULE_CREATED = "FraudRuleCreated";
+    public static final String FRAUD_RULE_UPDATED = "FraudRuleUpdated";
+    public static final String FRAUD_RULE_DISABLED = "FraudRuleDisabled";
+    public static final String FRAUD_REVIEW_APPROVED = "FraudReviewApproved";
+    public static final String FRAUD_REVIEW_REJECTED = "FraudReviewRejected";
+
     // Aggregate types
     public static final String AGGREGATE_PAYMENT = "Payment";
     public static final String AGGREGATE_REFUND = "Refund";
     public static final String AGGREGATE_LEDGER = "Ledger";
     public static final String AGGREGATE_SUBSCRIPTION = "Subscription";
     public static final String AGGREGATE_INVOICE = "Invoice";
+    public static final String AGGREGATE_FRAUD_ASSESSMENT = "FraudAssessment";
+    public static final String AGGREGATE_FRAUD_RULE = "FraudRule";
 }
