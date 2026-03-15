@@ -50,7 +50,7 @@ NexusPay is an enterprise payment platform built **on top of** HyperSwitch (open
 | `iam` | `io.nexuspay.iam` | Keycloak integration, API key auth, RBAC, maker-checker, audit logging | 1.5 |
 | `reconciliation` | `io.nexuspay.reconciliation` | Automated reconciliation (stub in Phase 1) | 2.3 |
 | `observability` | `io.nexuspay.observability` | Metrics, alerting, dashboards (stub in Phase 1) | 2.7 |
-| `dispute` | `io.nexuspay.dispute` | Chargeback/dispute management (stub in Phase 1) | 2.4 |
+| `dispute` | `io.nexuspay.dispute` | Dispute lifecycle state machine, evidence collection, chargeback ledger, auto-representment | 2.4 |
 | `workflow` | `io.nexuspay.workflow` | Temporal-based durable workflow orchestration (PaymentWithRetryWorkflow) | 2.2 |
 | `app` | `io.nexuspay.app` | Spring Boot main class, unified configuration, Modulith verification | 1.1 |
 
@@ -183,6 +183,23 @@ io.nexuspay.{module}/
 4. **Workflow** publishes outbox event on success, retries on failure (up to 3 attempts)
 5. On timeout (5 min) or exhausted retries: void payment, emit failure event
 
+### Dispute Lifecycle Flow (Sprint 2.4+)
+1. **PSP/Network** sends dispute notification → **DisputeWebhookHandler** (`/internal/webhooks/disputes`)
+2. **DisputeLifecycleService** creates `Dispute` aggregate (OPENED state)
+3. **LedgerPort** creates chargeback reserve journal entry (DR reserve, CR merchant receivables)
+4. **AutoRepresentmentService** evaluates eligibility (reason, amount, evidence)
+5. Evidence uploaded via **DisputeController** → stored in **EvidenceStoragePort** (local/S3)
+6. On submit: evidence sent to card network via **DisputeNetworkPort** (Verifi/Ethoca stubs)
+7. On resolution: WON → reverse reserve (restore merchant funds); LOST → finalise as expense
+8. Full audit timeline via immutable **DisputeEvent** records
+
+### Dispute State Machine
+```
+OPENED → EVIDENCE_NEEDED → EVIDENCE_SUBMITTED → WON (funds restored)
+                                               → LOST (chargeback finalised)
+                         → EXPIRED (deadline missed — treated as LOST)
+```
+
 ## 9. Module Dependency Rules (Enforced by Spring Modulith)
 
 ```
@@ -193,7 +210,7 @@ ledger          ← depends on: common
 iam             ← depends on: common
 reconciliation  ← depends on: common, ledger
 observability   ← depends on: common
-dispute         ← depends on: common, payment-orchestration
+dispute         ← depends on: common, ledger
 workflow        ← depends on: common, payment-orchestration
 ```
 

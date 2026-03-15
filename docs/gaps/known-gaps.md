@@ -1,6 +1,6 @@
 # NexusPay Known Gaps Analysis
 
-Last updated: 2026-03-15 (Sprint 2.3 in progress — reconciliation engine)
+Last updated: 2026-03-15 (Sprint 2.4 complete — dispute management)
 
 This document tracks known gaps, technical debt, and deferred decisions in the NexusPay system. Each gap is categorized by severity, the sprint it was identified, and the planned resolution timeline.
 
@@ -162,6 +162,20 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Status**: Resolved
 - **Description**: `LedgerController` implemented in gateway-api module. `GET /v1/ledger/accounts` lists accounts with balances. `GET /v1/ledger/journal-entries` supports filtering by payment_reference or date range with pagination.
 
+### GAP-032: Dispute Module — Network Integration Stubs Only
+- **Identified**: Sprint 2.4
+- **Status**: Partially addressed
+- **Description**: Dispute lifecycle, evidence collection, chargeback ledger integration, and auto-representment rule engine implemented. `DisputeNetworkPort` has stub implementations for Verifi RDR and Ethoca. Evidence storage uses local filesystem; S3 adapter deferred.
+- **Remaining**: Real Verifi/Ethoca API integration (Phase 3), S3 evidence storage, Temporal-based deadline tracking workflow, dispute dashboard UI.
+- **Resolution**: Phase 3 — network adapter implementations, S3 storage, Temporal deadline workflow.
+
+### GAP-033: Dispute Deadline Tracking Not Automated
+- **Identified**: Sprint 2.4
+- **Status**: Open
+- **Description**: The `evidence_due_date` field is stored on disputes but no automated scheduler or Temporal workflow monitors deadlines and triggers EXPIRED transitions. Expiration currently requires explicit API call or webhook.
+- **Risk**: Disputes may miss evidence deadlines silently.
+- **Resolution**: Phase 3 — Temporal workflow with timer-based deadline monitoring and reminder notifications.
+
 ### GAP-029: Rate Limiter Uses Single Window for All API Keys
 - **Identified**: Sprint 1.6
 - **Status**: Accepted for Phase 1
@@ -215,13 +229,15 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 | Sprint 1.7 | GAP-005, GAP-006, GAP-007, GAP-014, GAP-017, GAP-019, GAP-030, GAP-031 |
 | Sprint 2.1 (in progress) | GAP-001 (RLS), GAP-003 (Vault) |
 | Sprint 2.2 (complete) | GAP-011 (Debezium CDC), GAP-012 (partial — event upcaster chain) |
-| Sprint 2.3 (in progress) | GAP-023 (partial — reconciliation engine) |
+| Sprint 2.3 (complete) | GAP-023 (partial — reconciliation engine) |
+| Sprint 2.4 (complete) | GAP-032 (dispute management — new) |
 | Phase 2 (remaining) | GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-020, GAP-021, GAP-026, GAP-027 |
 | Phase 3 | GAP-012 (full Schema Registry) |
 
 ## Summary
 
-- **Total gaps tracked**: 31
+- **Total gaps tracked**: 33
 - **Resolved**: 19 (GAP-005, 006, 007, 009, 010, 013, 014, 016, 017, 019, 022, 025, 030, 031 + partial GAP-008)
-- **Open/Deferred**: 12 (GAP-001–004 critical, GAP-008/011/012/015/018/020/021/023/024/026/027/028/029)
+- **In Progress / Partially Addressed**: 6 (GAP-001, GAP-003, GAP-011, GAP-012, GAP-023, GAP-032)
+- **Open/Deferred**: 14 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-020, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033)
 - **Accepted for Phase 1**: GAP-024, GAP-028, GAP-029

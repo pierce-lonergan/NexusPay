@@ -29,6 +29,9 @@ public final class PrefixedId {
     public static final String RECONCILIATION_RUN = "rec_";
     public static final String SETTLEMENT_RECORD = "stl_";
     public static final String RECONCILIATION_EXCEPTION = "rex_";
+    public static final String DISPUTE = "dp_";
+    public static final String DISPUTE_EVIDENCE = "dpe_";
+    public static final String DISPUTE_EVENT = "dpev_";
 
     /**
      * Generates a new prefixed ID with a random UUID (hyphens removed).
@@ -99,5 +102,17 @@ public final class PrefixedId {
 
     public static String reconciliationException() {
         return generate(RECONCILIATION_EXCEPTION);
+    }
+
+    public static String dispute() {
+        return generate(DISPUTE);
+    }
+
+    public static String disputeEvidence() {
+        return generate(DISPUTE_EVIDENCE);
+    }
+
+    public static String disputeEvent() {
+        return generate(DISPUTE_EVENT);
     }
 }

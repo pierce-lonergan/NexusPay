@@ -111,6 +111,10 @@ nexuspay:
     amount-tolerance: ${RECON_AMOUNT_TOLERANCE:1}     # Minor units (1 = $0.01)
     date-range-days: ${RECON_DATE_RANGE_DAYS:7}       # Settlement date tolerance
     max-batch-size: ${RECON_MAX_BATCH_SIZE:10000}
+  dispute:
+    auto-submit-threshold: ${DISPUTE_AUTO_SUBMIT_THRESHOLD:100000}   # Minor units ($1,000)
+    default-evidence-deadline-days: ${DISPUTE_EVIDENCE_DEADLINE_DAYS:20}
+    auto-representment-enabled: ${DISPUTE_AUTO_REPRESENTMENT:true}
 
 # Resilience4j
 resilience4j:
