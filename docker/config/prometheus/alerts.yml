@@ -1,0 +1,78 @@
+groups:
+  - name: nexuspay.critical
+    rules:
+      - alert: HighPaymentFailureRate
+        expr: >
+          (
+            sum(rate(nexuspay_payments_failed_total[5m]))
+            /
+            (sum(rate(nexuspay_payments_created_total[5m])) > 0)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: payments
+        annotations:
+          summary: "Payment failure rate exceeds 5%"
+          description: "Payment failure rate is {{ $value | humanizePercentage }} over the last 5 minutes. Investigate PSP connectivity, card network issues, or merchant configuration."
+          runbook_url: "https://docs.nexuspay.io/runbooks/high-payment-failure-rate"
+
+      - alert: CircuitBreakerOpen
+        expr: resilience4j_circuitbreaker_state{name="hyperswitch"} == 1
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "HyperSwitch circuit breaker is OPEN"
+          description: "The circuit breaker for HyperSwitch has opened, indicating persistent failures. All payment requests will fail fast until the breaker transitions to half-open."
+          runbook_url: "https://docs.nexuspay.io/runbooks/circuit-breaker-open"
+
+  - name: nexuspay.warning
+    rules:
+      - alert: OutboxLagHigh
+        expr: nexuspay_outbox_lag_seconds > 30
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Outbox relay lag exceeds 30 seconds"
+          description: "The oldest unpublished event in the outbox is {{ $value }}s old. Check Kafka connectivity, outbox relay leader election, or Debezium CDC status."
+
+      - alert: DatabaseConnectionPoolSaturation
+        expr: >
+          hikaricp_connections_active{pool="HikariPool-1"}
+          /
+          hikaricp_connections_max{pool="HikariPool-1"}
+          > 0.85
+        for: 3m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Database connection pool > 85% utilized"
+          description: "HikariCP active connections are at {{ $value | humanizePercentage }} of max. Consider increasing pool size or investigating slow queries."
+
+      - alert: KafkaConsumerLagHigh
+        expr: nexuspay_kafka_consumer_lag > 1000
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Kafka consumer lag exceeds 1000 messages"
+          description: "Consumer lag is {{ $value }} messages. Consumers may be slow or disconnected."
+
+      - alert: HighP99Latency
+        expr: >
+          histogram_quantile(0.99,
+            sum(rate(http_server_requests_seconds_bucket{application="nexuspay"}[5m])) by (le)
+          ) > 2.0
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "p99 latency exceeds 2 seconds"
+          description: "The 99th percentile request latency is {{ $value }}s. Investigate slow endpoints, database queries, or downstream service latency."

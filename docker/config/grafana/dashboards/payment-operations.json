@@ -1,0 +1,125 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "nexuspay-payments",
+    "title": "NexusPay - Payment Operations",
+    "tags": ["nexuspay", "payments"],
+    "timezone": "browser",
+    "refresh": "10s",
+    "time": { "from": "now-1h", "to": "now" },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Payments per Second (TPS)",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+        "targets": [
+          {
+            "expr": "sum(rate(nexuspay_payments_created_total[1m]))",
+            "legendFormat": "Total TPS"
+          },
+          {
+            "expr": "sum(rate(nexuspay_payments_created_total{status=\"succeeded\"}[1m]))",
+            "legendFormat": "Successful TPS"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Payment Failure Rate",
+        "type": "gauge",
+        "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+        "targets": [
+          {
+            "expr": "sum(rate(nexuspay_payments_failed_total[5m])) / sum(rate(nexuspay_payments_created_total[5m])) * 100",
+            "legendFormat": "Failure %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                { "color": "green", "value": null },
+                { "color": "yellow", "value": 2 },
+                { "color": "red", "value": 5 }
+              ]
+            },
+            "unit": "percent",
+            "max": 100
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Auth Rate by PSP",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
+        "targets": [
+          {
+            "expr": "sum(rate(nexuspay_payments_created_total{status=\"succeeded\"}[5m])) by (psp) / sum(rate(nexuspay_payments_created_total[5m])) by (psp) * 100",
+            "legendFormat": "{{ psp }}"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Payment Latency (p50 / p95 / p99)",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(nexuspay_payments_latency_seconds_bucket[5m])) by (le))",
+            "legendFormat": "p50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(nexuspay_payments_latency_seconds_bucket[5m])) by (le))",
+            "legendFormat": "p95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(nexuspay_payments_latency_seconds_bucket[5m])) by (le))",
+            "legendFormat": "p99"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "s" } }
+      },
+      {
+        "id": 5,
+        "title": "Payment Status Distribution",
+        "type": "piechart",
+        "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
+        "targets": [
+          {
+            "expr": "sum(increase(nexuspay_payments_created_total[1h])) by (status)",
+            "legendFormat": "{{ status }}"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Top Decline Error Codes",
+        "type": "table",
+        "gridPos": { "h": 8, "w": 6, "x": 18, "y": 8 },
+        "targets": [
+          {
+            "expr": "topk(10, sum(increase(nexuspay_payments_failed_total[1h])) by (error_code))",
+            "legendFormat": "{{ error_code }}",
+            "format": "table",
+            "instant": true
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Refunds (1h rolling)",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 12, "x": 0, "y": 16 },
+        "targets": [
+          {
+            "expr": "sum(increase(nexuspay_refunds_total[1h]))",
+            "legendFormat": "Refunds"
+          }
+        ]
+      }
+    ]
+  }
+}

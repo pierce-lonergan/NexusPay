@@ -65,6 +65,17 @@ management:
       enabled: true
     redis:
       enabled: true
+  metrics:
+    tags:
+      application: nexuspay
+    distribution:
+      slo:
+        http.server.requests: 50ms, 100ms, 250ms, 500ms, 1000ms, 2000ms
+        nexuspay.payments.latency: 50ms, 100ms, 250ms, 500ms, 1000ms, 2000ms
+  prometheus:
+    metrics:
+      export:
+        enabled: true
 
 # Vault — disabled by default for local dev; enable with 'vault' Spring profile
 # When enabled, secrets are loaded from Vault instead of env vars / defaults.

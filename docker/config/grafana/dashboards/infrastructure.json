@@ -1,0 +1,163 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "nexuspay-infra",
+    "title": "NexusPay - Infrastructure",
+    "tags": ["nexuspay", "infrastructure"],
+    "timezone": "browser",
+    "refresh": "10s",
+    "time": { "from": "now-1h", "to": "now" },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Database Connection Pool",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+        "targets": [
+          {
+            "expr": "hikaricp_connections_active{application=\"nexuspay\"}",
+            "legendFormat": "Active"
+          },
+          {
+            "expr": "hikaricp_connections_idle{application=\"nexuspay\"}",
+            "legendFormat": "Idle"
+          },
+          {
+            "expr": "hikaricp_connections_max{application=\"nexuspay\"}",
+            "legendFormat": "Max"
+          },
+          {
+            "expr": "hikaricp_connections_pending{application=\"nexuspay\"}",
+            "legendFormat": "Pending"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Outbox Relay Lag",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+        "targets": [
+          {
+            "expr": "nexuspay_outbox_lag_seconds",
+            "legendFormat": "Lag (seconds)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "thresholds": {
+              "steps": [
+                { "color": "green", "value": null },
+                { "color": "yellow", "value": 10 },
+                { "color": "red", "value": 30 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Kafka Consumer Lag",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
+        "targets": [
+          {
+            "expr": "nexuspay_kafka_consumer_lag",
+            "legendFormat": "Total Lag"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                { "color": "green", "value": null },
+                { "color": "yellow", "value": 100 },
+                { "color": "red", "value": 1000 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Circuit Breaker State (HyperSwitch)",
+        "type": "state-timeline",
+        "gridPos": { "h": 4, "w": 12, "x": 0, "y": 8 },
+        "targets": [
+          {
+            "expr": "resilience4j_circuitbreaker_state{name=\"hyperswitch\",application=\"nexuspay\"}",
+            "legendFormat": "HyperSwitch CB"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "JVM Heap Memory",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+        "targets": [
+          {
+            "expr": "jvm_memory_used_bytes{area=\"heap\",application=\"nexuspay\"} / 1024 / 1024",
+            "legendFormat": "Used (MB)"
+          },
+          {
+            "expr": "jvm_memory_max_bytes{area=\"heap\",application=\"nexuspay\"} / 1024 / 1024",
+            "legendFormat": "Max (MB)"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "decmbytes" } }
+      },
+      {
+        "id": 6,
+        "title": "HTTP Request Rate",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+        "targets": [
+          {
+            "expr": "sum(rate(http_server_requests_seconds_count{application=\"nexuspay\"}[1m]))",
+            "legendFormat": "Total req/s"
+          },
+          {
+            "expr": "sum(rate(http_server_requests_seconds_count{application=\"nexuspay\",status=~\"5..\"}[1m]))",
+            "legendFormat": "5xx req/s"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "HTTP Latency Percentiles",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(http_server_requests_seconds_bucket{application=\"nexuspay\"}[5m])) by (le))",
+            "legendFormat": "p50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{application=\"nexuspay\"}[5m])) by (le))",
+            "legendFormat": "p95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{application=\"nexuspay\"}[5m])) by (le))",
+            "legendFormat": "p99"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "s" } }
+      },
+      {
+        "id": 8,
+        "title": "GC Pause Time",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+        "targets": [
+          {
+            "expr": "rate(jvm_gc_pause_seconds_sum{application=\"nexuspay\"}[5m])",
+            "legendFormat": "GC pause rate (s/s)"
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "s" } }
+      }
+    ]
+  }
+}

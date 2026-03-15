@@ -1,0 +1,73 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "nexuspay-ledger",
+    "title": "NexusPay - Ledger Health",
+    "tags": ["nexuspay", "ledger"],
+    "timezone": "browser",
+    "refresh": "30s",
+    "time": { "from": "now-6h", "to": "now" },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Journal Entries per Hour",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+        "targets": [
+          {
+            "expr": "sum(rate(nexuspay_ledger_entries_created_total[1h])) * 3600",
+            "legendFormat": "Entries/hour"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Journal Entries by Currency",
+        "type": "piechart",
+        "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+        "targets": [
+          {
+            "expr": "sum(increase(nexuspay_ledger_entries_created_total[24h])) by (currency)",
+            "legendFormat": "{{ currency }}"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Reconciliation Results (24h)",
+        "type": "piechart",
+        "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
+        "targets": [
+          {
+            "expr": "sum(increase(nexuspay_reconciliation_results_total[24h])) by (status)",
+            "legendFormat": "{{ status }}"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Balance Reconciliation Status",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 12, "x": 0, "y": 8 },
+        "targets": [
+          {
+            "expr": "sum(increase(nexuspay_reconciliation_results_total{status=\"matched\"}[24h])) / sum(increase(nexuspay_reconciliation_results_total[24h])) * 100",
+            "legendFormat": "Match Rate %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "steps": [
+                { "color": "red", "value": null },
+                { "color": "yellow", "value": 95 },
+                { "color": "green", "value": 99 }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

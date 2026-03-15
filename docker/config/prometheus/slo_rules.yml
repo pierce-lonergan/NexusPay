@@ -1,0 +1,44 @@
+groups:
+  - name: nexuspay.slo
+    interval: 30s
+    rules:
+      # --- Availability SLO: 99.9% ---
+      - record: nexuspay:availability:ratio_30d
+        expr: >
+          1 - (
+            sum(rate(http_server_requests_seconds_count{application="nexuspay",status=~"5.."}[30d]))
+            /
+            sum(rate(http_server_requests_seconds_count{application="nexuspay"}[30d]))
+          )
+
+      - record: nexuspay:availability:error_budget_remaining
+        expr: >
+          1 - (
+            (1 - nexuspay:availability:ratio_30d)
+            /
+            (1 - 0.999)
+          )
+
+      # --- Latency SLO: p99 < 2000ms ---
+      - record: nexuspay:latency:p99_seconds
+        expr: >
+          histogram_quantile(0.99,
+            sum(rate(http_server_requests_seconds_bucket{application="nexuspay"}[5m])) by (le)
+          )
+
+      - record: nexuspay:latency:slo_compliance
+        expr: nexuspay:latency:p99_seconds < 2.0
+
+      # --- Payment Success SLO: > 95% ---
+      - record: nexuspay:payment_success:ratio_1h
+        expr: >
+          sum(rate(nexuspay_payments_created_total{status="succeeded"}[1h]))
+          /
+          sum(rate(nexuspay_payments_created_total[1h]))
+
+      # --- Error Rate SLO: < 0.1% ---
+      - record: nexuspay:error_rate:ratio_5m
+        expr: >
+          sum(rate(http_server_requests_seconds_count{application="nexuspay",status=~"5.."}[5m]))
+          /
+          sum(rate(http_server_requests_seconds_count{application="nexuspay"}[5m]))

@@ -1,0 +1,36 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "alerts.yml"
+  - "slo_rules.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  # NexusPay Application
+  - job_name: "nexuspay"
+    metrics_path: "/actuator/prometheus"
+    scrape_interval: 10s
+    static_configs:
+      - targets: ["host.docker.internal:8090"]
+        labels:
+          application: "nexuspay"
+          environment: "local"
+
+  # Prometheus self-monitoring
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Kafka (JMX exporter if configured)
+  - job_name: "kafka"
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["kafka:9092"]
+    # Note: Requires JMX exporter sidecar in production.
+    # For local dev, Kafka metrics come through NexusPay consumer lag gauges.

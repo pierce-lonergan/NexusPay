@@ -49,7 +49,7 @@ NexusPay is an enterprise payment platform built **on top of** HyperSwitch (open
 | `ledger` | `io.nexuspay.ledger` | Double-entry bookkeeping, journal entries, balance management | 1.3 |
 | `iam` | `io.nexuspay.iam` | Keycloak integration, API key auth, RBAC, maker-checker, audit logging | 1.5 |
 | `reconciliation` | `io.nexuspay.reconciliation` | Automated reconciliation (stub in Phase 1) | 2.3 |
-| `observability` | `io.nexuspay.observability` | Metrics, alerting, dashboards (stub in Phase 1) | 2.7 |
+| `observability` | `io.nexuspay.observability` | Micrometer custom metrics, Prometheus export, SLO/SLI framework, health indicators | 2.7 |
 | `dispute` | `io.nexuspay.dispute` | Dispute lifecycle state machine, evidence collection, chargeback ledger, auto-representment | 2.4 |
 | `workflow` | `io.nexuspay.workflow` | Temporal-based durable workflow orchestration (PaymentWithRetryWorkflow) | 2.2 |
 | `billing` | `io.nexuspay.billing` | Subscription billing, product catalog, invoicing, smart dunning, proration, Kafka events | 2.5a/b |
@@ -99,7 +99,7 @@ io.nexuspay.{module}/
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│                       Docker Compose Network (12 containers)              │
+│                       Docker Compose Network (15 containers)              │
 │                                                                          │
 │  ┌──────────────┐  ┌───────────────┐  ┌──────────────────────┐          │
 │  │ nexuspay-pg  │  │    kafka      │  │      valkey          │          │
@@ -124,6 +124,12 @@ io.nexuspay.{module}/
 │  │  :7233       │  │  :5434        │  │   :8280              │          │
 │  │ (auto-setup) │  │ (Temporal DB) │  │  (workflow dashboard) │          │
 │  └──────────────┘  └───────────────┘  └──────────────────────┘          │
+│                                                                          │
+│  ┌──────────────┐  ┌───────────────┐  ┌──────────────────────┐          │
+│  │  prometheus   │  │   grafana     │  │   alertmanager       │          │
+│  │  :9090       │  │   :3000       │  │   :9093              │          │
+│  │ (15d TSDB)   │  │ (4 dashboards)│  │  (alert routing)     │          │
+│  └──────────────┘  └───────────────┘  └──────────────────────┘          │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -141,6 +147,9 @@ io.nexuspay.{module}/
 - `9092` — Kafka (internal), `29092` (host access)
 - `6379` — Valkey
 - `6380` — HyperSwitch Redis
+- `9090` — Prometheus (Sprint 2.7)
+- `3000` — Grafana (Sprint 2.7, admin/admin)
+- `9093` — AlertManager (Sprint 2.7)
 
 ## 7. Cross-Cutting Concerns
 

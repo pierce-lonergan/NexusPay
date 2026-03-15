@@ -1,0 +1,186 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "nexuspay-subscriptions",
+    "title": "NexusPay - Subscriptions & Billing",
+    "tags": ["nexuspay", "billing", "subscriptions"],
+    "timezone": "browser",
+    "refresh": "30s",
+    "time": { "from": "now-24h", "to": "now" },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Active Subscriptions",
+        "type": "stat",
+        "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+        "targets": [
+          {
+            "expr": "nexuspay_subscriptions_active",
+            "legendFormat": "Active"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                { "color": "blue", "value": null }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Churn Rate (24h)",
+        "type": "stat",
+        "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+        "targets": [
+          {
+            "expr": "sum(increase(nexuspay_subscriptions_churned_total[24h])) / nexuspay_subscriptions_active * 100",
+            "legendFormat": "Daily Churn %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "steps": [
+                { "color": "green", "value": null },
+                { "color": "yellow", "value": 1 },
+                { "color": "red", "value": 5 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Trial Conversion Rate (24h)",
+        "type": "stat",
+        "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+        "targets": [
+          {
+            "expr": "sum(increase(nexuspay_subscriptions_trial_converted_total[24h]))",
+            "legendFormat": "Trials Converted"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Dunning Success Rate (24h)",
+        "type": "gauge",
+        "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
+        "targets": [
+          {
+            "expr": "sum(increase(nexuspay_dunning_attempts_total{outcome=\"success\"}[24h])) / sum(increase(nexuspay_dunning_attempts_total[24h])) * 100",
+            "legendFormat": "Success %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "max": 100,
+            "thresholds": {
+              "steps": [
+                { "color": "red", "value": null },
+                { "color": "yellow", "value": 40 },
+                { "color": "green", "value": 70 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Churn by Reason",
+        "type": "piechart",
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 6 },
+        "targets": [
+          {
+            "expr": "sum(increase(nexuspay_subscriptions_churned_total[24h])) by (reason)",
+            "legendFormat": "{{ reason }}"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Dunning Attempts Over Time",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 6 },
+        "targets": [
+          {
+            "expr": "sum(rate(nexuspay_dunning_attempts_total{outcome=\"success\"}[1h])) * 3600",
+            "legendFormat": "Successful/hour"
+          },
+          {
+            "expr": "sum(rate(nexuspay_dunning_attempts_total{outcome=\"failed\"}[1h])) * 3600",
+            "legendFormat": "Failed/hour"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Disputes Opened (24h)",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 6 },
+        "targets": [
+          {
+            "expr": "sum(rate(nexuspay_disputes_opened_total[1h])) * 3600",
+            "legendFormat": "Disputes/hour"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "SLO Error Budget Remaining",
+        "type": "gauge",
+        "gridPos": { "h": 6, "w": 12, "x": 0, "y": 14 },
+        "targets": [
+          {
+            "expr": "nexuspay:availability:error_budget_remaining * 100",
+            "legendFormat": "Error Budget %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "max": 100,
+            "min": -100,
+            "thresholds": {
+              "steps": [
+                { "color": "red", "value": null },
+                { "color": "yellow", "value": 25 },
+                { "color": "green", "value": 50 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 9,
+        "title": "Payment Success Rate (SLO: > 95%)",
+        "type": "gauge",
+        "gridPos": { "h": 6, "w": 12, "x": 12, "y": 14 },
+        "targets": [
+          {
+            "expr": "nexuspay:payment_success:ratio_1h * 100",
+            "legendFormat": "Success Rate %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "max": 100,
+            "thresholds": {
+              "steps": [
+                { "color": "red", "value": null },
+                { "color": "yellow", "value": 90 },
+                { "color": "green", "value": 95 }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

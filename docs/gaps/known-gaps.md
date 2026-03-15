@@ -235,11 +235,10 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Status**: Resolved
 - **Description**: `HttpLoggingFilter` implemented at `@Order(5)`. Logs method, path, status code, duration, and request_id for every API call. Skips actuator, internal, swagger, and api-docs paths.
 
-### GAP-020: No Metrics Export
+### ~~GAP-020: No Metrics Export~~ (RESOLVED Sprint 2.7)
 - **Identified**: Sprint 1.1
-- **Status**: Deferred to Phase 2
-- **Description**: Actuator exposes `/metrics` and `/prometheus` endpoints, but no Prometheus/Grafana stack is deployed. No custom business metrics (payments/sec, average latency, circuit breaker state).
-- **Resolution**: Phase 2 observability module — Prometheus, Grafana dashboards, custom Micrometer metrics.
+- **Status**: Resolved
+- **Description**: Full production observability stack deployed. Prometheus scrapes NexusPay metrics every 10s. Grafana provisioned with 4 dashboards (Payment Operations, Ledger Health, Infrastructure, Subscriptions & Billing). AlertManager configured with 6 alert rules (HighPaymentFailureRate, CircuitBreakerOpen, OutboxLagHigh, DatabaseConnectionPoolSaturation, KafkaConsumerLagHigh, HighP99Latency). 10+ custom Micrometer metrics across PaymentMetrics, LedgerMetrics, BillingMetrics, InfrastructureMetrics. SLO/SLI recording rules for availability (99.9%), latency p99 (<2s), error rate (<0.1%), payment success (>95%).
 
 ### GAP-021: HyperSwitch Consumer (Drainer) Not Health-Checked
 - **Identified**: Sprint 1.2
@@ -264,13 +263,14 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 | Sprint 2.4 (complete) | GAP-032 (dispute management — new) |
 | Sprint 2.5a (complete) | GAP-034, GAP-035, GAP-036 (billing module — new) |
 | Sprint 2.5b (complete) | GAP-034 (real payment), GAP-036 (Kafka events), GAP-037, GAP-038 (new) |
-| Phase 2 (remaining) | GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-020, GAP-021, GAP-026, GAP-027 |
+| Sprint 2.7 (complete) | GAP-020 (metrics export — full observability stack) |
+| Phase 2 (remaining) | GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-026, GAP-027 |
 | Phase 3 | GAP-012 (full Schema Registry) |
 
 ## Summary
 
 - **Total gaps tracked**: 38
-- **Resolved**: 21 (GAP-005, 006, 007, 009, 010, 013, 014, 016, 017, 019, 022, 025, 030, 031, 034, 036 + partial GAP-008)
+- **Resolved**: 22 (GAP-005, 006, 007, 009, 010, 013, 014, 016, 017, 019, 020, 022, 025, 030, 031, 034, 036 + partial GAP-008)
 - **In Progress / Partially Addressed**: 6 (GAP-001, GAP-003, GAP-011, GAP-012, GAP-023, GAP-032)
-- **Open/Deferred**: 17 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-020, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033, GAP-035, GAP-037, GAP-038)
+- **Open/Deferred**: 16 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033, GAP-035, GAP-037, GAP-038)
 - **Accepted for Phase 1/2**: GAP-024, GAP-028, GAP-029, GAP-038
