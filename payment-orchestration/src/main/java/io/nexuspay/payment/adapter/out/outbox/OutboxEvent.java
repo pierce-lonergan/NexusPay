@@ -42,6 +42,15 @@ public class OutboxEvent {
     @Column(name = "published_at")
     private Instant publishedAt;
 
+    @Column(name = "tenant_id", nullable = false, length = 64)
+    private String tenantId;
+
+    @Column(name = "routing_key", nullable = false, length = 64)
+    private String routingKey;
+
+    @Column(name = "event_version", nullable = false)
+    private int eventVersion = 1;
+
     protected OutboxEvent() {
     }
 
@@ -51,6 +60,21 @@ public class OutboxEvent {
         this.eventType = eventType;
         this.payload = payload;
         this.createdAt = Instant.now();
+        this.tenantId = "default";
+        this.routingKey = aggregateType.toLowerCase();
+        this.eventVersion = 1;
+    }
+
+    public OutboxEvent(String aggregateType, String aggregateId, String eventType,
+                       String payload, String tenantId, int eventVersion) {
+        this.aggregateType = aggregateType;
+        this.aggregateId = aggregateId;
+        this.eventType = eventType;
+        this.payload = payload;
+        this.createdAt = Instant.now();
+        this.tenantId = tenantId;
+        this.routingKey = aggregateType.toLowerCase();
+        this.eventVersion = eventVersion;
     }
 
     public void markPublished() {
@@ -69,4 +93,7 @@ public class OutboxEvent {
     public String getPayload() { return payload; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getPublishedAt() { return publishedAt; }
+    public String getTenantId() { return tenantId; }
+    public String getRoutingKey() { return routingKey; }
+    public int getEventVersion() { return eventVersion; }
 }

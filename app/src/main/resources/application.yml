@@ -98,6 +98,15 @@ nexuspay:
   retention:
     outbox-days: ${RETENTION_OUTBOX_DAYS:7}
     webhook-days: ${RETENTION_WEBHOOK_DAYS:90}
+  outbox:
+    polling:
+      enabled: ${NEXUSPAY_OUTBOX_POLLING_ENABLED:true}  # Disable when Debezium CDC is active
+  temporal:
+    enabled: ${NEXUSPAY_TEMPORAL_ENABLED:false}  # Enable with Temporal running
+    target: ${TEMPORAL_TARGET:localhost:7233}
+    namespace: ${TEMPORAL_NAMESPACE:default}
+    task-queue: ${TEMPORAL_TASK_QUEUE:nexuspay-main}
+    worker-threads: ${TEMPORAL_WORKER_THREADS:4}
 
 # Resilience4j
 resilience4j:

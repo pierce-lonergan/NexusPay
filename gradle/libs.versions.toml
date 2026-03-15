@@ -10,6 +10,7 @@ testcontainers = "1.19.8"
 wiremock = "3.5.4"
 flyway = "10.15.0"
 spring-cloud = "2023.0.2"
+temporal = "1.25.0"
 
 [libraries]
 # Spring
@@ -43,6 +44,10 @@ flyway-database-postgresql = { module = "org.flywaydb:flyway-database-postgresql
 # Resilience
 resilience4j-spring-boot3 = { module = "io.github.resilience4j:resilience4j-spring-boot3", version.ref = "resilience4j" }
 resilience4j-circuitbreaker = { module = "io.github.resilience4j:resilience4j-circuitbreaker", version.ref = "resilience4j" }
+
+# Temporal — Durable workflow execution
+temporal-sdk = { module = "io.temporal:temporal-sdk", version.ref = "temporal" }
+temporal-testing = { module = "io.temporal:temporal-testing", version.ref = "temporal" }
 
 # Monetary
 moneta = { module = "org.javamoney:moneta", version.ref = "moneta" }

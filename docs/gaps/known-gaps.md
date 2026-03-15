@@ -1,6 +1,6 @@
 # NexusPay Known Gaps Analysis
 
-Last updated: 2026-03-15 (Sprint 1.7 complete — gap remediation applied)
+Last updated: 2026-03-15 (Sprint 2.2 in progress — event infrastructure upgrade)
 
 This document tracks known gaps, technical debt, and deferred decisions in the NexusPay system. Each gap is categorized by severity, the sprint it was identified, and the planned resolution timeline.
 
@@ -74,17 +74,17 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 
 ## Medium Gaps (Address in Phase 2)
 
-### GAP-011: Polling Outbox 1-Second Latency
+### ~~GAP-011: Polling Outbox 1-Second Latency~~ (IN PROGRESS Sprint 2.2)
 - **Identified**: Sprint 1.2
-- **Status**: Accepted for Phase 1
-- **Description**: The outbox relay polls every 1 second, adding up to 1s latency between a webhook being received and the event being published to Kafka. This is acceptable for Phase 1 volumes.
-- **Resolution**: Phase 2 — replace with Debezium CDC for sub-second event propagation.
+- **Status**: In progress — Sprint 2.2
+- **Description**: Debezium CDC (2.7) added to Docker Compose via Kafka Connect. Outbox Event Router transform routes events from `event_outbox` table to Kafka topics based on `routing_key` column. Migration `V2002__outbox_debezium_columns.sql` adds `routing_key` and `event_version` columns. Feature flag (`nexuspay.outbox.polling.enabled`) allows parallel operation of polling relay and CDC during migration. PostgreSQL WAL level set to `logical` with replication slots configured.
+- **Remaining**: Integration tests validating CDC end-to-end, cutover from polling to CDC-only mode.
 
-### GAP-012: No Schema Registry / Event Versioning
+### GAP-012: No Schema Registry / Event Versioning (PARTIALLY ADDRESSED Sprint 2.2)
 - **Identified**: Sprint 1.2
-- **Status**: Deferred to Phase 3
-- **Description**: Events are JSON without schema validation. No Confluent Schema Registry, no Avro/Protobuf schemas, no compatibility checks. Event `version` field exists in the envelope but is always `1`.
-- **Risk**: Schema evolution (adding/removing fields) could break consumers without detection.
+- **Status**: Partially addressed — Sprint 2.2
+- **Description**: `EventUpcaster` interface and `EventUpcasterChain` added in `common` module for runtime event schema evolution (v1 → v2 → ... → current). Outbox `event_version` column tracks version per event. Full Schema Registry (Confluent, Avro/Protobuf) still deferred.
+- **Risk**: No compile-time schema validation yet. Upcaster chain provides runtime transformation only.
 - **Resolution**: Phase 3 — Avro schemas with Schema Registry, backward/forward compatibility enforcement.
 
 ### ~~GAP-013: No Keycloak Health Indicator~~ (RESOLVED Sprint 1.5)
@@ -214,8 +214,9 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 | Sprint 1.6 | GAP-009, GAP-010, GAP-016, GAP-025 |
 | Sprint 1.7 | GAP-005, GAP-006, GAP-007, GAP-014, GAP-017, GAP-019, GAP-030, GAP-031 |
 | Sprint 2.1 (in progress) | GAP-001 (RLS), GAP-003 (Vault) |
-| Phase 2 (remaining) | GAP-002, GAP-004, GAP-008, GAP-011, GAP-015, GAP-018, GAP-020, GAP-021, GAP-023, GAP-026, GAP-027 |
-| Phase 3 | GAP-012 |
+| Sprint 2.2 (in progress) | GAP-011 (Debezium CDC), GAP-012 (partial — event upcaster chain) |
+| Phase 2 (remaining) | GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-020, GAP-021, GAP-023, GAP-026, GAP-027 |
+| Phase 3 | GAP-012 (full Schema Registry) |
 
 ## Summary
 

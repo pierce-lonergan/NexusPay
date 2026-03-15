@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,9 +32,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * Graceful shutdown (GAP-014): Awaits in-flight relay cycle before stopping.
  *
- * Phase 2+ upgrade path: Replace with Debezium CDC for sub-second latency.
+ * <p><b>Sprint 2.2 migration:</b> When Debezium CDC is active, disable this relay
+ * with {@code nexuspay.outbox.polling.enabled=false}. Both can run in parallel
+ * during migration (consumers dedup by event_id). Once CDC is verified stable,
+ * disable polling permanently.</p>
  */
 @Component
+@ConditionalOnProperty(name = "nexuspay.outbox.polling.enabled", havingValue = "true", matchIfMissing = true)
 public class OutboxRelay {
 
     private static final Logger log = LoggerFactory.getLogger(OutboxRelay.class);
