@@ -1,0 +1,23 @@
+{
+  "request": {
+    "method": "POST",
+    "urlPattern": "/refunds"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "refund_id": "ref_test_12345",
+      "payment_id": "pay_test_12345",
+      "status": "succeeded",
+      "amount": 2500,
+      "currency": "USD",
+      "reason": "customer_request",
+      "connector": "dummy",
+      "connector_refund_id": "rfnd_dummy_12345",
+      "created_at": "2026-03-15T12:00:00Z"
+    }
+  }
+}

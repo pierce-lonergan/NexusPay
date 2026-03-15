@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <!-- Console output for local development (human-readable) -->
+    <springProfile name="local,default">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} [%X{request_id:-}] [%X{payment_id:-}] - %msg%n</pattern>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <!-- JSON structured logging for production/test -->
+    <springProfile name="!local &amp; !default">
+        <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <includeMdcKeyName>request_id</includeMdcKeyName>
+                <includeMdcKeyName>trace_id</includeMdcKeyName>
+                <includeMdcKeyName>payment_id</includeMdcKeyName>
+                <includeMdcKeyName>tenant_id</includeMdcKeyName>
+                <includeMdcKeyName>module</includeMdcKeyName>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="JSON"/>
+        </root>
+    </springProfile>
+
+    <!-- Module-specific log levels -->
+    <logger name="io.nexuspay" level="INFO"/>
+    <logger name="io.nexuspay.ledger" level="INFO"/>
+    <logger name="io.nexuspay.payment" level="INFO"/>
+    <logger name="org.springframework.modulith" level="INFO"/>
+</configuration>

@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nexuspay.fullname" . }}
+  labels:
+    app.kubernetes.io/name: nexuspay
+    app.kubernetes.io/version: {{ .Chart.AppVersion }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nexuspay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nexuspay
+    spec:
+      containers:
+        - name: nexuspay
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8090
+              protocol: TCP
+          env:
+            - name: NEXUSPAY_DB_URL
+              value: {{ .Values.nexuspay.database.url }}
+            - name: NEXUSPAY_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nexuspay.fullname" . }}-secret
+                  key: db-username
+            - name: NEXUSPAY_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nexuspay.fullname" . }}-secret
+                  key: db-password
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: {{ .Values.nexuspay.kafka.bootstrapServers }}
+            - name: VALKEY_URL
+              value: {{ .Values.nexuspay.valkey.url }}
+            - name: KEYCLOAK_URL
+              value: {{ .Values.nexuspay.keycloak.url }}
+            - name: HYPERSWITCH_BASE_URL
+              value: {{ .Values.nexuspay.hyperswitch.baseUrl }}
+            - name: HYPERSWITCH_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nexuspay.fullname" . }}-secret
+                  key: hyperswitch-api-key
+            - name: HYPERSWITCH_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nexuspay.fullname" . }}-secret
+                  key: hyperswitch-webhook-secret
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8090
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8090
+            initialDelaySeconds: 15
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

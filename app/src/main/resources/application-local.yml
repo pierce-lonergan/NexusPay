@@ -1,0 +1,13 @@
+# Local development profile (Docker Compose)
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+
+# More verbose logging for local dev
+logging:
+  level:
+    io.nexuspay: DEBUG
+    org.springframework.web: DEBUG
+    org.hibernate.SQL: DEBUG

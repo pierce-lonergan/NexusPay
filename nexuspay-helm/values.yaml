@@ -1,0 +1,104 @@
+# NexusPay Helm Values
+# Override per-environment in environments/{env}/values.yaml
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/nexuspay/nexuspay
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8090
+
+ingress:
+  enabled: false
+  className: nginx
+  hosts:
+    - host: nexuspay.local
+      paths:
+        - path: /
+          pathType: Prefix
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: 2000m
+    memory: 1024Mi
+
+# NexusPay application config
+nexuspay:
+  database:
+    url: jdbc:postgresql://nexuspay-postgresql:5432/nexuspay
+    username: nexuspay
+    password: nexuspay
+  kafka:
+    bootstrapServers: nexuspay-kafka:9092
+    replicationFactor: 3
+    partitions: 6
+  valkey:
+    url: redis://nexuspay-valkey-master:6379
+  keycloak:
+    url: http://nexuspay-keycloak:8080
+  hyperswitch:
+    baseUrl: http://hyperswitch-router:8080
+    apiKey: ""
+    webhookSecret: ""
+  iam:
+    refundApprovalThreshold: 50000
+  rateLimit:
+    maxRequests: 100
+    windowSeconds: 60
+
+# PostgreSQL subchart
+postgresql:
+  enabled: true
+  auth:
+    username: nexuspay
+    password: nexuspay
+    database: nexuspay
+  primary:
+    persistence:
+      size: 10Gi
+
+# Kafka subchart (KRaft mode)
+kafka:
+  enabled: true
+  kraft:
+    enabled: true
+  controller:
+    replicaCount: 1
+  broker:
+    replicaCount: 1
+
+# Valkey subchart
+valkey:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: false
+
+# Keycloak subchart
+keycloak:
+  enabled: true
+  auth:
+    adminUser: admin
+    adminPassword: admin
+  postgresql:
+    enabled: false
+  externalDatabase:
+    host: ""
+
+# HyperSwitch (custom)
+hyperswitch:
+  enabled: true
+  router:
+    image: juspaydotin/hyperswitch-router:v1.120.0-standalone
+    replicaCount: 1
+  postgresql:
+    image: postgres:16-alpine
+  redis:
+    image: redis:7-alpine

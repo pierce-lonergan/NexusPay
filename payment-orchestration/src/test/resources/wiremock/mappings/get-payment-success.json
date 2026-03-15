@@ -1,0 +1,22 @@
+{
+  "request": {
+    "method": "GET",
+    "urlPattern": "/payments/.*"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "payment_id": "pay_test_12345",
+      "status": "succeeded",
+      "amount": 5000,
+      "currency": "USD",
+      "capture_method": "automatic",
+      "connector": "dummy",
+      "connector_transaction_id": "txn_dummy_12345",
+      "created_at": "2026-03-15T12:00:00Z"
+    }
+  }
+}

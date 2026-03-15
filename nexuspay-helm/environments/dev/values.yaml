@@ -1,0 +1,18 @@
+# Development environment overrides
+replicaCount: 1
+
+nexuspay:
+  kafka:
+    replicationFactor: 1
+    partitions: 3
+
+postgresql:
+  primary:
+    persistence:
+      size: 1Gi
+
+kafka:
+  controller:
+    replicaCount: 1
+  broker:
+    replicaCount: 1

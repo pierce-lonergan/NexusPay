@@ -1,0 +1,23 @@
+apiVersion: v2
+name: nexuspay
+description: NexusPay - Enterprise Payment Platform
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+dependencies:
+  - name: postgresql
+    version: "15.5.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+  - name: kafka
+    version: "29.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: kafka.enabled
+  - name: valkey
+    version: "1.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: valkey.enabled
+  - name: keycloak
+    version: "22.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: keycloak.enabled

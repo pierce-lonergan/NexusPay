@@ -1,0 +1,119 @@
+spring:
+  application:
+    name: nexuspay
+  threads:
+    virtual:
+      enabled: true
+
+  # Database
+  datasource:
+    url: ${NEXUSPAY_DB_URL:jdbc:postgresql://localhost:5432/nexuspay}
+    username: ${NEXUSPAY_DB_USER:nexuspay}
+    password: ${NEXUSPAY_DB_PASSWORD:nexuspay_local}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        default_schema: public
+        jdbc:
+          time_zone: UTC
+
+  # Flyway — module-specific paths added via FlywayConfigurationCustomizer beans per module (GAP-017)
+  flyway:
+    enabled: true
+    locations:
+      - classpath:db/migration
+    baseline-on-migrate: true
+
+  # Kafka (producer/consumer config in Java: KafkaProducerConfig, KafkaConsumerConfig)
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+  # Redis/Valkey
+  data:
+    redis:
+      url: ${VALKEY_URL:redis://localhost:6379}
+
+  # Security defaults (overridden per profile)
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_URL:http://localhost:8180}/realms/nexuspay
+
+# Server
+server:
+  port: 8090
+  shutdown: graceful
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+  health:
+    db:
+      enabled: true
+    redis:
+      enabled: true
+
+# Vault — disabled by default for local dev; enable with 'vault' Spring profile
+# When enabled, secrets are loaded from Vault instead of env vars / defaults.
+# spring.cloud.vault:
+#   uri: ${VAULT_URL:http://localhost:8200}
+#   token: ${VAULT_TOKEN:nexuspay-dev-token}
+#   kv:
+#     enabled: true
+#     backend: secret
+#     default-context: nexuspay
+
+# NexusPay Configuration
+nexuspay:
+  multi-tenancy:
+    rls:
+      enabled: ${NEXUSPAY_RLS_ENABLED:true}
+  hyperswitch:
+    base-url: ${HYPERSWITCH_BASE_URL:http://localhost:8080}
+    api-key: ${HYPERSWITCH_API_KEY:dev_api_key_for_local}
+    webhook-secret: ${HYPERSWITCH_WEBHOOK_SECRET:webhook_secret_for_local}
+  ledger:
+    reconciliation-cron: "0 0 * * * *"
+  kafka:
+    replication-factor: ${KAFKA_REPLICATION_FACTOR:1}
+    partitions: ${KAFKA_PARTITIONS:6}
+  iam:
+    refund-approval-threshold: 50000
+  rate-limit:
+    max-requests: ${RATE_LIMIT_MAX_REQUESTS:100}
+    window-seconds: ${RATE_LIMIT_WINDOW_SECONDS:60}
+  retention:
+    outbox-days: ${RETENTION_OUTBOX_DAYS:7}
+    webhook-days: ${RETENTION_WEBHOOK_DAYS:90}
+
+# Resilience4j
+resilience4j:
+  circuitbreaker:
+    instances:
+      hyperswitch:
+        failure-rate-threshold: 50
+        sliding-window-size: 10
+        wait-duration-in-open-state: 30s
+        slow-call-duration-threshold: 5s
+        slow-call-rate-threshold: 80
+        permitted-number-of-calls-in-half-open-state: 3
+
+# SpringDoc
+springdoc:
+  api-docs:
+    path: /v1/api-docs
+  swagger-ui:
+    path: /v1/swagger-ui

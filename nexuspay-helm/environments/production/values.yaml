@@ -1,0 +1,26 @@
+# Production environment overrides
+replicaCount: 3
+
+resources:
+  requests:
+    cpu: 1000m
+    memory: 1024Mi
+  limits:
+    cpu: 4000m
+    memory: 2048Mi
+
+nexuspay:
+  kafka:
+    replicationFactor: 3
+    partitions: 12
+
+postgresql:
+  primary:
+    persistence:
+      size: 100Gi
+
+kafka:
+  controller:
+    replicaCount: 3
+  broker:
+    replicaCount: 3

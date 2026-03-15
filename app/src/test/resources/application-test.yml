@@ -1,0 +1,51 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+    locations:
+      - classpath:db/migration/payment
+      - classpath:db/migration/ledger
+      - classpath:db/migration/iam
+      - classpath:db/migration/gateway
+    baseline-on-migrate: true
+
+  # Disable Keycloak JWT validation in tests
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:0/realms/nexuspay
+
+server:
+  port: 0
+
+nexuspay:
+  hyperswitch:
+    base-url: http://localhost:${wiremock.server.port:18080}
+    api-key: test_api_key
+    webhook-secret: test_webhook_secret
+  iam:
+    refund-approval-threshold: 50000
+  rate-limit:
+    max-requests: 1000
+    window-seconds: 60
+  kafka:
+    replication-factor: 1
+    partitions: 1
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      hyperswitch:
+        failure-rate-threshold: 50
+        sliding-window-size: 5
+        wait-duration-in-open-state: 5s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
