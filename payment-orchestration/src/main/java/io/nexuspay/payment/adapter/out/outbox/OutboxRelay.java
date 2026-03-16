@@ -2,11 +2,13 @@ package io.nexuspay.payment.adapter.out.outbox;
 
 import io.nexuspay.common.event.EventTypes;
 import io.nexuspay.common.event.Topics;
+import io.nexuspay.common.event.avro.DualWritePublisher;
 import jakarta.annotation.PreDestroy;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.internals.RecordHeader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -19,6 +21,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BiConsumer;
 
 /**
  * Polling-based outbox relay with leader election and graceful shutdown.
@@ -67,6 +70,20 @@ public class OutboxRelay {
     private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
     private final AtomicBoolean relaying = new AtomicBoolean(false);
 
+    /**
+     * Optional DualWritePublisher — injected when dual-write infrastructure is available.
+     * Falls back to direct KafkaTemplate publish when absent.
+     */
+    @Autowired(required = false)
+    private DualWritePublisher dualWritePublisher;
+
+    /**
+     * Optional post-publish callback for event log appending.
+     * Set by configuration to call EventLogAppender.append() when event log is enabled.
+     */
+    @Autowired(required = false)
+    private PostPublishCallback postPublishCallback;
+
     public OutboxRelay(OutboxEventRepository outboxRepository,
                        KafkaTemplate<String, String> kafkaTemplate,
                        StringRedisTemplate redisTemplate) {
@@ -94,24 +111,45 @@ public class OutboxRelay {
                 if (shuttingDown.get()) break;
                 try {
                     String topic = TOPIC_MAP.getOrDefault(event.getAggregateType(), DEFAULT_TOPIC);
+                    Map<String, String> eventHeaders = Map.of(
+                            "event_type", event.getEventType(),
+                            "aggregate_type", event.getAggregateType(),
+                            "aggregate_id", event.getAggregateId());
 
-                    var record = new ProducerRecord<>(topic, null, event.getAggregateId(), event.getPayload());
-                    record.headers()
-                            .add(new RecordHeader("event_type",
-                                    event.getEventType().getBytes(StandardCharsets.UTF_8)))
-                            .add(new RecordHeader("aggregate_type",
-                                    event.getAggregateType().getBytes(StandardCharsets.UTF_8)))
-                            .add(new RecordHeader("aggregate_id",
-                                    event.getAggregateId().getBytes(StandardCharsets.UTF_8)));
+                    if (dualWritePublisher != null) {
+                        // Delegate to DualWritePublisher for format-aware publishing
+                        dualWritePublisher.publish(topic, event.getAggregateId(),
+                                event.getPayload(), event.getEventType(),
+                                event.getAggregateType(), event.getAggregateId(),
+                                eventHeaders)
+                                .whenComplete((result, ex) -> {
+                                    if (ex != null) {
+                                        log.error("Failed to publish outbox event {} via DualWritePublisher: {}",
+                                                event.getId(), ex.getMessage());
+                                    }
+                                });
+                    } else {
+                        // Fallback: direct JSON publish (pre-migration behavior)
+                        var record = new ProducerRecord<>(topic, null, event.getAggregateId(), event.getPayload());
+                        eventHeaders.forEach((k, v) ->
+                                record.headers().add(new RecordHeader(k, v.getBytes(StandardCharsets.UTF_8))));
 
-                    kafkaTemplate.send(record)
-                            .whenComplete((result, ex) -> {
-                                if (ex != null) {
-                                    log.error("Failed to publish outbox event {} to Kafka: {}",
-                                            event.getId(), ex.getMessage());
-                                }
-                            });
+                        kafkaTemplate.send(record)
+                                .whenComplete((result, ex) -> {
+                                    if (ex != null) {
+                                        log.error("Failed to publish outbox event {} to Kafka: {}",
+                                                event.getId(), ex.getMessage());
+                                    }
+                                });
+                    }
+
                     event.markPublished();
+
+                    // Append to event log after successful publish
+                    if (postPublishCallback != null) {
+                        postPublishCallback.onPublished(event);
+                    }
+
                     log.debug("Published outbox event: id={} type={} topic={}",
                             event.getId(), event.getEventType(), topic);
                 } catch (Exception e) {
