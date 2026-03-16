@@ -2,6 +2,8 @@ package io.nexuspay.gateway.adapter.in.rest;
 
 import io.nexuspay.gateway.adapter.in.rest.dto.*;
 import io.nexuspay.gateway.adapter.out.persistence.WebhookEndpointEntity;
+import io.nexuspay.gateway.domain.PaymentSession;
+import io.nexuspay.gateway.domain.PaymentToken;
 import io.nexuspay.iam.domain.PendingApproval;
 import io.nexuspay.ledger.domain.JournalEntry;
 import io.nexuspay.ledger.domain.LedgerAccount;
@@ -63,6 +65,31 @@ final class ResponseMapper {
                 e.getId(), e.getUrl(), e.getDescription(),
                 includeSecret ? e.getSecret() : null,
                 e.getEvents(), e.isEnabled(), e.getCreatedAt()
+        );
+    }
+
+    // --- Payment Session / Token mappers (Sprint 3.5) ---
+
+    static PaymentSessionResponse toPaymentSessionResponse(PaymentSession s, String clientSecret) {
+        return new PaymentSessionResponse(
+                s.getId(), s.getStatus(), s.getAmount(), s.getCurrency(),
+                s.getCustomerId(), s.getPaymentIntentId(), clientSecret,
+                s.getAllowedPaymentMethods(), s.getSuccessUrl(), s.getCancelUrl(),
+                s.getBranding(), s.getExpiresAt(), s.getCreatedAt()
+        );
+    }
+
+    static TokenizeResponse toTokenizeResponse(PaymentToken t) {
+        return new TokenizeResponse(
+                t.getId(), t.getType(), t.getCardLastFour(),
+                t.getCardBrand(), t.getExpiresAt()
+        );
+    }
+
+    static SessionStatusResponse toSessionStatusResponse(PaymentSession s) {
+        return new SessionStatusResponse(
+                s.getId(), s.getStatus(), s.getAmount(), s.getCurrency(),
+                s.getPaymentIntentId(), s.getAllowedPaymentMethods(), null
         );
     }
 

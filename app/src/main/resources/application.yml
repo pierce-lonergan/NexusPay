@@ -173,6 +173,17 @@ nexuspay:
       enabled: ${NEXUSPAY_DLQ_REPROCESSOR_ENABLED:true}
       fixed-delay-ms: 60000
       max-retries: 5
+  session:
+    jwt-secret: ${NEXUSPAY_SESSION_JWT_SECRET:dev-session-secret-minimum-32-chars!!}
+    default-expiry: PT30M
+    max-expiry: PT24H
+    token-expiry: PT15M
+    max-tokenize-attempts: 10
+    multi-use-token-expiry: P365D
+  checkout:
+    cors-allowed-origins: ${NEXUSPAY_CHECKOUT_CORS_ORIGINS:*}
+    cors-max-age: 86400
+    hosted-url: ${NEXUSPAY_CHECKOUT_URL:http://localhost:3000/checkout}
   fx:
     enabled: ${NEXUSPAY_FX_ENABLED:true}
     default-provider: ecb
