@@ -1,6 +1,6 @@
 # NexusPay Known Gaps Analysis
 
-Last updated: 2026-03-15 (Sprint 3.2 complete — cross-border & FX)
+Last updated: 2026-03-15 (Sprint 3.2 + gap patches — FX streaming, XML parsing, DCC, OFAC auto-update)
 
 This document tracks known gaps, technical debt, and deferred decisions in the NexusPay system. Each gap is categorized by severity, the sprint it was identified, and the planned resolution timeline.
 
@@ -262,30 +262,25 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Description**: GEO_RESTRICTION rules rely on `ip_country` being provided in the PaymentContext. No automatic IP-to-country lookup service (e.g., MaxMind GeoIP) is integrated.
 - **Resolution**: Integrate MaxMind GeoLite2 or similar IP geolocation database for automatic country resolution.
 
-### GAP-042: FX Module — No Real-Time Rate Streaming
+### ~~GAP-042: FX Module — No Real-Time Rate Streaming~~ (RESOLVED Sprint 3.2 patch)
 - **Identified**: Sprint 3.2
-- **Status**: Deferred to Phase 4
-- **Description**: FX rates are fetched via polling/request-response from ECB and Open Exchange Rates. No WebSocket or streaming integration for real-time rate updates. Rates are cached in Valkey with 1h TTL and 24h stale-serving.
-- **Risk**: Rate staleness during high-volatility periods (max 1h stale in normal operation).
-- **Resolution**: Phase 4 — integrate streaming rate providers (Bloomberg, Reuters) or WebSocket-based rate feeds.
+- **Status**: Resolved — Sprint 3.2 patch
+- **Description**: `FxRateStreamingService` added with `@Scheduled` rate streaming to `nexuspay.fx.rates` Kafka topic every 5 minutes (configurable via `nexuspay.fx.streaming.cron`). Downstream consumers now receive proactive rate updates via Kafka instead of relying on pull-based cache reads. On-demand `publishRateUpdate()` also available for ad-hoc rate pushes.
 
-### GAP-043: FX Module — ECB Rate Parsing Brittle
+### ~~GAP-043: FX Module — ECB Rate Parsing Brittle~~ (RESOLVED Sprint 3.2 patch)
 - **Identified**: Sprint 3.2
-- **Status**: Open
-- **Description**: ECB CSV response parsing is basic string splitting. The ECB API format may change without notice. OpenExchangeRates requires paid API key for production volumes.
-- **Resolution**: Add robust XML/CSV parsing with schema validation. Consider caching ECB rates in a local database as backup.
+- **Status**: Resolved — Sprint 3.2 patch
+- **Description**: `EcbFxRateAdapter` rewritten with primary XML parsing using the ECB's well-known `eurofxref-daily.xml` endpoint with DOM parser and XXE protection. SDMX CSV endpoint retained as automatic fallback. Header row skipping and zero-result validation added to CSV parser.
 
-### GAP-044: FX Module — No DCC (Dynamic Currency Conversion) Implementation
+### ~~GAP-044: FX Module — No DCC (Dynamic Currency Conversion) Implementation~~ (RESOLVED Sprint 3.2 patch)
 - **Identified**: Sprint 3.2
-- **Status**: Deferred to Phase 3 (Sprint 3.4)
-- **Description**: Currency capabilities track DCC support per PSP, but no DCC flow is implemented. DCC requires real-time rate disclosure to the customer at checkout.
-- **Resolution**: Phase 3 Sprint 3.4 — implement DCC flow with customer disclosure and consent.
+- **Status**: Resolved — Sprint 3.2 patch
+- **Description**: Full DCC flow implemented: `DccOffer` domain model with lifecycle (OFFERED → ACCEPTED/DECLINED/EXPIRED), `DynamicCurrencyConversionService` with rate disclosure, configurable DCC markup (default 300bps), offer validity window (default 5min), and consent tracking. REST endpoints: `POST /v1/fx/dcc/offers`, `POST .../accept`, `POST .../decline`. Regulatory-compliant disclosure includes exchange rate, markup, margin amount, and expiry.
 
-### GAP-045: FX Module — Sanctions List Not Automatically Updated
+### ~~GAP-045: FX Module — Sanctions List Not Automatically Updated~~ (RESOLVED Sprint 3.2 patch)
 - **Identified**: Sprint 3.2
-- **Status**: Open
-- **Description**: Sanctions list is configured statically via application.yml. No automatic update from OFAC SDN, EU consolidated sanctions, or UN sanctions lists.
-- **Resolution**: Phase 4 — integrate automated sanctions list feed (OFAC SDN API, Dow Jones, LexisNexis).
+- **Status**: Resolved — Sprint 3.2 patch
+- **Description**: `SanctionsListAdapter` rewritten with scheduled OFAC CSL (Consolidated Screening List) refresh via `@Scheduled` cron (default: daily at 2am, configurable via `nexuspay.fx.compliance.sanctions-refresh-cron`). Fetches from `data.trade.gov` CSL CSV endpoint. Merges OFAC country codes with static baseline list. Falls back to static list if OFAC is unreachable. High-risk countries now configurable via `nexuspay.fx.compliance.high-risk-countries`.
 
 ---
 
@@ -305,14 +300,14 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 | Sprint 2.5b (complete) | GAP-034 (real payment), GAP-036 (Kafka events), GAP-037, GAP-038 (new) |
 | Sprint 2.7 (complete) | GAP-020 (metrics export — full observability stack) |
 | Sprint 3.1 (complete) | GAP-039, GAP-040, GAP-041 (fraud module — new gaps identified) |
-| Sprint 3.2 (complete) | GAP-042, GAP-043, GAP-044, GAP-045 (FX module — new gaps identified) |
+| Sprint 3.2 (complete) | GAP-042, GAP-043, GAP-044, GAP-045 (FX module — identified and resolved) |
 | Phase 2 (remaining) | GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-026, GAP-027 |
 | Phase 3 | GAP-012 (full Schema Registry) |
 
 ## Summary
 
 - **Total gaps tracked**: 45
-- **Resolved**: 25 (GAP-001, 003, 005, 006, 007, 009, 010, 011, 013, 014, 016, 017, 019, 020, 022, 025, 030, 031, 034, 036 + partial GAP-008)
+- **Resolved**: 29 (GAP-001, 003, 005, 006, 007, 009, 010, 011, 013, 014, 016, 017, 019, 020, 022, 025, 030, 031, 034, 036, 042, 043, 044, 045 + partial GAP-008)
 - **Partially Addressed**: 3 (GAP-012, GAP-023, GAP-032)
-- **Open/Deferred**: 20 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033, GAP-035, GAP-037, GAP-038, GAP-039, GAP-040, GAP-041, GAP-042, GAP-043, GAP-044, GAP-045)
+- **Open/Deferred**: 16 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033, GAP-035, GAP-037, GAP-038, GAP-039, GAP-040, GAP-041)
 - **Accepted for Phase 1/2**: GAP-024, GAP-028, GAP-029, GAP-038

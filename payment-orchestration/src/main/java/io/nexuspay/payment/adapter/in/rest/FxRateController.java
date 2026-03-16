@@ -2,8 +2,10 @@ package io.nexuspay.payment.adapter.in.rest;
 
 import io.nexuspay.payment.application.fx.CrossBorderComplianceService;
 import io.nexuspay.payment.application.fx.CurrencyRoutingService;
+import io.nexuspay.payment.application.fx.DynamicCurrencyConversionService;
 import io.nexuspay.payment.application.fx.FxRateLockService;
 import io.nexuspay.payment.application.fx.FxRateService;
+import io.nexuspay.payment.domain.fx.DccOffer;
 import io.nexuspay.payment.domain.fx.FxRate;
 import io.nexuspay.payment.domain.fx.FxRateLock;
 import org.springframework.http.ResponseEntity;
@@ -28,15 +30,18 @@ public class FxRateController {
     private final FxRateLockService lockService;
     private final CurrencyRoutingService routingService;
     private final CrossBorderComplianceService complianceService;
+    private final DynamicCurrencyConversionService dccService;
 
     public FxRateController(FxRateService rateService,
                             FxRateLockService lockService,
                             CurrencyRoutingService routingService,
-                            CrossBorderComplianceService complianceService) {
+                            CrossBorderComplianceService complianceService,
+                            DynamicCurrencyConversionService dccService) {
         this.rateService = rateService;
         this.lockService = lockService;
         this.routingService = routingService;
         this.complianceService = complianceService;
+        this.dccService = dccService;
     }
 
     /**
@@ -129,6 +134,76 @@ public class FxRateController {
                 request.amount(), request.currency());
         return ResponseEntity.ok(result);
     }
+
+    // --- DCC (Dynamic Currency Conversion) endpoints --- (GAP-044)
+
+    /**
+     * Create a DCC offer for a payment. Returns the offer with full rate disclosure
+     * required by card scheme regulations.
+     */
+    @PostMapping("/dcc/offers")
+    @PreAuthorize("hasAnyRole('admin', 'operator')")
+    public ResponseEntity<?> createDccOffer(
+            @RequestBody DccOfferRequest request,
+            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId) {
+
+        return dccService.createOffer(
+                tenantId, request.paymentId(), request.pspConnector(),
+                request.presentmentCurrency(), request.presentmentAmountMinorUnits(),
+                request.cardholderCurrency()
+        ).map(offer -> ResponseEntity.ok(dccService.buildDisclosure(offer)))
+         .orElse(ResponseEntity.unprocessableEntity()
+                 .body(Map.of("error", "DCC not available for this payment configuration")));
+    }
+
+    /**
+     * Get a DCC offer by ID.
+     */
+    @GetMapping("/dcc/offers/{offerId}")
+    @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
+    public ResponseEntity<?> getDccOffer(@PathVariable UUID offerId) {
+        return dccService.getOffer(offerId)
+                .map(offer -> ResponseEntity.ok(dccService.buildDisclosure(offer)))
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Accept a DCC offer. The payment will proceed in the cardholder's home currency.
+     */
+    @PostMapping("/dcc/offers/{offerId}/accept")
+    @PreAuthorize("hasAnyRole('admin', 'operator')")
+    public ResponseEntity<Map<String, Object>> acceptDccOffer(@PathVariable UUID offerId) {
+        DccOffer accepted = dccService.acceptOffer(offerId);
+        return ResponseEntity.ok(Map.of(
+                "dcc_offer_id", accepted.id().toString(),
+                "status", accepted.status().name(),
+                "payment_id", accepted.paymentId(),
+                "currency", accepted.cardholderCurrency(),
+                "amount", accepted.cardholderAmountMinorUnits()
+        ));
+    }
+
+    /**
+     * Decline a DCC offer. The payment will proceed in the original presentment currency.
+     */
+    @PostMapping("/dcc/offers/{offerId}/decline")
+    @PreAuthorize("hasAnyRole('admin', 'operator')")
+    public ResponseEntity<Map<String, Object>> declineDccOffer(@PathVariable UUID offerId) {
+        DccOffer declined = dccService.declineOffer(offerId);
+        return ResponseEntity.ok(Map.of(
+                "dcc_offer_id", declined.id().toString(),
+                "status", declined.status().name(),
+                "payment_id", declined.paymentId(),
+                "currency", declined.presentmentCurrency(),
+                "amount", declined.presentmentAmountMinorUnits()
+        ));
+    }
+
+    record DccOfferRequest(String paymentId, String pspConnector,
+                           String presentmentCurrency, long presentmentAmountMinorUnits,
+                           String cardholderCurrency) {}
+
+    // --- Helper methods ---
 
     private Map<String, Object> lockToMap(FxRateLock lock) {
         return Map.of(

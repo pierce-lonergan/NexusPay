@@ -38,6 +38,12 @@ All notable changes to NexusPay are documented here. Format follows [Keep a Chan
 - Outbox relay extended with FX aggregate type → topic mappings
 - PSP currency capabilities seeded for Stripe, Adyen, and dummy_connector
 
+**Sprint 3.2 Gap Patches**
+- GAP-042: `FxRateStreamingService` — scheduled FX rate streaming to Kafka (5min interval, configurable)
+- GAP-043: ECB adapter rewritten with primary XML parsing (eurofxref-daily.xml, DOM parser, XXE protection) and SDMX CSV fallback
+- GAP-044: DCC (Dynamic Currency Conversion) flow — `DccOffer` domain model, `DynamicCurrencyConversionService` with rate disclosure, markup, consent tracking; REST endpoints for create/accept/decline offers
+- GAP-045: Automated sanctions list updates — `SanctionsListAdapter` with scheduled OFAC CSL refresh (daily, configurable), static fallback, configurable high-risk countries
+
 ## [0.2.0] — 2026-03-15 (Phase 2)
 
 ### Added

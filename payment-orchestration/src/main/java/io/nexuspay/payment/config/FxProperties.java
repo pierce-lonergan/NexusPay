@@ -22,6 +22,8 @@ public class FxProperties {
     private EcbProperties ecb = new EcbProperties();
     private OpenExchangeRatesProperties openExchangeRates = new OpenExchangeRatesProperties();
     private ComplianceProperties compliance = new ComplianceProperties();
+    private StreamingProperties streaming = new StreamingProperties();
+    private DccProperties dcc = new DccProperties();
 
     // Getters and setters
     public boolean isEnabled() { return enabled; }
@@ -38,6 +40,10 @@ public class FxProperties {
     public void setOpenExchangeRates(OpenExchangeRatesProperties openExchangeRates) { this.openExchangeRates = openExchangeRates; }
     public ComplianceProperties getCompliance() { return compliance; }
     public void setCompliance(ComplianceProperties compliance) { this.compliance = compliance; }
+    public StreamingProperties getStreaming() { return streaming; }
+    public void setStreaming(StreamingProperties streaming) { this.streaming = streaming; }
+    public DccProperties getDcc() { return dcc; }
+    public void setDcc(DccProperties dcc) { this.dcc = dcc; }
 
     public static class CacheProperties {
         private Duration ttl = Duration.ofHours(1);
@@ -84,11 +90,46 @@ public class FxProperties {
 
     public static class ComplianceProperties {
         private List<String> sanctionedCountries = List.of("KP", "IR", "SY", "CU");
+        private List<String> highRiskCountries = List.of("AF", "BY", "MM", "VE", "ZW", "LY", "SO", "YE", "SD");
         private int crossBorderAmountReportingThreshold = 10000;
+        /** Cron for OFAC sanctions list refresh (default: daily at 2am). */
+        private String sanctionsRefreshCron = "0 0 2 * * *";
 
         public List<String> getSanctionedCountries() { return sanctionedCountries; }
         public void setSanctionedCountries(List<String> sanctionedCountries) { this.sanctionedCountries = sanctionedCountries; }
+        public List<String> getHighRiskCountries() { return highRiskCountries; }
+        public void setHighRiskCountries(List<String> highRiskCountries) { this.highRiskCountries = highRiskCountries; }
         public int getCrossBorderAmountReportingThreshold() { return crossBorderAmountReportingThreshold; }
         public void setCrossBorderAmountReportingThreshold(int crossBorderAmountReportingThreshold) { this.crossBorderAmountReportingThreshold = crossBorderAmountReportingThreshold; }
+        public String getSanctionsRefreshCron() { return sanctionsRefreshCron; }
+        public void setSanctionsRefreshCron(String sanctionsRefreshCron) { this.sanctionsRefreshCron = sanctionsRefreshCron; }
+    }
+
+    /** FX rate streaming configuration (GAP-042). */
+    public static class StreamingProperties {
+        private boolean enabled = true;
+        private String baseCurrency = "EUR";
+        /** Cron for rate streaming to Kafka (default: every 5 minutes). */
+        private String cron = "0 0/5 * * * *";
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public String getBaseCurrency() { return baseCurrency; }
+        public void setBaseCurrency(String baseCurrency) { this.baseCurrency = baseCurrency; }
+        public String getCron() { return cron; }
+        public void setCron(String cron) { this.cron = cron; }
+    }
+
+    /** Dynamic Currency Conversion configuration (GAP-044). */
+    public static class DccProperties {
+        /** Default DCC markup in basis points (e.g., 300 = 3%). */
+        private int defaultMarkupBps = 300;
+        /** How long a DCC offer is valid (minutes). */
+        private int offerValidityMinutes = 5;
+
+        public int getDefaultMarkupBps() { return defaultMarkupBps; }
+        public void setDefaultMarkupBps(int defaultMarkupBps) { this.defaultMarkupBps = defaultMarkupBps; }
+        public int getOfferValidityMinutes() { return offerValidityMinutes; }
+        public void setOfferValidityMinutes(int offerValidityMinutes) { this.offerValidityMinutes = offerValidityMinutes; }
     }
 }
