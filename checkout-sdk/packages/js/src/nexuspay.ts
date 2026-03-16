@@ -18,6 +18,7 @@ import { setDebug, debug } from './utils/logger';
 const DEFAULT_API_BASE = 'https://api.nexuspay.io';
 
 interface NexusPayEvents {
+  [key: string]: unknown;
   ready: PaymentSessionResult;
   error: NexusPayError;
   payment_complete: ConfirmResult;
@@ -26,7 +27,7 @@ interface NexusPayEvents {
 }
 
 export class NexusPay extends EventEmitter<NexusPayEvents> {
-  private readonly publishableKey: string;
+  readonly publishableKey: string;
   private readonly httpClient: HttpClient;
   private session: PaymentSessionResult | null = null;
 

@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en" dir="auto">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Secure Card Input — NexusPay</title>
+  <style>
+    /* Reset */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { font-size: var(--nxp-font-size-base, 16px); }
+
+    body {
+      font-family: var(--nxp-font-family, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+      background: transparent;
+      color: var(--nxp-color-text, #1A1A2E);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* Form layout */
+    .card-form {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: calc(var(--nxp-spacing-unit, 4px) * 3);
+    }
+
+    .card-form__number { grid-column: 1 / -1; }
+    .card-form__expiry { grid-column: 1; }
+    .card-form__cvc { grid-column: 2; }
+
+    /* Field */
+    .field { position: relative; }
+
+    .field__label {
+      display: block;
+      margin-bottom: calc(var(--nxp-spacing-unit, 4px) * 1.5);
+      font-size: 0.875rem;
+      font-weight: var(--nxp-font-weight-bold, 600);
+      color: var(--nxp-color-text, #1A1A2E);
+    }
+
+    .field__input {
+      width: 100%;
+      padding: calc(var(--nxp-spacing-unit, 4px) * 3);
+      font-family: inherit;
+      font-size: 1rem;
+      font-weight: var(--nxp-font-weight-normal, 400);
+      color: var(--nxp-color-text, #1A1A2E);
+      background-color: var(--nxp-color-background, #FFFFFF);
+      border: 1px solid var(--nxp-border-default, #E5E7EB);
+      border-radius: var(--nxp-border-radius, 8px);
+      outline: none;
+      transition: border-color 150ms ease, box-shadow 150ms ease;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+
+    .field__input::placeholder { color: #9CA3AF; }
+    .field__input:hover { border-color: var(--nxp-border-hover, #D1D5DB); }
+
+    .field__input:focus {
+      border-color: var(--nxp-color-primary, #0066FF);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--nxp-color-primary, #0066FF) 15%, transparent);
+    }
+
+    .field__input--error { border-color: var(--nxp-color-danger, #DC2626); }
+
+    .field__input--error:focus {
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--nxp-color-danger, #DC2626) 15%, transparent);
+    }
+
+    /* Autofill */
+    .field__input:-webkit-autofill {
+      -webkit-box-shadow: 0 0 0 1000px var(--nxp-color-background, #FFFFFF) inset;
+      -webkit-text-fill-color: var(--nxp-color-text, #1A1A2E);
+    }
+
+    /* Expiry row */
+    .expiry-row {
+      display: flex;
+      align-items: center;
+      gap: calc(var(--nxp-spacing-unit, 4px) * 1);
+    }
+
+    .expiry-row input { text-align: center; }
+    .expiry-separator {
+      font-size: 1.125rem;
+      color: #9CA3AF;
+      flex-shrink: 0;
+    }
+
+    /* Error */
+    .field__error {
+      display: none;
+      margin-top: calc(var(--nxp-spacing-unit, 4px) * 1.5);
+      font-size: 0.8125rem;
+      color: var(--nxp-color-danger, #DC2626);
+      animation: slide-in 200ms ease-out;
+    }
+
+    .field__error--visible { display: block; }
+
+    @keyframes slide-in {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Brand icon */
+    .brand-icon {
+      position: absolute;
+      right: calc(var(--nxp-spacing-unit, 4px) * 3);
+      top: 50%;
+      transform: translateY(-50%);
+      width: 32px;
+      height: 20px;
+      pointer-events: none;
+      transition: opacity 150ms ease-out;
+    }
+
+    .brand-icon--hidden { opacity: 0; }
+    .brand-icon svg { width: 100%; height: 100%; }
+
+    /* Dark mode */
+    @media (prefers-color-scheme: dark) {
+      body { color: var(--nxp-color-text, #E2E8F0); }
+
+      .field__label { color: var(--nxp-color-text, #E2E8F0); }
+
+      .field__input {
+        color: var(--nxp-color-text, #E2E8F0);
+        background-color: var(--nxp-color-background, #0F172A);
+        border-color: var(--nxp-border-default, #334155);
+      }
+
+      .field__input:hover { border-color: var(--nxp-border-hover, #475569); }
+      .field__input::placeholder { color: #64748B; }
+
+      .field__input:-webkit-autofill {
+        -webkit-box-shadow: 0 0 0 1000px var(--nxp-color-background, #0F172A) inset;
+        -webkit-text-fill-color: var(--nxp-color-text, #E2E8F0);
+      }
+    }
+
+    /* RTL */
+    [dir="rtl"] .field__input { text-align: right; }
+    [dir="rtl"] .brand-icon { right: auto; left: calc(var(--nxp-spacing-unit, 4px) * 3); }
+  </style>
+</head>
+<body>
+  <form class="card-form" autocomplete="on" novalidate>
+    <div class="card-form__number field">
+      <label class="field__label" for="card-number">Card number</label>
+      <div style="position: relative;">
+        <input
+          id="card-number"
+          class="field__input"
+          type="text"
+          inputmode="numeric"
+          autocomplete="cc-number"
+          placeholder="1234 1234 1234 1234"
+          maxlength="23"
+          aria-label="Card number"
+          dir="auto"
+        />
+        <div id="brand-icon" class="brand-icon" aria-hidden="true"></div>
+      </div>
+      <div id="error-pan" class="field__error" role="alert"></div>
+    </div>
+
+    <div class="card-form__expiry field">
+      <label class="field__label">Expiry</label>
+      <div class="expiry-row">
+        <input
+          id="card-exp-month"
+          class="field__input"
+          type="text"
+          inputmode="numeric"
+          autocomplete="cc-exp-month"
+          placeholder="MM"
+          maxlength="2"
+          aria-label="Expiry month"
+          style="width: 3.5rem;"
+        />
+        <span class="expiry-separator">/</span>
+        <input
+          id="card-exp-year"
+          class="field__input"
+          type="text"
+          inputmode="numeric"
+          autocomplete="cc-exp-year"
+          placeholder="YY"
+          maxlength="2"
+          aria-label="Expiry year"
+          style="width: 3.5rem;"
+        />
+      </div>
+      <div id="error-expiry" class="field__error" role="alert"></div>
+    </div>
+
+    <div class="card-form__cvc field">
+      <label class="field__label" for="card-cvc">CVC</label>
+      <input
+        id="card-cvc"
+        class="field__input"
+        type="text"
+        inputmode="numeric"
+        autocomplete="cc-csc"
+        placeholder="123"
+        maxlength="4"
+        aria-label="CVC"
+      />
+      <div id="error-cvc" class="field__error" role="alert"></div>
+    </div>
+  </form>
+
+  <script type="module">
+    // Card frame logic is bundled separately; in production it would be inlined.
+    // For development, the card-frame.ts init function is called from the bundled script.
+
+    // Inline minimal frame logic for standalone HTML operation:
+    const BIN_PATTERNS = [
+      { brand: 'visa', pattern: /^4/ },
+      { brand: 'mastercard', pattern: /^(5[1-5]|2[2-7])/ },
+      { brand: 'amex', pattern: /^3[47]/ },
+      { brand: 'discover', pattern: /^(6011|65|64[4-9])/ },
+      { brand: 'jcb', pattern: /^35(2[89]|[3-8])/ },
+      { brand: 'diners', pattern: /^(30[0-5]|36|38)/ },
+      { brand: 'unionpay', pattern: /^62/ },
+      { brand: 'maestro', pattern: /^(5018|5020|5038|6304|6759|676[1-3])/ },
+    ];
+
+    function detectBrand(pan) {
+      const digits = pan.replace(/\D/g, '');
+      if (!digits) return 'unknown';
+      for (const { brand, pattern } of BIN_PATTERNS) {
+        if (pattern.test(digits)) return brand;
+      }
+      return 'unknown';
+    }
+
+    function luhnCheck(pan) {
+      const digits = pan.replace(/\D/g, '');
+      if (digits.length < 12) return false;
+      let sum = 0;
+      let alt = false;
+      for (let i = digits.length - 1; i >= 0; i--) {
+        let n = parseInt(digits[i], 10);
+        if (alt) { n *= 2; if (n > 9) n -= 9; }
+        sum += n;
+        alt = !alt;
+      }
+      return sum % 10 === 0;
+    }
+
+    function isExpiryValid(month, year) {
+      if (month < 1 || month > 12) return false;
+      const now = new Date();
+      const fullYear = 2000 + year;
+      const expiry = new Date(fullYear, month, 0);
+      return expiry >= new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+
+    function formatPAN(digits) {
+      const brand = detectBrand(digits);
+      if (brand === 'amex') {
+        return [digits.slice(0,4), digits.slice(4,10), digits.slice(10,15)].filter(Boolean).join(' ');
+      }
+      return digits.match(/.{1,4}/g)?.join(' ') || digits;
+    }
+
+    function cvcLen(brand) { return brand === 'amex' ? 4 : 3; }
+
+    const state = {
+      pan: '', expMonth: '', expYear: '', cvc: '', brand: 'unknown',
+      errors: { pan: null, expiry: null, cvc: null },
+      apiBase: '', sessionToken: ''
+    };
+
+    function post(type, payload) {
+      window.parent.postMessage({ source: 'nexuspay-card-frame', type, payload }, '*');
+    }
+
+    function isComplete() {
+      return luhnCheck(state.pan)
+        && isExpiryValid(parseInt(state.expMonth), parseInt(state.expYear))
+        && state.cvc.length === cvcLen(state.brand)
+        && !state.errors.pan && !state.errors.expiry && !state.errors.cvc;
+    }
+
+    function emitChange() {
+      post('CARD_CHANGE', {
+        complete: isComplete(),
+        empty: !state.pan && !state.expMonth && !state.expYear && !state.cvc,
+        brand: state.brand,
+        error: state.errors.pan || state.errors.expiry || state.errors.cvc,
+        cardLastFour: state.pan.length >= 4 ? state.pan.slice(-4) : null,
+      });
+      if (isComplete()) post('CARD_COMPLETE');
+    }
+
+    // Number input
+    const panInput = document.getElementById('card-number');
+    const brandIcon = document.getElementById('brand-icon');
+    const errorPan = document.getElementById('error-pan');
+    const monthInput = document.getElementById('card-exp-month');
+    const yearInput = document.getElementById('card-exp-year');
+    const errorExpiry = document.getElementById('error-expiry');
+    const cvcInput = document.getElementById('card-cvc');
+    const errorCvc = document.getElementById('error-cvc');
+
+    panInput.addEventListener('input', () => {
+      const cursor = panInput.selectionStart || 0;
+      const digitsBefore = panInput.value.slice(0, cursor).replace(/\D/g, '').length;
+      const digits = panInput.value.replace(/\D/g, '');
+      state.pan = digits;
+      state.brand = detectBrand(digits);
+      const formatted = formatPAN(digits);
+      panInput.value = formatted;
+
+      let nc = 0, ds = 0;
+      for (let i = 0; i < formatted.length && ds < digitsBefore; i++) {
+        nc = i + 1;
+        if (formatted[i] !== ' ') ds++;
+      }
+      panInput.setSelectionRange(nc, nc);
+
+      cvcInput.maxLength = cvcLen(state.brand);
+      cvcInput.placeholder = state.brand === 'amex' ? '1234' : '123';
+
+      if (digits.length >= 13) {
+        state.errors.pan = luhnCheck(digits) ? null : 'Invalid card number';
+      } else {
+        state.errors.pan = null;
+      }
+
+      errorPan.textContent = state.errors.pan || '';
+      errorPan.className = state.errors.pan ? 'field__error field__error--visible' : 'field__error';
+      panInput.className = state.errors.pan ? 'field__input field__input--error' : 'field__input';
+      emitChange();
+    });
+
+    monthInput.addEventListener('input', () => {
+      const d = monthInput.value.replace(/\D/g, '').slice(0, 2);
+      monthInput.value = d;
+      state.expMonth = d;
+      if (d.length === 2) {
+        const m = parseInt(d, 10);
+        if (m < 1 || m > 12) { state.errors.expiry = 'Invalid month'; }
+        else { state.errors.expiry = null; yearInput.focus(); }
+      } else { state.errors.expiry = null; }
+      errorExpiry.textContent = state.errors.expiry || '';
+      errorExpiry.className = state.errors.expiry ? 'field__error field__error--visible' : 'field__error';
+      emitChange();
+    });
+
+    yearInput.addEventListener('input', () => {
+      const d = yearInput.value.replace(/\D/g, '').slice(0, 2);
+      yearInput.value = d;
+      state.expYear = d;
+      if (d.length === 2 && state.expMonth.length === 2) {
+        state.errors.expiry = isExpiryValid(parseInt(state.expMonth), parseInt(d)) ? null : 'Card expired';
+      }
+      errorExpiry.textContent = state.errors.expiry || '';
+      errorExpiry.className = state.errors.expiry ? 'field__error field__error--visible' : 'field__error';
+      emitChange();
+    });
+
+    cvcInput.addEventListener('input', () => {
+      const max = cvcLen(state.brand);
+      const d = cvcInput.value.replace(/\D/g, '').slice(0, max);
+      cvcInput.value = d;
+      state.cvc = d;
+      state.errors.cvc = null;
+      errorCvc.textContent = '';
+      errorCvc.className = 'field__error';
+      emitChange();
+    });
+
+    // Parent messages
+    window.addEventListener('message', async (event) => {
+      const data = event.data;
+      if (!data || data.source !== 'nexuspay-parent') return;
+
+      if (data.type === 'STYLE_UPDATE') {
+        const p = data.payload || {};
+        if (p.sessionToken) state.sessionToken = p.sessionToken;
+        if (p.apiBase) state.apiBase = p.apiBase;
+        if (p.appearance?.variables) {
+          const vars = p.appearance.variables;
+          const map = {
+            colorPrimary: '--nxp-color-primary', colorBackground: '--nxp-color-background',
+            colorText: '--nxp-color-text', colorDanger: '--nxp-color-danger',
+            colorSuccess: '--nxp-color-success', fontFamily: '--nxp-font-family',
+            fontSizeBase: '--nxp-font-size-base', borderRadius: '--nxp-border-radius',
+            spacingUnit: '--nxp-spacing-unit', fontWeightNormal: '--nxp-font-weight-normal',
+            fontWeightBold: '--nxp-font-weight-bold',
+          };
+          for (const [k, v] of Object.entries(map)) {
+            if (vars[k] !== undefined) document.documentElement.style.setProperty(v, String(vars[k]));
+          }
+        }
+      } else if (data.type === 'TOKENIZE_REQUEST') {
+        if (!isComplete()) {
+          post('TOKENIZE_RESPONSE', { success: false, error: 'Card details are incomplete or invalid' });
+          return;
+        }
+        try {
+          const res = await fetch(`${state.apiBase}/v1/checkout/tokenize`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${state.sessionToken}` },
+            body: JSON.stringify({
+              type: 'card', card_last_four: state.pan.slice(-4), card_brand: state.brand,
+              card_exp_month: parseInt(state.expMonth), card_exp_year: 2000 + parseInt(state.expYear),
+              token_data: btoa(state.pan),
+            }),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            post('TOKENIZE_RESPONSE', { success: false, error: err?.error?.message || `Failed (${res.status})` });
+            return;
+          }
+          const d = await res.json();
+          post('TOKENIZE_RESPONSE', { success: true, tokenId: d.id });
+        } catch (e) {
+          post('TOKENIZE_RESPONSE', { success: false, error: e.message || 'Network error' });
+        }
+      } else if (data.type === 'FOCUS_REQUEST') {
+        panInput.focus();
+      }
+    });
+
+    // Ready
+    post('FRAME_READY');
+  </script>
+</body>
+</html>

@@ -1,0 +1,190 @@
+/**
+ * Card frame styles — used inside the sandboxed PCI iframe.
+ * Uses CSS custom properties injected by the parent via postMessage.
+ */
+
+/* Reset */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: var(--nxp-font-size-base, 16px);
+}
+
+body {
+  font-family: var(--nxp-font-family, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+  background: transparent;
+  color: var(--nxp-color-text, #1A1A2E);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* --- Form Layout --- */
+
+.card-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: calc(var(--nxp-spacing-unit, 4px) * 3);
+}
+
+.card-form__number {
+  grid-column: 1 / -1;
+}
+
+.card-form__expiry {
+  grid-column: 1;
+}
+
+.card-form__cvc {
+  grid-column: 2;
+}
+
+/* --- Field --- */
+
+.field {
+  position: relative;
+}
+
+.field__label {
+  display: block;
+  margin-bottom: calc(var(--nxp-spacing-unit, 4px) * 1.5);
+  font-size: 0.875rem;
+  font-weight: var(--nxp-font-weight-bold, 600);
+  color: var(--nxp-color-text, #1A1A2E);
+}
+
+.field__input {
+  width: 100%;
+  padding: calc(var(--nxp-spacing-unit, 4px) * 3);
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: var(--nxp-font-weight-normal, 400);
+  color: var(--nxp-color-text, #1A1A2E);
+  background-color: var(--nxp-color-background, #FFFFFF);
+  border: 1px solid var(--nxp-border-default, #E5E7EB);
+  border-radius: var(--nxp-border-radius, 8px);
+  outline: none;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.field__input::placeholder {
+  color: #9CA3AF;
+}
+
+.field__input:hover {
+  border-color: var(--nxp-border-hover, #D1D5DB);
+}
+
+.field__input:focus {
+  border-color: var(--nxp-color-primary, #0066FF);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--nxp-color-primary, #0066FF) 15%, transparent);
+}
+
+.field__input--error {
+  border-color: var(--nxp-color-danger, #DC2626);
+}
+
+.field__input--error:focus {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--nxp-color-danger, #DC2626) 15%, transparent);
+}
+
+.field__input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Autofill override */
+.field__input:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0 1000px var(--nxp-color-background, #FFFFFF) inset;
+  -webkit-text-fill-color: var(--nxp-color-text, #1A1A2E);
+}
+
+/* --- Brand Icon --- */
+
+.brand-icon {
+  position: absolute;
+  right: calc(var(--nxp-spacing-unit, 4px) * 3);
+  top: calc(var(--nxp-spacing-unit, 4px) * 1.5 + 0.875rem + calc(var(--nxp-spacing-unit, 4px) * 1.5) + 50%);
+  transform: translateY(-50%);
+  width: 32px;
+  height: 20px;
+  pointer-events: none;
+  transition: opacity 150ms ease-out;
+}
+
+.brand-icon--hidden {
+  opacity: 0;
+}
+
+.brand-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* --- Error Message --- */
+
+.field__error {
+  display: none;
+  margin-top: calc(var(--nxp-spacing-unit, 4px) * 1.5);
+  font-size: 0.8125rem;
+  color: var(--nxp-color-danger, #DC2626);
+  animation: slide-in 200ms ease-out;
+}
+
+.field__error--visible {
+  display: block;
+}
+
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* --- Dark Mode --- */
+
+@media (prefers-color-scheme: dark) {
+  body {
+    color: var(--nxp-color-text, #E2E8F0);
+  }
+
+  .field__input {
+    color: var(--nxp-color-text, #E2E8F0);
+    background-color: var(--nxp-color-background, #0F172A);
+    border-color: var(--nxp-border-default, #334155);
+  }
+
+  .field__input:hover {
+    border-color: var(--nxp-border-hover, #475569);
+  }
+
+  .field__input::placeholder {
+    color: #64748B;
+  }
+
+  .field__input:-webkit-autofill {
+    -webkit-box-shadow: 0 0 0 1000px var(--nxp-color-background, #0F172A) inset;
+    -webkit-text-fill-color: var(--nxp-color-text, #E2E8F0);
+  }
+}
+
+/* --- RTL --- */
+
+[dir="rtl"] .field__input {
+  text-align: right;
+}
+
+[dir="rtl"] .brand-icon {
+  right: auto;
+  left: calc(var(--nxp-spacing-unit, 4px) * 3);
+}
