@@ -1,5 +1,6 @@
 package io.nexuspay.app.config;
 
+import io.nexuspay.common.event.avro.DualFormatDeserializer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.slf4j.Logger;
@@ -14,17 +15,20 @@ import org.springframework.kafka.core.KafkaOperations;
 import org.springframework.kafka.listener.CommonErrorHandler;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
-import org.springframework.kafka.support.serializer.JsonDeserializer;
 import org.springframework.util.backoff.FixedBackOff;
 
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Kafka consumer configuration with dead letter topic handling.
+ * Kafka consumer configuration with dead letter topic handling and dual-format deserialization.
  *
- * Error strategy: retry 3 times with 1-second backoff, then publish to DLT.
+ * <p>Error strategy: retry 3 times with 1-second backoff, then publish to DLT.
  * Consumer isolation level: read_committed (for exactly-once semantics with transactional producers).
+ *
+ * <p><b>Sprint 3.4 migration:</b> Replaced {@code JsonDeserializer} with {@link DualFormatDeserializer}
+ * to enable transparent JSON/Avro dual-format consumption. This single config change makes all
+ * existing consumers dual-format compatible without touching their handler code.
  */
 @Configuration
 public class KafkaConsumerConfig {
@@ -34,17 +38,25 @@ public class KafkaConsumerConfig {
     @Value("${spring.kafka.bootstrap-servers:localhost:9092}")
     private String bootstrapServers;
 
+    @Value("${nexuspay.schema-registry.url:}")
+    private String schemaRegistryUrl;
+
+    /**
+     * Consumer factory using {@link DualFormatDeserializer} for automatic JSON/Avro detection.
+     * Replaces the previous JsonDeserializer-based factory.
+     */
     @Bean
     public ConsumerFactory<String, Map<String, Object>> kafkaConsumerFactory() {
         Map<String, Object> props = new HashMap<>();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
-        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, JsonDeserializer.class);
+        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, DualFormatDeserializer.class);
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         props.put(ConsumerConfig.ISOLATION_LEVEL_CONFIG, "read_committed");
-        props.put(JsonDeserializer.TRUSTED_PACKAGES, "*");
-        props.put(JsonDeserializer.USE_TYPE_INFO_HEADERS, false);
-        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, "java.util.HashMap");
+        // Schema Registry URL for Avro deserialization (optional — JSON-only if absent)
+        if (schemaRegistryUrl != null && !schemaRegistryUrl.isBlank()) {
+            props.put("schema.registry.url", schemaRegistryUrl);
+        }
         return new DefaultKafkaConsumerFactory<>(props);
     }
 

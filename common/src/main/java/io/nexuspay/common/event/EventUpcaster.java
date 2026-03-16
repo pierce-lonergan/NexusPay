@@ -48,4 +48,21 @@ public interface EventUpcaster {
      * @return the transformed payload
      */
     String upcast(String payload);
+
+    /**
+     * Transforms an Avro GenericRecord from {@link #fromVersion()} to {@link #toVersion()}.
+     * Default implementation delegates to the string-based {@link #upcast(String)} method
+     * via JSON serialization, which is correct but suboptimal for large payloads.
+     *
+     * <p>Override this method in individual upcasters to perform Avro-native transformations
+     * when working with GenericRecord directly.
+     *
+     * @param record the Avro GenericRecord to upcast
+     * @return the upcasted record (may be the same instance if no changes needed)
+     * @since 0.3.0 (Sprint 3.4)
+     */
+    default org.apache.avro.generic.GenericRecord upcast(org.apache.avro.generic.GenericRecord record) {
+        // Default: no-op for Avro records. Subclasses override for Avro-native upcasting.
+        return record;
+    }
 }

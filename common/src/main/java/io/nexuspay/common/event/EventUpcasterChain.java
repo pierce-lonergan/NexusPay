@@ -94,6 +94,37 @@ public class EventUpcasterChain {
         return chain.lastEntry().getValue().toVersion();
     }
 
+    /**
+     * Upcasts an Avro GenericRecord from the given version to the latest version.
+     * Delegates to each upcaster's {@link EventUpcaster#upcast(org.apache.avro.generic.GenericRecord)}
+     * method for Avro-native transformations.
+     *
+     * @param eventType   the event type
+     * @param fromVersion the version of the stored record
+     * @param record      the Avro GenericRecord to upcast
+     * @return the upcasted record at the latest version
+     * @since 0.3.0 (Sprint 3.4)
+     */
+    public org.apache.avro.generic.GenericRecord upcast(String eventType, int fromVersion,
+                                                         org.apache.avro.generic.GenericRecord record) {
+        TreeMap<Integer, EventUpcaster> chain = upcasters.get(eventType);
+        if (chain == null || chain.isEmpty()) {
+            return record;
+        }
+
+        var current = record;
+        int currentVersion = fromVersion;
+
+        while (chain.containsKey(currentVersion)) {
+            EventUpcaster upcaster = chain.get(currentVersion);
+            log.debug("Upcasting Avro {}: v{} → v{}", eventType, upcaster.fromVersion(), upcaster.toVersion());
+            current = upcaster.upcast(current);
+            currentVersion = upcaster.toVersion();
+        }
+
+        return current;
+    }
+
     private void validateChain(String eventType, TreeMap<Integer, EventUpcaster> chain) {
         int expectedFrom = chain.firstKey();
         for (var entry : chain.entrySet()) {
