@@ -1,0 +1,12 @@
+{
+  "type": "record",
+  "name": "EventMetadata",
+  "namespace": "io.nexuspay.avro.common",
+  "doc": "Common metadata attached to every NexusPay event.",
+  "fields": [
+    { "name": "trace_id", "type": ["null", "string"], "default": null, "doc": "Distributed trace ID for correlation." },
+    { "name": "tenant_id", "type": "string", "doc": "Tenant identifier for multi-tenancy isolation." },
+    { "name": "correlation_id", "type": ["null", "string"], "default": null, "doc": "Business-level correlation ID (e.g., request_id)." },
+    { "name": "source", "type": ["null", "string"], "default": null, "doc": "Originating service or module name." }
+  ]
+}

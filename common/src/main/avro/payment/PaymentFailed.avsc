@@ -1,0 +1,21 @@
+{
+  "type": "record",
+  "name": "PaymentFailed",
+  "namespace": "io.nexuspay.avro.payment",
+  "doc": "Emitted when a payment attempt fails.",
+  "fields": [
+    { "name": "event_id", "type": "string" },
+    { "name": "event_type", "type": "string", "default": "PaymentFailed" },
+    { "name": "aggregate_type", "type": "string", "default": "Payment" },
+    { "name": "aggregate_id", "type": "string" },
+    { "name": "timestamp", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "version", "type": "int", "default": 1 },
+    { "name": "metadata", "type": "io.nexuspay.avro.common.EventMetadata" },
+    { "name": "payment_id", "type": "string" },
+    { "name": "amount", "type": "io.nexuspay.avro.common.Money" },
+    { "name": "error_code", "type": ["null", "string"], "default": null },
+    { "name": "error_message", "type": ["null", "string"], "default": null },
+    { "name": "decline_code", "type": ["null", "string"], "default": null },
+    { "name": "gateway_payment_id", "type": ["null", "string"], "default": null }
+  ]
+}

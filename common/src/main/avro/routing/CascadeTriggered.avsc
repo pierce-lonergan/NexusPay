@@ -1,0 +1,20 @@
+{
+  "type": "record",
+  "name": "CascadeTriggered",
+  "namespace": "io.nexuspay.avro.routing",
+  "doc": "Emitted when a cascade failover to the next PSP is triggered after a soft decline.",
+  "fields": [
+    { "name": "event_id", "type": "string" },
+    { "name": "event_type", "type": "string", "default": "CascadeTriggered" },
+    { "name": "aggregate_type", "type": "string", "default": "RoutingDecision" },
+    { "name": "aggregate_id", "type": "string" },
+    { "name": "timestamp", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "version", "type": "int", "default": 1 },
+    { "name": "metadata", "type": "io.nexuspay.avro.common.EventMetadata" },
+    { "name": "payment_id", "type": "string" },
+    { "name": "failed_psp", "type": "string" },
+    { "name": "next_psp", "type": "string" },
+    { "name": "decline_code", "type": "string" },
+    { "name": "cascade_depth", "type": "int" }
+  ]
+}

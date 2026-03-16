@@ -1,0 +1,21 @@
+{
+  "type": "record",
+  "name": "RuleTriggered",
+  "namespace": "io.nexuspay.avro.fraud",
+  "doc": "Emitted when a specific fraud rule fires during assessment.",
+  "fields": [
+    { "name": "event_id", "type": "string" },
+    { "name": "event_type", "type": "string", "default": "RuleTriggered" },
+    { "name": "aggregate_type", "type": "string", "default": "FraudRule" },
+    { "name": "aggregate_id", "type": "string" },
+    { "name": "timestamp", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "version", "type": "int", "default": 1 },
+    { "name": "metadata", "type": "io.nexuspay.avro.common.EventMetadata" },
+    { "name": "rule_id", "type": "string" },
+    { "name": "rule_name", "type": "string" },
+    { "name": "rule_type", "type": "string" },
+    { "name": "payment_id", "type": "string" },
+    { "name": "assessment_id", "type": "string" },
+    { "name": "action", "type": "string", "doc": "BLOCK, REVIEW, or FLAG." }
+  ]
+}

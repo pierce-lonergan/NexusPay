@@ -1,0 +1,10 @@
+{
+  "type": "record",
+  "name": "Money",
+  "namespace": "io.nexuspay.avro.common",
+  "doc": "Monetary amount in minor units (e.g., cents). Matches common.Money domain value object.",
+  "fields": [
+    { "name": "amount", "type": "long", "doc": "Amount in minor currency units (e.g., 10000 = $100.00)." },
+    { "name": "currency", "type": "string", "doc": "ISO 4217 currency code (e.g., USD, EUR, GBP)." }
+  ]
+}

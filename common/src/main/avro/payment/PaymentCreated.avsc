@@ -1,0 +1,20 @@
+{
+  "type": "record",
+  "name": "PaymentCreated",
+  "namespace": "io.nexuspay.avro.payment",
+  "doc": "Emitted when a new payment intent is created.",
+  "fields": [
+    { "name": "event_id", "type": "string" },
+    { "name": "event_type", "type": "string", "default": "PaymentCreated" },
+    { "name": "aggregate_type", "type": "string", "default": "Payment" },
+    { "name": "aggregate_id", "type": "string", "doc": "Payment ID (pi_xxx)." },
+    { "name": "timestamp", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "version", "type": "int", "default": 1 },
+    { "name": "metadata", "type": "io.nexuspay.avro.common.EventMetadata" },
+    { "name": "payment_id", "type": "string" },
+    { "name": "amount", "type": "io.nexuspay.avro.common.Money" },
+    { "name": "customer_id", "type": ["null", "string"], "default": null },
+    { "name": "description", "type": ["null", "string"], "default": null },
+    { "name": "payment_method_type", "type": ["null", "string"], "default": null }
+  ]
+}

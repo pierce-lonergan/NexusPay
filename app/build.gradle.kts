@@ -25,6 +25,10 @@ dependencies {
     // Vault — secrets management (Sprint 2.1, activate with 'vault' profile)
     implementation(rootProject.libs.spring.cloud.vault.config)
 
+    // Avro / Schema Registry (Sprint 3.4)
+    implementation(rootProject.libs.kafka.avro.serializer)
+    implementation(rootProject.libs.kafka.schema.registry.client)
+
     runtimeOnly(rootProject.libs.postgresql)
 
     developmentOnly(rootProject.libs.spring.boot.devtools)

@@ -1,0 +1,20 @@
+{
+  "type": "record",
+  "name": "InvoiceGenerated",
+  "namespace": "io.nexuspay.avro.billing",
+  "doc": "Emitted when an invoice is generated for a subscription period.",
+  "fields": [
+    { "name": "event_id", "type": "string" },
+    { "name": "event_type", "type": "string", "default": "InvoiceGenerated" },
+    { "name": "aggregate_type", "type": "string", "default": "Invoice" },
+    { "name": "aggregate_id", "type": "string" },
+    { "name": "timestamp", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "version", "type": "int", "default": 1 },
+    { "name": "metadata", "type": "io.nexuspay.avro.common.EventMetadata" },
+    { "name": "invoice_id", "type": "string" },
+    { "name": "subscription_id", "type": "string" },
+    { "name": "total", "type": "io.nexuspay.avro.common.Money" },
+    { "name": "status", "type": "string" },
+    { "name": "due_date", "type": ["null", "string"], "default": null, "doc": "ISO date string." }
+  ]
+}

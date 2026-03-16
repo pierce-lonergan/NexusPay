@@ -1,0 +1,21 @@
+{
+  "type": "record",
+  "name": "RouteSelected",
+  "namespace": "io.nexuspay.avro.routing",
+  "doc": "Emitted when the routing engine selects a PSP for a payment.",
+  "fields": [
+    { "name": "event_id", "type": "string" },
+    { "name": "event_type", "type": "string", "default": "RouteSelected" },
+    { "name": "aggregate_type", "type": "string", "default": "RoutingDecision" },
+    { "name": "aggregate_id", "type": "string" },
+    { "name": "timestamp", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "version", "type": "int", "default": 1 },
+    { "name": "metadata", "type": "io.nexuspay.avro.common.EventMetadata" },
+    { "name": "decision_id", "type": "string" },
+    { "name": "payment_id", "type": "string" },
+    { "name": "selected_psp", "type": "string" },
+    { "name": "strategy_used", "type": "string" },
+    { "name": "decision_latency_ms", "type": "long" },
+    { "name": "cascade_depth", "type": "int", "default": 0 }
+  ]
+}

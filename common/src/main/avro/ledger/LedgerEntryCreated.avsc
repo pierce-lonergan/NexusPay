@@ -1,0 +1,21 @@
+{
+  "type": "record",
+  "name": "LedgerEntryCreated",
+  "namespace": "io.nexuspay.avro.ledger",
+  "doc": "Emitted when a double-entry journal entry is created in the ledger.",
+  "fields": [
+    { "name": "event_id", "type": "string" },
+    { "name": "event_type", "type": "string", "default": "LedgerEntryCreated" },
+    { "name": "aggregate_type", "type": "string", "default": "JournalEntry" },
+    { "name": "aggregate_id", "type": "string", "doc": "Journal entry ID (je_xxx)." },
+    { "name": "timestamp", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "version", "type": "int", "default": 1 },
+    { "name": "metadata", "type": "io.nexuspay.avro.common.EventMetadata" },
+    { "name": "journal_entry_id", "type": "string" },
+    { "name": "payment_reference", "type": ["null", "string"], "default": null },
+    { "name": "description", "type": ["null", "string"], "default": null },
+    { "name": "posting_count", "type": "int", "doc": "Number of postings in the journal entry." },
+    { "name": "total_debits", "type": "long", "doc": "Sum of all debit amounts in minor units." },
+    { "name": "currency", "type": "string" }
+  ]
+}

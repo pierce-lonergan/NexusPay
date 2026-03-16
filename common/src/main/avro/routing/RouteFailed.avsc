@@ -1,0 +1,19 @@
+{
+  "type": "record",
+  "name": "RouteFailed",
+  "namespace": "io.nexuspay.avro.routing",
+  "doc": "Emitted when the routing engine fails to find a suitable PSP.",
+  "fields": [
+    { "name": "event_id", "type": "string" },
+    { "name": "event_type", "type": "string", "default": "RouteFailed" },
+    { "name": "aggregate_type", "type": "string", "default": "RoutingDecision" },
+    { "name": "aggregate_id", "type": "string" },
+    { "name": "timestamp", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "version", "type": "int", "default": 1 },
+    { "name": "metadata", "type": "io.nexuspay.avro.common.EventMetadata" },
+    { "name": "payment_id", "type": "string" },
+    { "name": "failure_reason", "type": "string" },
+    { "name": "strategy_used", "type": ["null", "string"], "default": null },
+    { "name": "candidates_evaluated", "type": "int", "default": 0 }
+  ]
+}

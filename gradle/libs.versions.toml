@@ -11,6 +11,9 @@ wiremock = "3.5.4"
 flyway = "10.15.0"
 spring-cloud = "2023.0.2"
 temporal = "1.25.0"
+avro = "1.11.3"
+confluent = "7.6.1"
+avro-gradle-plugin = "1.9.1"
 
 [libraries]
 # Spring
@@ -49,6 +52,11 @@ resilience4j-circuitbreaker = { module = "io.github.resilience4j:resilience4j-ci
 temporal-sdk = { module = "io.temporal:temporal-sdk", version.ref = "temporal" }
 temporal-testing = { module = "io.temporal:temporal-testing", version.ref = "temporal" }
 
+# Avro / Schema Registry (Sprint 3.4)
+avro = { module = "org.apache.avro:avro", version.ref = "avro" }
+kafka-avro-serializer = { module = "io.confluent:kafka-avro-serializer", version.ref = "confluent" }
+kafka-schema-registry-client = { module = "io.confluent:kafka-schema-registry-client", version.ref = "confluent" }
+
 # Monetary
 moneta = { module = "org.javamoney:moneta", version.ref = "moneta" }
 
@@ -69,3 +77,4 @@ spring-security-test = { module = "org.springframework.security:spring-security-
 [plugins]
 spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
 spring-dependency-management = { id = "io.spring.dependency-management", version.ref = "spring-dependency-management" }
+avro-gradle = { id = "com.github.davidmc24.gradle.plugin.avro", version.ref = "avro-gradle-plugin" }

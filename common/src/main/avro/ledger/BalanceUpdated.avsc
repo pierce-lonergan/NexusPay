@@ -1,0 +1,20 @@
+{
+  "type": "record",
+  "name": "BalanceUpdated",
+  "namespace": "io.nexuspay.avro.ledger",
+  "doc": "Emitted when a ledger account balance changes.",
+  "fields": [
+    { "name": "event_id", "type": "string" },
+    { "name": "event_type", "type": "string", "default": "BalanceUpdated" },
+    { "name": "aggregate_type", "type": "string", "default": "LedgerAccount" },
+    { "name": "aggregate_id", "type": "string", "doc": "Ledger account ID (la_xxx)." },
+    { "name": "timestamp", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "version", "type": "int", "default": 1 },
+    { "name": "metadata", "type": "io.nexuspay.avro.common.EventMetadata" },
+    { "name": "account_id", "type": "string" },
+    { "name": "account_name", "type": "string" },
+    { "name": "new_balance", "type": "long", "doc": "New posted balance in minor units." },
+    { "name": "currency", "type": "string" },
+    { "name": "journal_entry_id", "type": ["null", "string"], "default": null }
+  ]
+}

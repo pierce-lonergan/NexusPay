@@ -1,0 +1,21 @@
+{
+  "type": "record",
+  "name": "DunningAttempted",
+  "namespace": "io.nexuspay.avro.billing",
+  "doc": "Emitted when a dunning (payment retry) attempt is made on a failed invoice.",
+  "fields": [
+    { "name": "event_id", "type": "string" },
+    { "name": "event_type", "type": "string", "default": "DunningAttempted" },
+    { "name": "aggregate_type", "type": "string", "default": "Invoice" },
+    { "name": "aggregate_id", "type": "string" },
+    { "name": "timestamp", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "version", "type": "int", "default": 1 },
+    { "name": "metadata", "type": "io.nexuspay.avro.common.EventMetadata" },
+    { "name": "invoice_id", "type": "string" },
+    { "name": "subscription_id", "type": "string" },
+    { "name": "attempt_number", "type": "int" },
+    { "name": "amount", "type": "io.nexuspay.avro.common.Money" },
+    { "name": "success", "type": "boolean" },
+    { "name": "error_code", "type": ["null", "string"], "default": null }
+  ]
+}
