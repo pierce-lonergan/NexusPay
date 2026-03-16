@@ -160,6 +160,19 @@ nexuspay:
     device-fingerprint:
       enabled: true
       reputation-decay-days: 90
+  schema-registry:
+    url: ${SCHEMA_REGISTRY_URL:http://localhost:8081}
+    auto-register: true  # overridden to false in application-production.yml
+  avro:
+    dual-write:
+      enabled: ${NEXUSPAY_AVRO_DUAL_WRITE:false}
+  event-log:
+    enabled: ${NEXUSPAY_EVENT_LOG_ENABLED:true}
+  dlq:
+    reprocessor:
+      enabled: ${NEXUSPAY_DLQ_REPROCESSOR_ENABLED:true}
+      fixed-delay-ms: 60000
+      max-retries: 5
   fx:
     enabled: ${NEXUSPAY_FX_ENABLED:true}
     default-provider: ecb
@@ -205,6 +218,13 @@ resilience4j:
         slow-call-duration-threshold: 2s
         slow-call-rate-threshold: 80
         permitted-number-of-calls-in-half-open-state: 5
+      schema-registry:
+        failure-rate-threshold: 50
+        sliding-window-size: 10
+        wait-duration-in-open-state: 30s
+        slow-call-duration-threshold: 3s
+        slow-call-rate-threshold: 80
+        permitted-number-of-calls-in-half-open-state: 3
 
 # SpringDoc
 springdoc:
