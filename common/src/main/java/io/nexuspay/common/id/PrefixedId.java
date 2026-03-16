@@ -38,6 +38,8 @@ public final class PrefixedId {
     public static final String INVOICE = "inv_";
     public static final String INVOICE_LINE_ITEM = "ili_";
     public static final String DUNNING_ATTEMPT = "dun_";
+    public static final String PAYMENT_SESSION = "ps_";
+    public static final String PAYMENT_TOKEN = "ptok_";
 
     /**
      * Generates a new prefixed ID with a random UUID (hyphens removed).
@@ -144,5 +146,13 @@ public final class PrefixedId {
 
     public static String dunningAttempt() {
         return generate(DUNNING_ATTEMPT);
+    }
+
+    public static String paymentSession() {
+        return generate(PAYMENT_SESSION);
+    }
+
+    public static String paymentToken() {
+        return generate(PAYMENT_TOKEN);
     }
 }
