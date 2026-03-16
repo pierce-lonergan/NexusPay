@@ -74,4 +74,26 @@ public class KafkaConsumerConfig {
         // Retry 3 times with 1-second interval, then DLT
         return new DefaultErrorHandler(recoverer, new FixedBackOff(1000L, 3));
     }
+
+    /**
+     * Consumer factory for DLT topics — uses StringDeserializer for both key and value
+     * since DLT records are raw strings (the original serialized payload).
+     */
+    @Bean
+    public ConsumerFactory<String, String> dltConsumerFactory() {
+        Map<String, Object> props = new HashMap<>();
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        return new DefaultKafkaConsumerFactory<>(props);
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, String> dltKafkaListenerContainerFactory(
+            ConsumerFactory<String, String> dltConsumerFactory) {
+        var factory = new ConcurrentKafkaListenerContainerFactory<String, String>();
+        factory.setConsumerFactory(dltConsumerFactory);
+        return factory;
+    }
 }

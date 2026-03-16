@@ -69,4 +69,5 @@ public final class Topics {
     public static final String FRAUD_CONSUMER_GROUP = "nexuspay-fraud-consumer";
     public static final String FX_CONSUMER_GROUP = "nexuspay-fx-consumer";
     public static final String ROUTING_CONSUMER_GROUP = "nexuspay-routing-consumer";
+    public static final String DLQ_CONSUMER_GROUP = "nexuspay-dlq-consumer";
 }
