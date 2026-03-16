@@ -50,10 +50,23 @@ public final class Topics {
     /** Dead letter topic for FX events. */
     public static final String FX_DLT = "nexuspay.fx.DLT";
 
+    /** Routing decision events. Partition key: payment_id. */
+    public static final String ROUTING_DECISIONS = "nexuspay.routing.decisions";
+
+    /** Cascade failover events. Partition key: payment_id. */
+    public static final String ROUTING_CASCADES = "nexuspay.routing.cascades";
+
+    /** Routing failure events. Partition key: payment_id. */
+    public static final String ROUTING_FAILURES = "nexuspay.routing.failures";
+
+    /** Dead letter topic for routing events. */
+    public static final String ROUTING_DLT = "nexuspay.routing.DLT";
+
     // Consumer group IDs
     public static final String LEDGER_CONSUMER_GROUP = "nexuspay-ledger-consumer";
     public static final String GATEWAY_CONSUMER_GROUP = "nexuspay-gateway-consumer";
     public static final String BILLING_CONSUMER_GROUP = "nexuspay-billing-consumer";
     public static final String FRAUD_CONSUMER_GROUP = "nexuspay-fraud-consumer";
     public static final String FX_CONSUMER_GROUP = "nexuspay-fx-consumer";
+    public static final String ROUTING_CONSUMER_GROUP = "nexuspay-routing-consumer";
 }

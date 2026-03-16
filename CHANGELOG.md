@@ -44,6 +44,31 @@ All notable changes to NexusPay are documented here. Format follows [Keep a Chan
 - GAP-044: DCC (Dynamic Currency Conversion) flow — `DccOffer` domain model, `DynamicCurrencyConversionService` with rate disclosure, markup, consent tracking; REST endpoints for create/accept/decline offers
 - GAP-045: Automated sanctions list updates — `SanctionsListAdapter` with scheduled OFAC CSL refresh (daily, configurable), static fallback, configurable high-risk countries
 
+**Sprint 3.3 — Smart Routing Engine**
+- Pluggable routing strategy framework with `RoutingStrategy` interface and 6 implementations:
+  - `CostBasedStrategy` — selects cheapest PSP using `PspFeeModel` with 4 fee types (per-tx, percentage, blended, interchange++)
+  - `SuccessRateStrategy` — selects highest auth rate PSP with segmented rates (brand/type/country) and overall fallback
+  - `LatencyBasedStrategy` — selects lowest p95 latency PSP with inverted normalization scoring
+  - `RoundRobinStrategy` — atomic counter cycling through eligible candidates
+  - `WeightedStrategy` — weighted random selection with cascade ordered by weight descending
+  - `FailoverStrategy` — deterministic primary/fallback ordering
+- `RoutingEngine` central orchestrator: loads tenant config, filters by currency/health/fraud, applies strategy, limits cascade depth, persists audit trail
+- Cascade failover with `CascadeService`: soft decline codes (DO_NOT_HONOR, INSUFFICIENT_FUNDS, ISSUER_UNAVAILABLE) trigger next PSP; hard decline codes (STOLEN_CARD, FRAUD) stop cascade immediately
+- PSP health tracking via `PspHealthTracker` with Valkey-backed sliding window metrics (auth rate, latency percentiles, circuit breaker state)
+- Segmented auth rate tracking via `AuthRateTracker` with Valkey 7-day sliding window, keyed by brand:type:country
+- A/B testing for routing strategies via `RoutingAbTestService` — traffic splitting, group assignment, test summary aggregation
+- Tenant routing configuration CRUD with `RoutingConfig` (strategy, PSP list, cascade depth, A/B test settings)
+- `PspFeeModel` domain model with fee calculation for all 4 fee types and effective date ranges
+- Full audit trail: `RoutingDecision` records strategy used, all candidate scores, cascade order, A/B test group, decision latency
+- REST API: `/v1/routing/configs` (CRUD), `/v1/routing/decisions` (audit), `/v1/routing/fees` (fee model CRUD), `/v1/routing/health` (PSP health), `/v1/routing/simulate` (dry-run), `/v1/routing/ab-tests` (A/B test management)
+- 3 Flyway migrations with RLS policies: `psp_fee_models`, `routing_configs`, `routing_decisions` — seeded with default config and fee models for Stripe/Adyen/dummy_connector
+- 4 Kafka topics: `nexuspay.routing.decisions` (12p/30d), `nexuspay.routing.cascades` (12p/30d), `nexuspay.routing.failures` (6p/90d), `nexuspay.routing.DLT` (1p/30d)
+- Domain events: `RouteSelected`, `RouteFailed`, `CascadeTriggered`
+- OutboxRelay migrated from `Map.of()` (10-entry limit) to `Map.ofEntries()` to accommodate routing aggregate types
+- `RoutingProperties` configuration: cascade soft/hard decline codes, health thresholds, latency tracking window, A/B test min sample size and confidence level
+- Full persistence layer: 3 JPA entities, 3 Spring Data repositories, 3 hexagonal adapter implementations with JSONB serialization
+- New gaps identified: GAP-046 (no routing metrics dashboard), GAP-047 (A/B test statistical significance), GAP-048 (circuit breaker recovery), GAP-049 (card-brand-specific fees)
+
 ## [0.2.0] — 2026-03-15 (Phase 2)
 
 ### Added

@@ -45,17 +45,18 @@ public class OutboxRelay {
     private static final String LEADER_LOCK_KEY = "outbox:relay:leader";
     private static final Duration LEADER_LOCK_TTL = Duration.ofSeconds(5);
 
-    private static final Map<String, String> TOPIC_MAP = Map.of(
-            EventTypes.AGGREGATE_PAYMENT, Topics.PAYMENTS,
-            EventTypes.AGGREGATE_REFUND, Topics.PAYMENTS,
-            EventTypes.AGGREGATE_LEDGER, Topics.LEDGER,
-            EventTypes.AGGREGATE_SUBSCRIPTION, Topics.BILLING,
-            EventTypes.AGGREGATE_INVOICE, Topics.BILLING,
-            EventTypes.AGGREGATE_FRAUD_ASSESSMENT, Topics.FRAUD_ASSESSMENTS,
-            EventTypes.AGGREGATE_FRAUD_RULE, Topics.FRAUD_RULES_CHANGELOG,
-            EventTypes.AGGREGATE_FX_RATE, Topics.FX_RATES,
-            EventTypes.AGGREGATE_FX_LOCK, Topics.FX_LOCKS,
-            EventTypes.AGGREGATE_FX_CONVERSION, Topics.FX_CONVERSIONS
+    private static final Map<String, String> TOPIC_MAP = Map.ofEntries(
+            Map.entry(EventTypes.AGGREGATE_PAYMENT, Topics.PAYMENTS),
+            Map.entry(EventTypes.AGGREGATE_REFUND, Topics.PAYMENTS),
+            Map.entry(EventTypes.AGGREGATE_LEDGER, Topics.LEDGER),
+            Map.entry(EventTypes.AGGREGATE_SUBSCRIPTION, Topics.BILLING),
+            Map.entry(EventTypes.AGGREGATE_INVOICE, Topics.BILLING),
+            Map.entry(EventTypes.AGGREGATE_FRAUD_ASSESSMENT, Topics.FRAUD_ASSESSMENTS),
+            Map.entry(EventTypes.AGGREGATE_FRAUD_RULE, Topics.FRAUD_RULES_CHANGELOG),
+            Map.entry(EventTypes.AGGREGATE_FX_RATE, Topics.FX_RATES),
+            Map.entry(EventTypes.AGGREGATE_FX_LOCK, Topics.FX_LOCKS),
+            Map.entry(EventTypes.AGGREGATE_FX_CONVERSION, Topics.FX_CONVERSIONS),
+            Map.entry(EventTypes.AGGREGATE_ROUTING_DECISION, Topics.ROUTING_DECISIONS)
     );
 
     private static final String DEFAULT_TOPIC = Topics.PAYMENTS;

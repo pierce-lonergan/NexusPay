@@ -65,6 +65,11 @@ public final class EventTypes {
     public static final String CROSS_BORDER_COMPLIANCE_BLOCKED = "CrossBorderComplianceBlocked";
     public static final String CROSS_BORDER_REPORTING_REQUIRED = "CrossBorderReportingRequired";
 
+    // Routing lifecycle (Sprint 3.3)
+    public static final String ROUTE_SELECTED = "RouteSelected";
+    public static final String ROUTE_FAILED = "RouteFailed";
+    public static final String CASCADE_TRIGGERED = "CascadeTriggered";
+
     // Aggregate types
     public static final String AGGREGATE_PAYMENT = "Payment";
     public static final String AGGREGATE_REFUND = "Refund";
@@ -76,4 +81,5 @@ public final class EventTypes {
     public static final String AGGREGATE_FX_RATE = "FxRate";
     public static final String AGGREGATE_FX_LOCK = "FxLock";
     public static final String AGGREGATE_FX_CONVERSION = "FxConversion";
+    public static final String AGGREGATE_ROUTING_DECISION = "RoutingDecision";
 }
