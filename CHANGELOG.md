@@ -75,6 +75,33 @@ All notable changes to NexusPay are documented here. Format follows [Keep a Chan
 - GAP-048: Full circuit breaker state machine — `CircuitBreakerManager` service with CLOSED → OPEN → HALF_OPEN → CLOSED transitions. Configurable `failureRateThreshold` (0.50), `failureCountThreshold` (10), `cooldownSeconds` (60), `probeRequests` (3). Scheduled cooldown checker transitions OPEN breakers to HALF_OPEN. Probe-based recovery: all probes must succeed to close. REST endpoints: `GET/POST /v1/routing/circuit-breakers/{pspConnector}`. `PspHealthTracker` updated to delegate to `CircuitBreakerManager`. `RoutingProperties.CircuitBreakerProperties` added.
 - GAP-049: Card-brand-specific fee pricing — `PspFeeModel` extended with `cardBrand`, `cardType`, `isDomestic` fields. Specificity scoring (0–3) for best-match selection. `PspFeeRepository.findBestMatch()` default method filters by card attributes and selects highest specificity. `PspFeeModelEntity` updated with new columns. Migration `V3012__add_card_brand_to_psp_fee_models.sql` adds columns, unique constraint, index, and seed data (AMEX surcharge, domestic debit discount, international credit premium). REST fee endpoints extended with card-brand fields.
 
+**Sprint 3.4 — Event Architecture Upgrade**
+- JSON-to-Avro event serialization migration with Confluent Schema Registry (7.6.1)
+- 21 Avro schema definitions (.avsc) covering all domain events: payment (10), ledger (2), billing (3), fraud (4), routing (3)
+- Shared Avro types: EventMetadata and Money records
+- Avro Gradle plugin (1.9.1) generates Java classes from schemas at build time
+- Feature-flagged dual-write strategy: `NEXUSPAY_AVRO_DUAL_WRITE` controls migration phase
+- DualWritePublisher with Schema Registry circuit breaker — Avro serialization failure falls back to JSON
+- DualFormatDeserializer: single consumer factory config change makes all consumers dual-format compatible
+- GenericRecordToMapConverter: Avro GenericRecord → Map with type unwrapping (unions, nested records, logical types)
+- EventSchemaMapping: lazy-cached static registry of event_type → Avro Schema
+- JsonToAvroConverter: type-coercing JSON Map → Avro GenericRecord converter
+- Schema Registry config with profile-conditional auto-register (true local/test, false production)
+- Append-only event log (V3013 migration): captures all published events for audit/replay with DB-level UPDATE/DELETE prevention
+- EventLog port interface + PostgresEventLog JPA implementation with idempotent append
+- EventLogAppender: post-publish hook for OutboxRelay, failure-isolated (never blocks publish pipeline)
+- Dead letter queue management (V3014 migration): captures failed events from all 6 DLT topics
+- DeadLetterQueueConsumer: extracts error info from Spring Kafka DLT headers
+- DeadLetterReprocessor: scheduled exponential backoff retry (2^n minutes, capped at 60min) with Valkey distributed lock
+- Admin REST API at `/v1/admin/dead-letters`: list, detail, retry, discard, bulk retry-all, stats
+- BatchEventConsumer interface + BatchKafkaConsumerConfig for high-throughput consumption
+- OutboxRelay delegates to DualWritePublisher with PostPublishCallback for event log integration
+- EventUpcaster/EventUpcasterChain extended with GenericRecord support for Avro-native upcasting
+- Docker Compose: schema-registry + schema-registry-ui services
+- Resilience4j circuit breaker instance for Schema Registry
+- Migration runbook: 4-phase deployment guide with validation metrics and rollback procedure
+- Resolved GAP-012 (Schema Registry)
+
 ## [0.2.0] — 2026-03-15 (Phase 2)
 
 ### Added

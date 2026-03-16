@@ -77,12 +77,12 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Status**: Resolved — Sprint 2.2
 - **Description**: Debezium CDC (2.7) added to Docker Compose via Kafka Connect. Outbox Event Router transform routes events from `event_outbox` table to Kafka topics based on `routing_key` column. Migration `V2002__outbox_debezium_columns.sql` adds `routing_key` and `event_version` columns. Feature flag (`nexuspay.outbox.polling.enabled`) allows parallel operation of polling relay and CDC during migration. PostgreSQL WAL level set to `logical` with replication slots configured.
 
-### GAP-012: No Schema Registry / Event Versioning (PARTIALLY ADDRESSED Sprint 2.2)
+### ~~GAP-012: No Schema Registry / Event Versioning~~ (RESOLVED Sprint 3.4)
 - **Identified**: Sprint 1.2
-- **Status**: Partially addressed — Sprint 2.2
-- **Description**: `EventUpcaster` interface and `EventUpcasterChain` added in `common` module for runtime event schema evolution (v1 → v2 → ... → current). Outbox `event_version` column tracks version per event. Full Schema Registry (Confluent, Avro/Protobuf) still deferred.
-- **Risk**: No compile-time schema validation yet. Upcaster chain provides runtime transformation only.
-- **Resolution**: Phase 3 — Avro schemas with Schema Registry, backward/forward compatibility enforcement.
+- **Status**: ~~Partially addressed Sprint 2.2~~ → **Resolved Sprint 3.4**
+- **Description**: ~~`EventUpcaster` interface and `EventUpcasterChain` added in `common` module for runtime event schema evolution (v1 → v2 → ... → current). Outbox `event_version` column tracks version per event. Full Schema Registry (Confluent, Avro/Protobuf) still deferred.~~ Full Confluent Schema Registry (7.6.1) with 21 Avro schema definitions, compile-time code generation via avro-gradle-plugin, DualFormatDeserializer for backward-compatible consumption, feature-flagged DualWritePublisher with Schema Registry circuit breaker, and EventUpcaster extended with GenericRecord support.
+- **Risk**: ~~No compile-time schema validation yet.~~ Resolved — Avro schemas provide compile-time validation via generated Java classes.
+- **Resolution**: Sprint 3.4 — JSON-to-Avro migration with dual-write strategy. Schema compatibility: NONE during registration, FULL_TRANSITIVE after validation.
 
 ### ~~GAP-013: No Keycloak Health Indicator~~ (RESOLVED Sprint 1.5)
 - **Identified**: Sprint 1.2
@@ -313,7 +313,7 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 | Sprint 1.6 | GAP-009, GAP-010, GAP-016, GAP-025 |
 | Sprint 1.7 | GAP-005, GAP-006, GAP-007, GAP-014, GAP-017, GAP-019, GAP-030, GAP-031 |
 | Sprint 2.1 (complete) | GAP-001 (RLS), GAP-003 (Vault) |
-| Sprint 2.2 (complete) | GAP-011 (Debezium CDC), GAP-012 (partial — event upcaster chain) |
+| Sprint 2.2 (complete) | GAP-011 (Debezium CDC), GAP-012 (partial — event upcaster chain, fully resolved Sprint 3.4) |
 | Sprint 2.3 (complete) | GAP-023 (partial — reconciliation engine) |
 | Sprint 2.4 (complete) | GAP-032 (dispute management — new) |
 | Sprint 2.5a (complete) | GAP-034, GAP-035, GAP-036 (billing module — new) |
@@ -322,13 +322,13 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 | Sprint 3.1 (complete) | GAP-039, GAP-040, GAP-041 (fraud module — new gaps identified) |
 | Sprint 3.2 (complete) | GAP-042, GAP-043, GAP-044, GAP-045 (FX module — identified and resolved) |
 | Sprint 3.3 (complete) | GAP-046, GAP-047, GAP-048, GAP-049 (routing module — identified and resolved) |
+| Sprint 3.4 (complete) | GAP-012 (full Schema Registry with Avro migration) |
 | Phase 2 (remaining) | GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-026, GAP-027 |
-| Phase 3 | GAP-012 (full Schema Registry) |
 
 ## Summary
 
 - **Total gaps tracked**: 49
-- **Resolved**: 33 (GAP-001, 003, 005, 006, 007, 009, 010, 011, 013, 014, 016, 017, 019, 020, 022, 025, 030, 031, 034, 036, 042, 043, 044, 045, 046, 047, 048, 049 + partial GAP-008)
-- **Partially Addressed**: 3 (GAP-012, GAP-023, GAP-032)
+- **Resolved**: 34 (GAP-001, 003, 005, 006, 007, 009, 010, 011, 012, 013, 014, 016, 017, 019, 020, 022, 025, 030, 031, 034, 036, 042, 043, 044, 045, 046, 047, 048, 049 + partial GAP-008)
+- **Partially Addressed**: 2 (GAP-023, GAP-032)
 - **Open/Deferred**: 16 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033, GAP-035, GAP-037, GAP-038, GAP-039, GAP-040, GAP-041)
 - **Accepted for Phase 1/2**: GAP-024, GAP-028, GAP-029, GAP-038
