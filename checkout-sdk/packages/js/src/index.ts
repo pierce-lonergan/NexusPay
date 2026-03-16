@@ -36,6 +36,13 @@ export { IframeManager, type IframeManagerOptions, type CardChangePayload, type 
 export { BaseElement } from './elements/base-element';
 export { CARD_BRAND_ICONS } from './elements/icons';
 
+// APM (Alternative Payment Methods)
+export { ApplePayHandler, type ApplePayConfig, type ApplePayTokenResult } from './apm/apple-pay';
+export { GooglePayHandler, type GooglePayConfig, type GooglePayTokenResult } from './apm/google-pay';
+export { BankRedirectHandler, type BankRedirectConfig, type BankRedirectProvider, type BankOption } from './apm/bank-redirect';
+export { BnplHandler, type BnplConfig, type BnplProvider, type BnplTokenResult } from './apm/bnpl';
+export { wrapWalletButton, createDivider } from './apm/wallet-button';
+
 // 3DS
 export { ChallengeHandler, type ThreeDSResult, type NextAction } from './three-ds/challenge-handler';
 export { FingerprintHandler, type FingerprintResult } from './three-ds/fingerprint-handler';
