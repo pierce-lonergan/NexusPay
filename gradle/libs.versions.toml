@@ -14,6 +14,7 @@ temporal = "1.25.0"
 avro = "1.11.3"
 confluent = "7.6.1"
 avro-gradle-plugin = "1.9.1"
+jjwt = "0.12.5"
 
 [libraries]
 # Spring
@@ -56,6 +57,11 @@ temporal-testing = { module = "io.temporal:temporal-testing", version.ref = "tem
 avro = { module = "org.apache.avro:avro", version.ref = "avro" }
 kafka-avro-serializer = { module = "io.confluent:kafka-avro-serializer", version.ref = "confluent" }
 kafka-schema-registry-client = { module = "io.confluent:kafka-schema-registry-client", version.ref = "confluent" }
+
+# JWT (Sprint 3.5 — session tokens)
+jjwt-api = { module = "io.jsonwebtoken:jjwt-api", version.ref = "jjwt" }
+jjwt-impl = { module = "io.jsonwebtoken:jjwt-impl", version.ref = "jjwt" }
+jjwt-jackson = { module = "io.jsonwebtoken:jjwt-jackson", version.ref = "jjwt" }
 
 # Monetary
 moneta = { module = "org.javamoney:moneta", version.ref = "moneta" }

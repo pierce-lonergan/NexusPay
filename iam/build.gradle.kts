@@ -15,6 +15,11 @@ dependencies {
     implementation(rootProject.libs.flyway.core)
     implementation(rootProject.libs.flyway.database.postgresql)
 
+    // JJWT — Session token signing/validation (Sprint 3.5)
+    implementation(rootProject.libs.jjwt.api)
+    runtimeOnly(rootProject.libs.jjwt.impl)
+    runtimeOnly(rootProject.libs.jjwt.jackson)
+
     runtimeOnly(rootProject.libs.postgresql)
 
     testImplementation(rootProject.libs.spring.security.test)

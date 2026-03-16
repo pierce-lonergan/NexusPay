@@ -52,6 +52,8 @@ public class SecurityConfig {
                         .requestMatchers("/internal/webhooks/**").permitAll()
                         .requestMatchers("/v1/api-docs/**").permitAll()
                         .requestMatchers("/v1/swagger-ui/**").permitAll()
+                        // Checkout endpoints use session token auth (handled by SessionTokenAuthenticationFilter)
+                        .requestMatchers("/v1/checkout/**").permitAll()
                         // All other endpoints require authentication
                         .anyRequest().authenticated()
                 )
