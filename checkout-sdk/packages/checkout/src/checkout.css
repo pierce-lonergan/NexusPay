@@ -1,0 +1,337 @@
+/* NexusPay Hosted Checkout — responsive styles */
+
+:root {
+  --nxp-color-primary: #0066FF;
+  --nxp-color-background: #FFFFFF;
+  --nxp-color-text: #1A1A2E;
+  --nxp-color-danger: #DC2626;
+  --nxp-color-success: #16A34A;
+  --nxp-font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --nxp-border-default: #E5E7EB;
+  --nxp-border-radius: 8px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--nxp-font-family);
+  color: var(--nxp-color-text);
+  background: #F9FAFB;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --- Checkout Layout --- */
+
+.checkout {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px 16px;
+  min-height: 100vh;
+}
+
+.checkout__layout {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 48px;
+  margin-top: 24px;
+}
+
+.checkout__form {
+  max-width: 480px;
+}
+
+.checkout__title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--nxp-color-text);
+}
+
+/* --- Submit Button --- */
+
+.checkout__submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 14px 24px;
+  margin-top: 24px;
+  font-family: var(--nxp-font-family);
+  font-size: 1rem;
+  font-weight: 600;
+  color: #FFFFFF;
+  background-color: var(--nxp-color-primary);
+  border: none;
+  border-radius: var(--nxp-border-radius);
+  cursor: pointer;
+  min-height: 48px;
+  transition: filter 150ms ease;
+}
+
+.checkout__submit:hover:not(:disabled) { filter: brightness(0.9); }
+.checkout__submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.checkout__lock-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.checkout__spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #FFFFFF;
+  border-radius: 50%;
+  animation: spin 600ms linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.checkout__secure-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: center;
+  margin-top: 16px;
+  font-size: 0.8125rem;
+  color: var(--nxp-color-text);
+  opacity: 0.5;
+}
+
+/* --- Summary --- */
+
+.checkout__summary {
+  position: sticky;
+  top: 24px;
+  align-self: start;
+}
+
+.payment-summary {
+  background: #FFFFFF;
+  border: 1px solid var(--nxp-border-default);
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.payment-summary__title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.payment-summary__divider {
+  height: 1px;
+  background: var(--nxp-border-default);
+  margin-bottom: 16px;
+}
+
+.payment-summary__row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.875rem;
+  margin-bottom: 8px;
+}
+
+.payment-summary__row--total {
+  font-weight: 600;
+  font-size: 1.125rem;
+}
+
+/* --- Branding Header --- */
+
+.branding-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--nxp-border-default);
+}
+
+.branding-header__name {
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+/* --- Success --- */
+
+.success, .failure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  text-align: center;
+  padding: 24px;
+}
+
+.success__icon, .failure__icon { margin-bottom: 24px; }
+
+.success__checkmark .success__circle {
+  stroke-dasharray: 176;
+  stroke-dashoffset: 176;
+  animation: stroke 600ms linear forwards;
+}
+
+.success__checkmark .success__check {
+  stroke-dasharray: 48;
+  stroke-dashoffset: 48;
+  animation: stroke 600ms linear 300ms forwards;
+}
+
+@keyframes stroke { to { stroke-dashoffset: 0; } }
+
+.success__title, .failure__title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.success__amount {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--nxp-color-success);
+  margin-bottom: 16px;
+}
+
+.success__message, .failure__message {
+  font-size: 1rem;
+  opacity: 0.7;
+  margin-bottom: 16px;
+}
+
+.success__redirect {
+  font-size: 0.875rem;
+  opacity: 0.5;
+}
+
+.failure__retry {
+  padding: 12px 32px;
+  font-family: var(--nxp-font-family);
+  font-size: 1rem;
+  font-weight: 600;
+  color: #FFFFFF;
+  background-color: var(--nxp-color-primary);
+  border: none;
+  border-radius: var(--nxp-border-radius);
+  cursor: pointer;
+  min-height: 44px;
+  transition: filter 150ms ease;
+}
+
+.failure__retry:hover { filter: brightness(0.9); }
+
+/* --- Error Page --- */
+
+.checkout-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  text-align: center;
+  padding: 24px;
+}
+
+.checkout-error h1 {
+  font-size: 1.5rem;
+  margin-bottom: 12px;
+}
+
+.checkout-error p {
+  opacity: 0.7;
+}
+
+/* --- Skeleton --- */
+
+.skeleton-page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+.skeleton-page__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--nxp-border-default);
+}
+
+.skeleton-page__layout {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 48px;
+  margin-top: 24px;
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #E5E7EB 25%, #F3F4F6 50%, #E5E7EB 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite linear;
+  border-radius: var(--nxp-border-radius);
+}
+
+.skeleton--circle { border-radius: 50%; }
+.skeleton--text { border-radius: 4px; }
+.skeleton--block { width: 100%; }
+
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+/* --- Responsive --- */
+
+@media (max-width: 639px) {
+  .checkout__layout {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .checkout__form {
+    max-width: 100%;
+  }
+
+  .checkout__summary {
+    position: static;
+    order: -1;
+  }
+
+  .checkout__submit {
+    min-height: 52px;
+    font-size: 1.0625rem;
+  }
+
+  .skeleton-page__layout {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .skeleton-page__summary {
+    order: -1;
+  }
+}
+
+/* --- Dark Mode --- */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --nxp-color-primary: #3B82F6;
+    --nxp-color-background: #0F172A;
+    --nxp-color-text: #E2E8F0;
+    --nxp-border-default: #334155;
+  }
+
+  body { background: #0B1120; }
+
+  .payment-summary {
+    background: #1E293B;
+    border-color: var(--nxp-border-default);
+  }
+
+  .skeleton {
+    background: linear-gradient(90deg, #1E293B 25%, #334155 50%, #1E293B 75%);
+    background-size: 200% 100%;
+  }
+}

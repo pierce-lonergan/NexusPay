@@ -1,6 +1,6 @@
 # NexusPay Known Gaps Analysis
 
-Last updated: 2026-03-15 (Sprint 3.3 — Smart Routing Engine)
+Last updated: 2026-03-15 (Sprint 3.5 — Client-Side SDK)
 
 This document tracks known gaps, technical debt, and deferred decisions in the NexusPay system. Each gap is categorized by severity, the sprint it was identified, and the planned resolution timeline.
 
@@ -302,6 +302,27 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Status**: Resolved — Sprint 3.3 patch
 - **Description**: `PspFeeModel` extended with `cardBrand`, `cardType`, and `isDomestic` fields for granular fee pricing. Specificity scoring (0–3) based on how many card attributes are specified. `PspFeeRepository.findBestMatch()` default method filters effective models by PSP, currency, date, and card attributes, then selects the highest-specificity match. `PspFeeModelEntity` updated with `card_brand`, `card_type`, `is_domestic` columns. Migration `V3012__add_card_brand_to_psp_fee_models.sql` adds columns, updates unique constraint, creates index, and seeds card-specific fee data (Stripe AMEX surcharge, Adyen domestic Visa debit discount, Adyen international Visa credit premium). REST fee endpoints and DTOs extended with card-brand fields and specificity in responses.
 
+### GAP-050: Checkout SDK — No card-frame.html CDN Hosting
+- **Identified**: Sprint 3.5
+- **Status**: Open
+- **Description**: The PCI-compliant `card-frame.html` iframe is referenced via a relative path. In production, it must be served from a NexusPay CDN with proper CSP headers. Currently only works in local development via Vite dev server.
+- **Risk**: SDK cannot be used by merchants until the iframe HTML is hosted and the iframe src URL is configurable.
+- **Resolution**: Phase 4 — deploy card-frame.html to CDN (CloudFront/Fastly), configure `NexusPay({ iframeSrc })` option.
+
+### GAP-051: Checkout SDK — Apple Pay / Google Pay Not Sandbox-Tested
+- **Identified**: Sprint 3.5
+- **Status**: Open
+- **Description**: Apple Pay and Google Pay handlers are implemented with correct API structures but require real merchant IDs and sandbox credentials to validate end-to-end flows. Currently tested with mocked `ApplePaySession` and `PaymentsClient`.
+- **Risk**: Payment token mapping or merchant validation may fail in real Apple/Google sandbox environments.
+- **Resolution**: Obtain Apple Pay sandbox merchant ID and Google Pay test merchant ID for integration testing.
+
+### GAP-052: Checkout SDK — BNPL Provider SDK Versions Unpinned
+- **Identified**: Sprint 3.5
+- **Status**: Open
+- **Description**: Klarna, Afterpay, and Affirm SDKs are loaded dynamically from provider CDNs without version pinning. SDK breaking changes could silently break the BNPL flow.
+- **Risk**: Provider SDK updates could cause runtime failures without warning.
+- **Resolution**: Pin SDK versions in script URLs and add integration smoke tests.
+
 ---
 
 ## Gap Resolution Timeline
@@ -323,12 +344,13 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 | Sprint 3.2 (complete) | GAP-042, GAP-043, GAP-044, GAP-045 (FX module — identified and resolved) |
 | Sprint 3.3 (complete) | GAP-046, GAP-047, GAP-048, GAP-049 (routing module — identified and resolved) |
 | Sprint 3.4 (complete) | GAP-012 (full Schema Registry with Avro migration) |
+| Sprint 3.5 (complete) | GAP-050, GAP-051, GAP-052 (checkout SDK — new gaps identified) |
 | Phase 2 (remaining) | GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-026, GAP-027 |
 
 ## Summary
 
-- **Total gaps tracked**: 49
+- **Total gaps tracked**: 52
 - **Resolved**: 34 (GAP-001, 003, 005, 006, 007, 009, 010, 011, 012, 013, 014, 016, 017, 019, 020, 022, 025, 030, 031, 034, 036, 042, 043, 044, 045, 046, 047, 048, 049 + partial GAP-008)
 - **Partially Addressed**: 2 (GAP-023, GAP-032)
-- **Open/Deferred**: 16 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033, GAP-035, GAP-037, GAP-038, GAP-039, GAP-040, GAP-041)
+- **Open/Deferred**: 19 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033, GAP-035, GAP-037, GAP-038, GAP-039, GAP-040, GAP-041, GAP-050, GAP-051, GAP-052)
 - **Accepted for Phase 1/2**: GAP-024, GAP-028, GAP-029, GAP-038

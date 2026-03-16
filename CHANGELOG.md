@@ -75,6 +75,36 @@ All notable changes to NexusPay are documented here. Format follows [Keep a Chan
 - GAP-048: Full circuit breaker state machine — `CircuitBreakerManager` service with CLOSED → OPEN → HALF_OPEN → CLOSED transitions. Configurable `failureRateThreshold` (0.50), `failureCountThreshold` (10), `cooldownSeconds` (60), `probeRequests` (3). Scheduled cooldown checker transitions OPEN breakers to HALF_OPEN. Probe-based recovery: all probes must succeed to close. REST endpoints: `GET/POST /v1/routing/circuit-breakers/{pspConnector}`. `PspHealthTracker` updated to delegate to `CircuitBreakerManager`. `RoutingProperties.CircuitBreakerProperties` added.
 - GAP-049: Card-brand-specific fee pricing — `PspFeeModel` extended with `cardBrand`, `cardType`, `isDomestic` fields. Specificity scoring (0–3) for best-match selection. `PspFeeRepository.findBestMatch()` default method filters by card attributes and selects highest specificity. `PspFeeModelEntity` updated with new columns. Migration `V3012__add_card_brand_to_psp_fee_models.sql` adds columns, unique constraint, index, and seed data (AMEX surcharge, domestic debit discount, international credit premium). REST fee endpoints extended with card-brand fields.
 
+**Sprint 3.5 — Client-Side SDK (Checkout)**
+- TypeScript monorepo (`checkout-sdk/`) with npm workspaces: `@nexuspay/js`, `@nexuspay/react`, `nexuspay-checkout`
+- Database migrations: `payment_sessions` and `payment_tokens` tables with RLS, lazy expiration, tokenization rate limiting
+- `PaymentSession` and `PaymentToken` domain models with `ps_` / `ptok_` ID prefixes
+- Session token authentication: restricted-scope JWT (HMAC-SHA256) via `SessionTokenIssuer` in IAM module
+- `SessionTokenAuthenticationFilter` at `@Order(0)` for `/v1/checkout/**` paths
+- REST controllers: `PaymentSessionController` (merchant API key auth) and `CheckoutController` (session token auth)
+- CORS `Access-Control-Max-Age: 86400` and `Content-Security-Policy: frame-ancestors *` for iframe embedding
+- Design system specification (`DESIGN.md`) with theme tokens, component states, animations, responsive behavior
+- `@nexuspay/js` — zero-dependency browser SDK: `NexusPay` class, typed event emitter, HTTP client (10s timeout, network-only retry)
+- Theme engine: CSS custom properties (`--nxp-*`), 3 built-in presets (default, night, flat), Appearance API for merchant customization
+- Card validator: Luhn check, BIN detection for 8+ networks (Visa, MC, Amex, Discover, JCB, UnionPay, Maestro, Diners Club)
+- PCI-compliant card input via sandboxed iframe (`card-frame.html`): PAN never crosses postMessage boundary
+- CardElement with micro-interactions: brand icon crossfade (150ms), number formatting with cursor preservation, expiry auto-advance
+- PaymentElement: composite with payment method tabs — horizontal on desktop, radio-button list on mobile (<640px)
+- AddressElement: billing/shipping form with country-aware field formatting (US/CA/AU state support)
+- 3DS challenge handling: redirect mode (full page) + iframe mode (modal overlay, 10min timeout)
+- 3DS device fingerprint collection via hidden iframe
+- Apple Pay handler: `ApplePaySession` feature detection, merchant validation, official brand guidelines button
+- Google Pay handler: dynamic script loading, `isReadyToPay()` check, official brand guidelines button
+- Bank redirect handler: iDEAL (11 Dutch banks), Bancontact, Giropay, P24
+- BNPL handler: Klarna, Afterpay, Affirm with on-demand dynamic script loading
+- `@nexuspay/react` — React component library: `NexusPayProvider`, `PaymentElement`, `CardElement`, `AddressElement`
+- React hooks: `useNexusPay()`, `useConfirmPayment()` (auto-handles 3DS challenges)
+- Hosted checkout page (`nexuspay-checkout`): Vite SPA, responsive two-column/single-column layout
+- Checkout UI: merchant branding header, order summary, animated success checkmark (stroke-dasharray 600ms), failure retry
+- Loading skeleton with shimmer animation (1.5s infinite linear) during session load
+- Dark mode support via `prefers-color-scheme` media query across all components
+- New gaps identified: GAP-050 (no card-frame.html CDN hosting), GAP-051 (no Apple Pay/Google Pay sandbox testing), GAP-052 (BNPL provider SDK versions unpinned)
+
 **Sprint 3.4 — Event Architecture Upgrade**
 - JSON-to-Avro event serialization migration with Confluent Schema Registry (7.6.1)
 - 21 Avro schema definitions (.avsc) covering all domain events: payment (10), ledger (2), billing (3), fraud (4), routing (3)
