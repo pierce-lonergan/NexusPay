@@ -69,6 +69,12 @@ All notable changes to NexusPay are documented here. Format follows [Keep a Chan
 - Full persistence layer: 3 JPA entities, 3 Spring Data repositories, 3 hexagonal adapter implementations with JSONB serialization
 - New gaps identified: GAP-046 (no routing metrics dashboard), GAP-047 (A/B test statistical significance), GAP-048 (circuit breaker recovery), GAP-049 (card-brand-specific fees)
 
+**Sprint 3.3 Gap Patches**
+- GAP-046: Grafana routing metrics dashboard — 12-panel dashboard with template variables (`$psp`, `$strategy`): routing decisions/sec by strategy, auth rate by PSP, decision latency percentiles, cascade depth distribution, cascade trigger rate gauge, PSP latency p95, circuit breaker state timeline, routing failures by reason, A/B test traffic split, cost per transaction by PSP, PSP selection distribution, decline code heatmap. Auto-provisioned via Grafana file-based provisioning.
+- GAP-047: A/B test statistical significance — two-proportion z-test implementation in `RoutingAbTestService`. Computes z-score, p-value (via Taylor series normal CDF approximation), and confidence intervals. `AbTestSummary` extended with `groupAAuthRate`, `groupBAuthRate`, `zScore`, `pValue`, `confidenceInterval`, `isStatisticallySignificant`, `winner`. In-memory ConcurrentHashMap-based outcome counters updated via `recordOutcome()`.
+- GAP-048: Full circuit breaker state machine — `CircuitBreakerManager` service with CLOSED → OPEN → HALF_OPEN → CLOSED transitions. Configurable `failureRateThreshold` (0.50), `failureCountThreshold` (10), `cooldownSeconds` (60), `probeRequests` (3). Scheduled cooldown checker transitions OPEN breakers to HALF_OPEN. Probe-based recovery: all probes must succeed to close. REST endpoints: `GET/POST /v1/routing/circuit-breakers/{pspConnector}`. `PspHealthTracker` updated to delegate to `CircuitBreakerManager`. `RoutingProperties.CircuitBreakerProperties` added.
+- GAP-049: Card-brand-specific fee pricing — `PspFeeModel` extended with `cardBrand`, `cardType`, `isDomestic` fields. Specificity scoring (0–3) for best-match selection. `PspFeeRepository.findBestMatch()` default method filters by card attributes and selects highest specificity. `PspFeeModelEntity` updated with new columns. Migration `V3012__add_card_brand_to_psp_fee_models.sql` adds columns, unique constraint, index, and seed data (AMEX surcharge, domestic debit discount, international credit premium). REST fee endpoints extended with card-brand fields.
+
 ## [0.2.0] — 2026-03-15 (Phase 2)
 
 ### Added

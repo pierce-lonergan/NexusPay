@@ -6,6 +6,8 @@ import io.nexuspay.payment.application.port.routing.RoutingConfigRepository;
 import io.nexuspay.payment.application.port.routing.RoutingConfigRepository.RoutingConfig;
 import io.nexuspay.payment.application.port.routing.RoutingDecisionRepository;
 import io.nexuspay.payment.application.port.routing.RoutePaymentUseCase;
+import io.nexuspay.payment.application.service.CircuitBreakerManager;
+import io.nexuspay.payment.application.service.PspHealthTracker;
 import io.nexuspay.payment.domain.routing.PspFeeModel;
 import io.nexuspay.payment.domain.routing.PspHealthSnapshot;
 import io.nexuspay.payment.domain.routing.RoutingContext;
@@ -31,6 +33,7 @@ public class RoutingConfigController {
     private final RoutingDecisionRepository decisionRepository;
     private final PspFeeRepository feeRepository;
     private final PspHealthRepository healthRepository;
+    private final PspHealthTracker healthTracker;
     private final RoutePaymentUseCase routePaymentUseCase;
 
     public RoutingConfigController(
@@ -38,11 +41,13 @@ public class RoutingConfigController {
             RoutingDecisionRepository decisionRepository,
             PspFeeRepository feeRepository,
             PspHealthRepository healthRepository,
+            PspHealthTracker healthTracker,
             RoutePaymentUseCase routePaymentUseCase) {
         this.configRepository = configRepository;
         this.decisionRepository = decisionRepository;
         this.feeRepository = feeRepository;
         this.healthRepository = healthRepository;
+        this.healthTracker = healthTracker;
         this.routePaymentUseCase = routePaymentUseCase;
     }
 
@@ -164,7 +169,10 @@ public class RoutingConfigController {
                 request.schemeFeeBps() != null ? request.schemeFeeBps() : 0,
                 request.currency().toUpperCase(),
                 request.effectiveFrom() != null ? request.effectiveFrom() : LocalDate.now(),
-                request.effectiveTo()
+                request.effectiveTo(),
+                request.cardBrand() != null ? request.cardBrand().toUpperCase() : null,
+                request.cardType() != null ? request.cardType().toUpperCase() : null,
+                request.isDomestic()
         );
 
         PspFeeModel saved = feeRepository.save(fee);
@@ -190,11 +198,65 @@ public class RoutingConfigController {
     @GetMapping("/health")
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<List<Map<String, Object>>> getAllPspHealth() {
-        Map<String, PspHealthSnapshot> allHealth = healthRepository.getAllHealth();
-        List<Map<String, Object>> result = allHealth.entrySet().stream()
-                .map(e -> healthToMap(e.getKey(), e.getValue()))
+        List<PspHealthSnapshot> allHealth = healthRepository.getAllHealth();
+        List<Map<String, Object>> result = allHealth.stream()
+                .map(h -> healthToMap(h.pspConnector(), h))
                 .toList();
         return ResponseEntity.ok(result);
+    }
+
+    // --- Circuit Breaker Management ---
+
+    /**
+     * Get circuit breaker states for all PSPs.
+     */
+    @GetMapping("/circuit-breakers")
+    @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
+    public ResponseEntity<Map<String, Object>> getAllCircuitBreakers() {
+        var states = healthTracker.getAllCircuitBreakerStates();
+        Map<String, Object> result = new LinkedHashMap<>();
+        states.forEach((psp, info) -> {
+            Map<String, Object> cbMap = new LinkedHashMap<>();
+            cbMap.put("status", info.status().name());
+            cbMap.put("failure_count", info.failureCount());
+            cbMap.put("total_count", info.totalCount());
+            cbMap.put("failure_rate", info.failureRate());
+            if (info.openedAt() != null) cbMap.put("opened_at", info.openedAt().toString());
+            cbMap.put("probe_results", info.probeResults());
+            cbMap.put("probe_successes", info.probeSuccesses());
+            result.put(psp, cbMap);
+        });
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Get circuit breaker state for a specific PSP.
+     */
+    @GetMapping("/circuit-breakers/{pspConnector}")
+    @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
+    public ResponseEntity<Map<String, Object>> getCircuitBreaker(@PathVariable String pspConnector) {
+        var status = healthTracker.getCircuitBreakerStatus(pspConnector);
+        return ResponseEntity.ok(Map.of(
+                "psp_connector", pspConnector,
+                "status", status.name()
+        ));
+    }
+
+    /**
+     * Manually force a circuit breaker to OPEN or CLOSED state.
+     */
+    @PostMapping("/circuit-breakers/{pspConnector}")
+    @PreAuthorize("hasRole('admin')")
+    public ResponseEntity<Map<String, Object>> forceCircuitBreaker(
+            @PathVariable String pspConnector,
+            @RequestBody ForceCircuitBreakerRequest request) {
+        CircuitBreakerManager.Status target = CircuitBreakerManager.Status.valueOf(request.status().toUpperCase());
+        healthTracker.forceCircuitBreakerState(pspConnector, target);
+        return ResponseEntity.ok(Map.of(
+                "psp_connector", pspConnector,
+                "status", target.name(),
+                "message", "Circuit breaker for " + pspConnector + " forced to " + target
+        ));
     }
 
     // --- Dry-run route simulation ---
@@ -275,6 +337,10 @@ public class RoutingConfigController {
         map.put("currency", fee.currency());
         map.put("effective_from", fee.effectiveFrom().toString());
         if (fee.effectiveTo() != null) map.put("effective_to", fee.effectiveTo().toString());
+        if (fee.cardBrand() != null) map.put("card_brand", fee.cardBrand());
+        if (fee.cardType() != null) map.put("card_type", fee.cardType());
+        if (fee.isDomestic() != null) map.put("is_domestic", fee.isDomestic());
+        map.put("specificity", fee.specificity());
         return map;
     }
 
@@ -287,8 +353,9 @@ public class RoutingConfigController {
         map.put("latency_p95_ms", health.latencyP95Ms());
         map.put("latency_p99_ms", health.latencyP99Ms());
         map.put("circuit_breaker_open", health.circuitBreakerOpen());
-        map.put("healthy", health.isHealthy());
-        map.put("sufficient_data", health.hasSufficientData());
+        map.put("circuit_breaker_status", healthTracker.getCircuitBreakerStatus(psp).name());
+        map.put("healthy", health.isHealthy(0.70, 3000));
+        map.put("sufficient_data", health.hasSufficientData(100));
         return map;
     }
 
@@ -303,9 +370,12 @@ public class RoutingConfigController {
             String pspConnector, String feeType, BigDecimal perTxFee,
             BigDecimal percentageFee, Integer interchangeMarkupBps,
             Integer schemeFeeBps, String currency,
-            LocalDate effectiveFrom, LocalDate effectiveTo) {}
+            LocalDate effectiveFrom, LocalDate effectiveTo,
+            String cardBrand, String cardType, Boolean isDomestic) {}
 
     record SimulateRouteRequest(
             BigDecimal amount, String currency, String cardBrand,
             String cardType, String issuingCountry, String ipCountry) {}
+
+    record ForceCircuitBreakerRequest(String status) {}
 }

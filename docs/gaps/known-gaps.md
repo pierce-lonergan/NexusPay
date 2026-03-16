@@ -282,33 +282,25 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Status**: Resolved — Sprint 3.2 patch
 - **Description**: `SanctionsListAdapter` rewritten with scheduled OFAC CSL (Consolidated Screening List) refresh via `@Scheduled` cron (default: daily at 2am, configurable via `nexuspay.fx.compliance.sanctions-refresh-cron`). Fetches from `data.trade.gov` CSL CSV endpoint. Merges OFAC country codes with static baseline list. Falls back to static list if OFAC is unreachable. High-risk countries now configurable via `nexuspay.fx.compliance.high-risk-countries`.
 
-### GAP-046: Routing — No Real-Time Strategy Performance Metrics Dashboard
+### ~~GAP-046: Routing — No Real-Time Strategy Performance Metrics Dashboard~~ (RESOLVED Sprint 3.3 patch)
 - **Identified**: Sprint 3.3
-- **Status**: Open — deferred to observability sprint
-- **Description**: Routing decisions are persisted for audit but there's no real-time dashboard showing strategy performance (auth rates per strategy, cascade depth distribution, latency by PSP). Grafana dashboards need to be built from the Kafka routing events and Valkey health snapshots.
-- **Risk**: Operators cannot quickly assess if a routing configuration change improved or degraded performance.
-- **Resolution**: Phase 3 observability sprint — Grafana dashboards sourcing from `nexuspay.routing.decisions` topic and Valkey health cache.
+- **Status**: Resolved — Sprint 3.3 patch
+- **Description**: 12-panel Grafana dashboard (`docker/config/grafana/dashboards/routing-engine.json`) auto-provisioned via file-based provisioning. Panels: routing decisions/sec by strategy, auth rate by PSP, decision latency percentiles (p50/p95/p99), cascade depth distribution, cascade trigger rate gauge, PSP latency p95, circuit breaker state timeline, routing failures by reason, A/B test traffic split, cost per transaction by PSP, PSP selection distribution, decline code heatmap. Template variables for `$psp` and `$strategy` filtering. All metrics prefixed `nexuspay_routing_*`.
 
-### GAP-047: Routing — A/B Test Statistical Significance Not Calculated
+### ~~GAP-047: Routing — A/B Test Statistical Significance Not Calculated~~ (RESOLVED Sprint 3.3 patch)
 - **Identified**: Sprint 3.3
-- **Status**: Open — deferred to Sprint 3.4
-- **Description**: `RoutingAbTestService` tracks traffic counts per group but does not calculate statistical significance (chi-squared test or z-test for proportions). The `hasSufficientData` flag only checks minimum sample size, not whether the difference is statistically significant.
-- **Risk**: Operators may promote a test config based on insufficient statistical evidence.
-- **Resolution**: Sprint 3.4 — implement two-proportion z-test for auth rate comparison between groups A and B. Add confidence interval to `AbTestSummary`.
+- **Status**: Resolved — Sprint 3.3 patch
+- **Description**: Two-proportion z-test implemented in `RoutingAbTestService`. Computes z-score, p-value (Taylor series normal CDF approximation — no external math library), and confidence intervals at configurable confidence level (default 95%). `AbTestSummary` extended with `groupAAuthRate`, `groupBAuthRate`, `zScore`, `pValue`, `confidenceInterval`, `isStatisticallySignificant`, `winner`. In-memory ConcurrentHashMap-based outcome counters keyed by `abTestId:group`, updated via `recordOutcome()`. REST endpoint response includes all statistical fields.
 
-### GAP-048: Routing — Circuit Breaker State Not Persisted Across Restarts
+### ~~GAP-048: Routing — Circuit Breaker State Not Persisted Across Restarts~~ (RESOLVED Sprint 3.3 patch)
 - **Identified**: Sprint 3.3
-- **Status**: Open — accepted for now
-- **Description**: Circuit breaker state (open/closed/half-open) is tracked in Valkey (`ValkeyPspHealthCache`) but the transition logic and cooldown timers are not implemented. Currently the `circuitBreakerOpen` flag is set manually or via health threshold checks, but there's no automatic half-open→closed recovery.
-- **Risk**: A PSP marked as circuit-breaker-open will not automatically recover without manual intervention or a health check passing the threshold.
-- **Resolution**: Sprint 3.4 — implement full circuit breaker state machine with configurable cooldown, half-open probe requests, and automatic recovery.
+- **Status**: Resolved — Sprint 3.3 patch
+- **Description**: Full circuit breaker state machine implemented in `CircuitBreakerManager` service. State transitions: CLOSED → OPEN (failure rate exceeds threshold), OPEN → HALF_OPEN (cooldown elapsed via `@Scheduled` checker), HALF_OPEN → CLOSED (all probe requests succeed) or HALF_OPEN → OPEN (any probe fails). Configurable via `RoutingProperties.CircuitBreakerProperties`: `failureRateThreshold` (0.50), `failureCountThreshold` (10), `cooldownSeconds` (60), `probeRequests` (3), `checkIntervalMs` (5000). `PspHealthTracker` delegates to `CircuitBreakerManager` for all circuit breaker operations. REST endpoints for viewing and force-setting circuit breaker state (`GET/POST /v1/routing/circuit-breakers/{pspConnector}`).
 
-### GAP-049: Routing — Fee Model Lacks Card-Brand-Specific Pricing
+### ~~GAP-049: Routing — Fee Model Lacks Card-Brand-Specific Pricing~~ (RESOLVED Sprint 3.3 patch)
 - **Identified**: Sprint 3.3
-- **Status**: Open — deferred to Phase 4
-- **Description**: `PspFeeModel` tracks fees by PSP and currency but not by card brand or card type. In practice, PSPs charge different rates for Visa vs Mastercard, debit vs credit, and domestic vs international.
-- **Risk**: Cost-based routing may select a PSP that's cheapest on average but more expensive for the specific card being used.
-- **Resolution**: Phase 4 — extend `psp_fee_models` with card_brand, card_type, and is_domestic columns for granular cost routing.
+- **Status**: Resolved — Sprint 3.3 patch
+- **Description**: `PspFeeModel` extended with `cardBrand`, `cardType`, and `isDomestic` fields for granular fee pricing. Specificity scoring (0–3) based on how many card attributes are specified. `PspFeeRepository.findBestMatch()` default method filters effective models by PSP, currency, date, and card attributes, then selects the highest-specificity match. `PspFeeModelEntity` updated with `card_brand`, `card_type`, `is_domestic` columns. Migration `V3012__add_card_brand_to_psp_fee_models.sql` adds columns, updates unique constraint, creates index, and seeds card-specific fee data (Stripe AMEX surcharge, Adyen domestic Visa debit discount, Adyen international Visa credit premium). REST fee endpoints and DTOs extended with card-brand fields and specificity in responses.
 
 ---
 
@@ -329,14 +321,14 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 | Sprint 2.7 (complete) | GAP-020 (metrics export — full observability stack) |
 | Sprint 3.1 (complete) | GAP-039, GAP-040, GAP-041 (fraud module — new gaps identified) |
 | Sprint 3.2 (complete) | GAP-042, GAP-043, GAP-044, GAP-045 (FX module — identified and resolved) |
-| Sprint 3.3 (complete) | GAP-046, GAP-047, GAP-048, GAP-049 (routing module — new gaps identified) |
+| Sprint 3.3 (complete) | GAP-046, GAP-047, GAP-048, GAP-049 (routing module — identified and resolved) |
 | Phase 2 (remaining) | GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-026, GAP-027 |
 | Phase 3 | GAP-012 (full Schema Registry) |
 
 ## Summary
 
 - **Total gaps tracked**: 49
-- **Resolved**: 29 (GAP-001, 003, 005, 006, 007, 009, 010, 011, 013, 014, 016, 017, 019, 020, 022, 025, 030, 031, 034, 036, 042, 043, 044, 045 + partial GAP-008)
+- **Resolved**: 33 (GAP-001, 003, 005, 006, 007, 009, 010, 011, 013, 014, 016, 017, 019, 020, 022, 025, 030, 031, 034, 036, 042, 043, 044, 045, 046, 047, 048, 049 + partial GAP-008)
 - **Partially Addressed**: 3 (GAP-012, GAP-023, GAP-032)
-- **Open/Deferred**: 20 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033, GAP-035, GAP-037, GAP-038, GAP-039, GAP-040, GAP-041, GAP-046, GAP-047, GAP-048, GAP-049)
+- **Open/Deferred**: 16 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033, GAP-035, GAP-037, GAP-038, GAP-039, GAP-040, GAP-041)
 - **Accepted for Phase 1/2**: GAP-024, GAP-028, GAP-029, GAP-038

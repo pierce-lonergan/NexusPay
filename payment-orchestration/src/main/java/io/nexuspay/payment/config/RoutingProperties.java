@@ -20,6 +20,7 @@ public class RoutingProperties {
     private HealthProperties health = new HealthProperties();
     private LatencyProperties latency = new LatencyProperties();
     private AbTestProperties abTesting = new AbTestProperties();
+    private CircuitBreakerProperties circuitBreaker = new CircuitBreakerProperties();
 
     // Getters and setters
     public boolean isEnabled() { return enabled; }
@@ -34,6 +35,8 @@ public class RoutingProperties {
     public void setLatency(LatencyProperties latency) { this.latency = latency; }
     public AbTestProperties getAbTesting() { return abTesting; }
     public void setAbTesting(AbTestProperties abTesting) { this.abTesting = abTesting; }
+    public CircuitBreakerProperties getCircuitBreaker() { return circuitBreaker; }
+    public void setCircuitBreaker(CircuitBreakerProperties circuitBreaker) { this.circuitBreaker = circuitBreaker; }
 
     public static class CascadeProperties {
         private boolean enabled = true;
@@ -88,5 +91,34 @@ public class RoutingProperties {
         public void setConfidenceLevel(double confidenceLevel) { this.confidenceLevel = confidenceLevel; }
         public boolean isAutoPromote() { return autoPromote; }
         public void setAutoPromote(boolean autoPromote) { this.autoPromote = autoPromote; }
+    }
+
+    /**
+     * Circuit breaker configuration for PSP health management.
+     *
+     * @since 0.3.1 (GAP-048)
+     */
+    public static class CircuitBreakerProperties {
+        /** Failure rate (0.0-1.0) above which the breaker trips. */
+        private double failureRateThreshold = 0.50;
+        /** Minimum attempts before evaluating failure rate. */
+        private int failureCountThreshold = 10;
+        /** Seconds to wait in OPEN state before transitioning to HALF_OPEN. */
+        private long cooldownSeconds = 60;
+        /** Number of probe requests allowed in HALF_OPEN state. */
+        private int probeRequests = 3;
+        /** Interval in ms between cooldown checks. */
+        private long checkIntervalMs = 5000;
+
+        public double getFailureRateThreshold() { return failureRateThreshold; }
+        public void setFailureRateThreshold(double failureRateThreshold) { this.failureRateThreshold = failureRateThreshold; }
+        public int getFailureCountThreshold() { return failureCountThreshold; }
+        public void setFailureCountThreshold(int failureCountThreshold) { this.failureCountThreshold = failureCountThreshold; }
+        public long getCooldownSeconds() { return cooldownSeconds; }
+        public void setCooldownSeconds(long cooldownSeconds) { this.cooldownSeconds = cooldownSeconds; }
+        public int getProbeRequests() { return probeRequests; }
+        public void setProbeRequests(int probeRequests) { this.probeRequests = probeRequests; }
+        public long getCheckIntervalMs() { return checkIntervalMs; }
+        public void setCheckIntervalMs(long checkIntervalMs) { this.checkIntervalMs = checkIntervalMs; }
     }
 }

@@ -8,8 +8,14 @@ import java.util.UUID;
 /**
  * Represents a PSP's fee model for cost-based routing.
  * Supports per-transaction, percentage, blended, and interchange++ fee types.
+ * <p>
+ * Card-brand-specific pricing (GAP-049): Fee models can optionally be scoped
+ * to a specific card brand (Visa, Mastercard), card type (credit, debit),
+ * and domestic/international status. When multiple fee models match, the most
+ * specific one is used (brand+type+domestic > brand+type > brand > default).
  *
  * @since 0.3.0 (Sprint 3.3)
+ * @since 0.3.1 (GAP-049 — card-brand-specific pricing)
  */
 public record PspFeeModel(
         UUID id,
@@ -22,8 +28,24 @@ public record PspFeeModel(
         int schemeFeeBps,
         String currency,
         LocalDate effectiveFrom,
-        LocalDate effectiveTo
+        LocalDate effectiveTo,
+        String cardBrand,
+        String cardType,
+        Boolean isDomestic
 ) {
+
+    /**
+     * Backwards-compatible constructor without card-brand fields.
+     */
+    public PspFeeModel(
+            UUID id, String tenantId, String pspConnector, FeeType feeType,
+            BigDecimal perTxFee, BigDecimal percentageFee,
+            int interchangeMarkupBps, int schemeFeeBps,
+            String currency, LocalDate effectiveFrom, LocalDate effectiveTo) {
+        this(id, tenantId, pspConnector, feeType, perTxFee, percentageFee,
+                interchangeMarkupBps, schemeFeeBps, currency, effectiveFrom, effectiveTo,
+                null, null, null);
+    }
 
     public enum FeeType {
         PER_TX,
@@ -62,5 +84,34 @@ public record PspFeeModel(
     public boolean isEffective(LocalDate date) {
         if (date.isBefore(effectiveFrom)) return false;
         return effectiveTo == null || !date.isAfter(effectiveTo);
+    }
+
+    /**
+     * Calculates the specificity score for matching. Higher = more specific.
+     * Used to select the most specific fee model when multiple match.
+     * <pre>
+     *   null brand + null type + null domestic = 0 (generic)
+     *   brand only = 1
+     *   brand + type = 2
+     *   brand + type + domestic = 3
+     * </pre>
+     */
+    public int specificity() {
+        int score = 0;
+        if (cardBrand != null) score++;
+        if (cardType != null) score++;
+        if (isDomestic != null) score++;
+        return score;
+    }
+
+    /**
+     * Whether this fee model matches the given card attributes.
+     * A null field in the model means "any" (matches all values).
+     */
+    public boolean matchesCard(String brand, String type, Boolean domestic) {
+        if (cardBrand != null && !cardBrand.equalsIgnoreCase(brand)) return false;
+        if (cardType != null && !cardType.equalsIgnoreCase(type)) return false;
+        if (isDomestic != null && domestic != null && !isDomestic.equals(domestic)) return false;
+        return true;
     }
 }

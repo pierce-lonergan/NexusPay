@@ -153,6 +153,15 @@ public class RoutingAbTestController {
         map.put("total_count", summary.groupACount() + summary.groupBCount());
         map.put("has_sufficient_data", summary.hasSufficientData());
         map.put("group_a_traffic_share", summary.groupATrafficShare());
+        map.put("group_a_auth_rate", summary.groupAAuthRate());
+        map.put("group_b_auth_rate", summary.groupBAuthRate());
+        map.put("z_score", summary.zScore());
+        map.put("p_value", summary.pValue());
+        map.put("confidence_interval", summary.confidenceInterval());
+        map.put("is_statistically_significant", summary.isStatisticallySignificant());
+        if (summary.winner() != null) {
+            map.put("winner", summary.winner());
+        }
         return map;
     }
 

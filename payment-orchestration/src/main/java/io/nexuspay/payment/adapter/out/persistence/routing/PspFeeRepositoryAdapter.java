@@ -13,6 +13,7 @@ import java.util.UUID;
  * Adapter implementing PspFeeRepository port via JPA.
  *
  * @since 0.3.0 (Sprint 3.3)
+ * @since 0.3.1 (GAP-049 — card-brand-specific fee mapping)
  */
 @Component
 public class PspFeeRepositoryAdapter implements PspFeeRepository {
@@ -68,6 +69,9 @@ public class PspFeeRepositoryAdapter implements PspFeeRepository {
         entity.setCurrency(model.currency());
         entity.setEffectiveFrom(model.effectiveFrom());
         entity.setEffectiveTo(model.effectiveTo());
+        entity.setCardBrand(model.cardBrand());
+        entity.setCardType(model.cardType());
+        entity.setIsDomestic(model.isDomestic());
         return entity;
     }
 
@@ -83,7 +87,10 @@ public class PspFeeRepositoryAdapter implements PspFeeRepository {
                 entity.getSchemeFeeBps() != null ? entity.getSchemeFeeBps() : 0,
                 entity.getCurrency(),
                 entity.getEffectiveFrom(),
-                entity.getEffectiveTo()
+                entity.getEffectiveTo(),
+                entity.getCardBrand(),
+                entity.getCardType(),
+                entity.getIsDomestic()
         );
     }
 }

@@ -9,6 +9,7 @@ import java.util.UUID;
  * JPA entity for PSP fee models.
  *
  * @since 0.3.0 (Sprint 3.3)
+ * @since 0.3.1 (GAP-049 — card-brand-specific columns)
  */
 @Entity
 @Table(name = "psp_fee_models")
@@ -48,6 +49,15 @@ public class PspFeeModelEntity {
     @Column(name = "effective_to")
     private LocalDate effectiveTo;
 
+    @Column(name = "card_brand")
+    private String cardBrand;
+
+    @Column(name = "card_type")
+    private String cardType;
+
+    @Column(name = "is_domestic")
+    private Boolean isDomestic;
+
     // Getters and setters
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
@@ -71,4 +81,10 @@ public class PspFeeModelEntity {
     public void setEffectiveFrom(LocalDate effectiveFrom) { this.effectiveFrom = effectiveFrom; }
     public LocalDate getEffectiveTo() { return effectiveTo; }
     public void setEffectiveTo(LocalDate effectiveTo) { this.effectiveTo = effectiveTo; }
+    public String getCardBrand() { return cardBrand; }
+    public void setCardBrand(String cardBrand) { this.cardBrand = cardBrand; }
+    public String getCardType() { return cardType; }
+    public void setCardType(String cardType) { this.cardType = cardType; }
+    public Boolean getIsDomestic() { return isDomestic; }
+    public void setIsDomestic(Boolean isDomestic) { this.isDomestic = isDomestic; }
 }
