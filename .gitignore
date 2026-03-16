@@ -46,3 +46,8 @@ docker/data/
 
 # Test output
 test-output/
+
+# Checkout SDK (TypeScript)
+checkout-sdk/node_modules/
+checkout-sdk/packages/*/dist/
+checkout-sdk/coverage/
