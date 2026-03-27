@@ -70,6 +70,21 @@ public final class EventTypes {
     public static final String ROUTE_FAILED = "RouteFailed";
     public static final String CASCADE_TRIGGERED = "CascadeTriggered";
 
+    // B2B lifecycle (Sprint 4.3)
+    public static final String PURCHASE_ORDER_CREATED = "PurchaseOrderCreated";
+    public static final String PURCHASE_ORDER_SUBMITTED = "PurchaseOrderSubmitted";
+    public static final String PURCHASE_ORDER_APPROVED = "PurchaseOrderApproved";
+    public static final String PURCHASE_ORDER_CANCELLED = "PurchaseOrderCancelled";
+    public static final String INVOICE_CREATED_FROM_PO = "InvoiceCreatedFromPO";
+    public static final String B2B_INVOICE_SENT = "InvoiceSent";
+    public static final String B2B_INVOICE_PAID = "InvoicePaid";
+    public static final String VIRTUAL_CARD_ISSUED = "VirtualCardIssued";
+    public static final String VIRTUAL_CARD_FROZEN = "VirtualCardFrozen";
+    public static final String VIRTUAL_CARD_CANCELLED = "VirtualCardCancelled";
+    public static final String VENDOR_PAYMENT_CREATED = "VendorPaymentCreated";
+    public static final String VENDOR_PAYMENT_APPROVED = "VendorPaymentApproved";
+    public static final String VENDOR_PAYMENT_BATCH_CREATED = "VendorPaymentBatchCreated";
+
     // Marketplace lifecycle (Sprint 4.2)
     public static final String ACCOUNT_ONBOARDED = "AccountOnboarded";
     public static final String ACCOUNT_UPDATED = "AccountUpdated";
@@ -96,4 +111,8 @@ public final class EventTypes {
     public static final String AGGREGATE_CONNECTED_ACCOUNT = "ConnectedAccount";
     public static final String AGGREGATE_SPLIT_PAYMENT = "SplitPayment";
     public static final String AGGREGATE_PAYOUT = "Payout";
+    public static final String AGGREGATE_PURCHASE_ORDER = "PurchaseOrder";
+    public static final String AGGREGATE_B2B_INVOICE = "B2bInvoice";
+    public static final String AGGREGATE_VIRTUAL_CARD = "VirtualCard";
+    public static final String AGGREGATE_VENDOR_PAYMENT = "VendorPayment";
 }

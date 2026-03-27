@@ -62,7 +62,11 @@ public class OutboxRelay {
             Map.entry(EventTypes.AGGREGATE_ROUTING_DECISION, Topics.ROUTING_DECISIONS),
             Map.entry(EventTypes.AGGREGATE_CONNECTED_ACCOUNT, Topics.MARKETPLACE_EVENTS),
             Map.entry(EventTypes.AGGREGATE_SPLIT_PAYMENT, Topics.MARKETPLACE_EVENTS),
-            Map.entry(EventTypes.AGGREGATE_PAYOUT, Topics.MARKETPLACE_EVENTS)
+            Map.entry(EventTypes.AGGREGATE_PAYOUT, Topics.MARKETPLACE_EVENTS),
+            Map.entry(EventTypes.AGGREGATE_PURCHASE_ORDER, Topics.B2B_EVENTS),
+            Map.entry(EventTypes.AGGREGATE_B2B_INVOICE, Topics.B2B_EVENTS),
+            Map.entry(EventTypes.AGGREGATE_VIRTUAL_CARD, Topics.B2B_EVENTS),
+            Map.entry(EventTypes.AGGREGATE_VENDOR_PAYMENT, Topics.B2B_EVENTS)
     );
 
     private static final String DEFAULT_TOPIC = Topics.PAYMENTS;
