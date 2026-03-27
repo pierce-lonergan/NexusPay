@@ -203,6 +203,31 @@ nexuspay:
     compliance:
       sanctioned-countries: KP,IR,SY,CU                  # OFAC-aligned sanctions list
       cross-border-amount-reporting-threshold: 10000     # USD equivalent, triggers reporting
+  analytics:
+    enabled: ${NEXUSPAY_ANALYTICS_ENABLED:true}
+    pipeline:
+      consumer-group: nexuspay-analytics
+      batch-size: 100
+      batch-timeout-ms: 2000
+    rollup:
+      hourly-retention-days: 90
+      daily-retention-days: 730
+      monthly-retention-days: 3650
+      daily-rollup-cron: "0 5 0 * * *"
+      monthly-rollup-cron: "0 10 0 1 * *"
+      materialized-view-refresh-cron: "0 0 * * * *"
+    psp-health:
+      snapshot-interval-ms: 300000
+      anomaly-std-dev-threshold: 2.0
+      scoring-weights:
+        auth-rate: 0.50
+        latency: 0.30
+        error-rate: 0.20
+    cache:
+      ttl: PT5M
+    query:
+      max-date-range-days: 365
+      default-granularity: DAILY
 
 # Resilience4j
 resilience4j:

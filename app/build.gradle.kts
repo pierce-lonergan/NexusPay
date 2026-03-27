@@ -15,6 +15,7 @@ dependencies {
     implementation(project(":workflow"))
     implementation(project(":billing"))
     implementation(project(":fraud"))
+    implementation(project(":analytics"))
 
     implementation(rootProject.libs.spring.boot.starter.web)
     implementation(rootProject.libs.spring.boot.starter.actuator)
