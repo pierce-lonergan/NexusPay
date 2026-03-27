@@ -2,6 +2,30 @@
 
 All notable changes to NexusPay are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased] — Phase 4 (v0.4.0)
+
+### Added
+
+**Sprint 4.1 — Universal Card Vault & Network Tokenization**
+- New `vault` Gradle module with hexagonal architecture (14th module)
+- AES-256-GCM encryption at rest for PANs with 12-byte random IV, 128-bit auth tag
+- EncryptionPort abstraction: software adapter (dev/test) vs HSM placeholder (production)
+- SHA-256 fingerprint-based duplicate card detection per tenant
+- VaultedCard domain model (`vc_` prefix) with encrypted PAN, BIN, brand, expiry
+- VaultToken (`tok_xxx`) merchant-facing token for card references — PAN never exposed via API
+- NetworkToken (`nt_` prefix) for Visa VTS, Mastercard MDES, and Amex provisioning
+- Stub network token adapters (real enrollment requires 3-6 month certification)
+- Cryptogram generation (TAVV/CAVV) for tokenized e-commerce transactions
+- Vault-to-vault migration framework: PENDING → IN_PROGRESS → COMPLETED/FAILED lifecycle
+- CardVaultService: Luhn validation, BIN-based brand detection (Visa/MC/Amex/Discover), fingerprint dedup, cascade delete
+- Flyway migration V4001: vaulted_cards (BYTEA), network_tokens, vault_tokens, vault_migrations with RLS policies
+- Transactional outbox events: CardVaulted, CardDeleted, NetworkTokenProvisioned, MigrationStarted
+- Kafka topic: `nexuspay.vault.events` with dedicated consumer group
+- REST API: POST/GET/DELETE /v1/vault/cards, POST network-tokens, POST cryptogram, POST/GET migrations
+- VaultSecurityConfig for PCI DSS isolation preparation (extractable to standalone service)
+- VaultProperties: encryption (provider, masterKey, keyId), network-tokens (visa/mc/amex enabled)
+- New gaps identified: GAP-056 (HSM not implemented), GAP-057 (network token adapters are stubs), GAP-058 (migration ingestion not implemented), GAP-059 (key rotation job not implemented), GAP-060 (vault not independently deployable)
+
 ## [Unreleased] — Phase 3 (v0.3.0)
 
 ### Added

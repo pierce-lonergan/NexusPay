@@ -13,4 +13,7 @@ dependencies {
     implementation(rootProject.libs.flyway.database.postgresql)
 
     runtimeOnly(rootProject.libs.postgresql)
+
+    testImplementation(rootProject.libs.spring.boot.starter.security)
+    testImplementation(rootProject.libs.spring.security.test)
 }

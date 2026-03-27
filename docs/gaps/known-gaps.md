@@ -1,6 +1,6 @@
 # NexusPay Known Gaps Analysis
 
-Last updated: 2026-03-27 (Sprint 3.6 — Payment Analytics Platform)
+Last updated: 2026-03-27 (Sprint 4.1 — Universal Card Vault & Network Tokenization)
 
 This document tracks known gaps, technical debt, and deferred decisions in the NexusPay system. Each gap is categorized by severity, the sprint it was identified, and the planned resolution timeline.
 
@@ -344,6 +344,41 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Risk**: Operations teams must use raw API calls to view analytics data. No visual alerting for PSP health degradation.
 - **Resolution**: Phase 4 — add `docker/config/grafana/dashboards/analytics.json` with panels for auth rate trends, PSP health scores, revenue breakdowns, and decline heatmaps.
 
+### GAP-056: Vault Module — HSM Encryption Not Implemented
+- **Identified**: Sprint 4.1
+- **Status**: Open
+- **Description**: `HsmEncryptionAdapter` is a placeholder that throws `UnsupportedOperationException`. Production deployment requires CloudHSM (AWS) or Thales Luna HSM integration for PCI DSS compliance. Software AES-256-GCM adapter is functional for dev/test.
+- **Risk**: PCI DSS Level 1 compliance requires HSM-managed encryption keys. Software encryption is insufficient for production PAN storage.
+- **Resolution**: Phase 4 production hardening — implement CloudHSM PKCS#11 or Thales Luna integration.
+
+### GAP-057: Vault Module — Network Token Adapters Are Stubs
+- **Identified**: Sprint 4.1
+- **Status**: Open
+- **Description**: Visa VTS, Mastercard MDES, and Amex token service adapters return simulated responses. Real network token enrollment requires 3-6 month business certification per card network.
+- **Risk**: Network tokenization benefits (2-5% auth rate improvement, reduced interchange) not realized until real adapters are active.
+- **Resolution**: Phase 4/5 — implement real adapters as certifications complete. Visa VTS enrollment should be initiated first.
+
+### GAP-058: Vault Module — Migration Ingestion Not Implemented
+- **Identified**: Sprint 4.1
+- **Status**: Open
+- **Description**: `VaultMigrationService` creates migration records but does not process card imports from source providers (Spreedly, Stripe, Braintree). Needs Kafka consumer or batch job for actual card ingestion.
+- **Risk**: Merchants cannot migrate existing card-on-file data into NexusPay vault.
+- **Resolution**: Sprint 4.2 or later — add migration ingestion consumer with provider-specific API clients.
+
+### GAP-059: Vault Module — Key Rotation Background Job Not Implemented
+- **Identified**: Sprint 4.1
+- **Status**: Open
+- **Description**: `EncryptionPort` supports multiple key IDs and `VaultRepository.findCardsByEncryptionKeyId()` enables querying by key, but no scheduled job exists to re-encrypt cards from old keys to the current key.
+- **Risk**: Key rotation requires manual intervention. Compromised keys cannot be rotated automatically.
+- **Resolution**: Sprint 4.2 — add `KeyRotationJobService` with `@Scheduled` background re-encryption.
+
+### GAP-060: Vault Module — Not Independently Deployable
+- **Identified**: Sprint 4.1
+- **Status**: Accepted for Phase 4
+- **Description**: `VaultSecurityConfig` prepares for PCI isolation, but the vault module runs inside the monolith. Separate Spring Boot entry point, independent database schema, and dedicated network boundary needed for true PCI scope segmentation.
+- **Risk**: PCI DSS audit scope includes the entire monolith rather than just the vault service.
+- **Resolution**: Phase 5 — extract vault module to standalone service with mTLS and dedicated database.
+
 ---
 
 ## Gap Resolution Timeline
@@ -367,12 +402,13 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 | Sprint 3.4 (complete) | GAP-012 (full Schema Registry with Avro migration) |
 | Sprint 3.5 (complete) | GAP-050, GAP-051, GAP-052 (checkout SDK — new gaps identified) |
 | Sprint 3.6 (complete) | GAP-053, GAP-054, GAP-055 (analytics module — new gaps identified) |
+| Sprint 4.1 (complete) | GAP-056, GAP-057, GAP-058, GAP-059, GAP-060 (vault module — new gaps identified) |
 | Phase 2 (remaining) | GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-026, GAP-027 |
 
 ## Summary
 
-- **Total gaps tracked**: 55
+- **Total gaps tracked**: 60
 - **Resolved**: 34 (GAP-001, 003, 005, 006, 007, 009, 010, 011, 012, 013, 014, 016, 017, 019, 020, 022, 025, 030, 031, 034, 036, 042, 043, 044, 045, 046, 047, 048, 049 + partial GAP-008)
 - **Partially Addressed**: 2 (GAP-023, GAP-032)
-- **Open/Deferred**: 22 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033, GAP-035, GAP-037, GAP-038, GAP-039, GAP-040, GAP-041, GAP-050, GAP-051, GAP-052, GAP-053, GAP-054, GAP-055)
-- **Accepted for Phase 1/2/3**: GAP-024, GAP-028, GAP-029, GAP-038, GAP-054
+- **Open/Deferred**: 27 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033, GAP-035, GAP-037, GAP-038, GAP-039, GAP-040, GAP-041, GAP-050, GAP-051, GAP-052, GAP-053, GAP-054, GAP-055, GAP-056, GAP-057, GAP-058, GAP-059, GAP-060)
+- **Accepted for Phase 1/2/3/4**: GAP-024, GAP-028, GAP-029, GAP-038, GAP-054, GAP-060
