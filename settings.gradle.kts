@@ -15,5 +15,6 @@ include(
     "analytics",
     "vault",
     "marketplace",
+    "b2b",
     "app"
 )
