@@ -17,6 +17,7 @@ dependencies {
     implementation(project(":fraud"))
     implementation(project(":analytics"))
     implementation(project(":vault"))
+    implementation(project(":marketplace"))
 
     implementation(rootProject.libs.spring.boot.starter.web)
     implementation(rootProject.libs.spring.boot.starter.actuator)

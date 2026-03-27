@@ -237,6 +237,13 @@ nexuspay:
       visa-enabled: ${NEXUSPAY_VAULT_VISA_ENABLED:true}
       mastercard-enabled: ${NEXUSPAY_VAULT_MC_ENABLED:true}
       amex-enabled: ${NEXUSPAY_VAULT_AMEX_ENABLED:true}
+  marketplace:
+    enabled: ${NEXUSPAY_MARKETPLACE_ENABLED:true}
+    payout-scheduler:
+      enabled: ${NEXUSPAY_PAYOUT_SCHEDULER_ENABLED:false}
+      interval-ms: ${NEXUSPAY_PAYOUT_SCHEDULER_INTERVAL_MS:60000}
+    kyc:
+      provider: ${NEXUSPAY_KYC_PROVIDER:stub}
 
 # Resilience4j
 resilience4j:
