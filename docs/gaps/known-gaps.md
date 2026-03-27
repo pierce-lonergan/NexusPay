@@ -1,6 +1,6 @@
 # NexusPay Known Gaps Analysis
 
-Last updated: 2026-03-15 (Sprint 3.5 — Client-Side SDK)
+Last updated: 2026-03-27 (Sprint 3.6 — Payment Analytics Platform)
 
 This document tracks known gaps, technical debt, and deferred decisions in the NexusPay system. Each gap is categorized by severity, the sprint it was identified, and the planned resolution timeline.
 
@@ -323,6 +323,27 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Risk**: Provider SDK updates could cause runtime failures without warning.
 - **Resolution**: Pin SDK versions in script URLs and add integration smoke tests.
 
+### GAP-053: Analytics Module — No Integration Tests for Kafka Consumers
+- **Identified**: Sprint 3.6
+- **Status**: Open
+- **Description**: Analytics Kafka consumers (PaymentEventAnalyticsConsumer, RoutingEventAnalyticsConsumer, FraudEventAnalyticsConsumer) are not covered by integration tests with embedded Kafka / Testcontainers. Only unit tests with mocked repositories verify the consumer logic.
+- **Risk**: Deserialization issues, offset management, or consumer group rebalancing problems would not be caught before deployment.
+- **Resolution**: Phase 4 — add Testcontainers-based integration tests that publish events to embedded Kafka and verify rollup table population end-to-end.
+
+### GAP-054: Analytics Module — Consumers Use JSON, Not Avro
+- **Identified**: Sprint 3.6
+- **Status**: Accepted for Phase 3
+- **Description**: Analytics Kafka consumers deserialize events as JSON (`ConsumerRecord<String, String>`), matching the existing consumer pattern. Sprint 3.4 added Avro support with `DualFormatDeserializer`, but analytics consumers were not migrated.
+- **Risk**: Analytics consumers do not benefit from Avro schema validation. If producers switch to Avro-only, analytics consumers will break.
+- **Resolution**: Phase 4 — migrate analytics consumers to `DualFormatDeserializer` for seamless JSON/Avro consumption.
+
+### GAP-055: Analytics Module — No Grafana Analytics Dashboard
+- **Identified**: Sprint 3.6
+- **Status**: Open
+- **Description**: The analytics module exposes REST API endpoints but has no Grafana dashboard for visualizing auth rates, PSP health trends, revenue, or decline patterns. Other modules (routing, observability, billing) have provisioned Grafana dashboards.
+- **Risk**: Operations teams must use raw API calls to view analytics data. No visual alerting for PSP health degradation.
+- **Resolution**: Phase 4 — add `docker/config/grafana/dashboards/analytics.json` with panels for auth rate trends, PSP health scores, revenue breakdowns, and decline heatmaps.
+
 ---
 
 ## Gap Resolution Timeline
@@ -345,12 +366,13 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 | Sprint 3.3 (complete) | GAP-046, GAP-047, GAP-048, GAP-049 (routing module — identified and resolved) |
 | Sprint 3.4 (complete) | GAP-012 (full Schema Registry with Avro migration) |
 | Sprint 3.5 (complete) | GAP-050, GAP-051, GAP-052 (checkout SDK — new gaps identified) |
+| Sprint 3.6 (complete) | GAP-053, GAP-054, GAP-055 (analytics module — new gaps identified) |
 | Phase 2 (remaining) | GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-026, GAP-027 |
 
 ## Summary
 
-- **Total gaps tracked**: 52
+- **Total gaps tracked**: 55
 - **Resolved**: 34 (GAP-001, 003, 005, 006, 007, 009, 010, 011, 012, 013, 014, 016, 017, 019, 020, 022, 025, 030, 031, 034, 036, 042, 043, 044, 045, 046, 047, 048, 049 + partial GAP-008)
 - **Partially Addressed**: 2 (GAP-023, GAP-032)
-- **Open/Deferred**: 19 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033, GAP-035, GAP-037, GAP-038, GAP-039, GAP-040, GAP-041, GAP-050, GAP-051, GAP-052)
-- **Accepted for Phase 1/2**: GAP-024, GAP-028, GAP-029, GAP-038
+- **Open/Deferred**: 22 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033, GAP-035, GAP-037, GAP-038, GAP-039, GAP-040, GAP-041, GAP-050, GAP-051, GAP-052, GAP-053, GAP-054, GAP-055)
+- **Accepted for Phase 1/2/3**: GAP-024, GAP-028, GAP-029, GAP-038, GAP-054

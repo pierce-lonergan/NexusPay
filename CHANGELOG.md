@@ -105,6 +105,30 @@ All notable changes to NexusPay are documented here. Format follows [Keep a Chan
 - Dark mode support via `prefers-color-scheme` media query across all components
 - New gaps identified: GAP-050 (no card-frame.html CDN hosting), GAP-051 (no Apple Pay/Google Pay sandbox testing), GAP-052 (BNPL provider SDK versions unpinned)
 
+**Sprint 3.6 — Payment Analytics Platform**
+- New `analytics` Gradle module (13th module) with separate `analytics` PostgreSQL schema
+- 5 Flyway migrations (V3017–V3021): auth_rate_hourly/daily/monthly, psp_health_snapshots, revenue_hourly/daily, decline_daily — all with RLS policies
+- Materialized views: `mv_auth_rate_daily_refresh` (hourly→daily aggregation), `mv_psp_health_trend` (30-day health trend)
+- Domain models: AuthRateMetric, PspHealthScore, RevenueMetric, DeclineAnalysis, AnomalyAlert (Java records)
+- Hexagonal port interfaces: QueryAuthRates, QueryPspHealth, QueryRevenue, QueryDeclines use cases
+- Auth rate analytics: granularity-based table selection (HOURLY/DAILY/MONTHLY), multi-dimension grouping (PSP, card brand, region, currency, payment method)
+- Revenue analytics: volume, count, fees, net revenue, refund rate, chargeback rate with currency-aware aggregation
+- Decline analytics: SOFT/HARD/ERROR categorization with 20+ decline code mappings, top-N decline reasons
+- PSP health scoring: weighted composite (auth rate 50%, latency 30%, error rate 20%), normalized 0–100 scale
+- Anomaly detection: 7-day rolling mean + standard deviation, configurable 2σ threshold, publishes `PspHealthDegraded` domain event
+- 3 Kafka consumers: PaymentEventAnalyticsConsumer (payment lifecycle → auth rate + revenue + decline rollups), RoutingEventAnalyticsConsumer (latency enrichment), FraudEventAnalyticsConsumer (fraud block rate logging)
+- Idempotent upserts via `INSERT ... ON CONFLICT UPDATE` for all rollup tables
+- Scheduled rollup jobs: hourly→daily (daily at 00:05), daily→monthly (1st of month at 00:10), PSP health snapshot every 5 minutes
+- Data retention: hourly 90 days, daily 730 days (2 years), monthly 3650 days (10 years) — configurable via `AnalyticsProperties`
+- Materialized view refresh: `REFRESH MATERIALIZED VIEW CONCURRENTLY` every hour
+- Valkey cache-aside: SHA-256 query hashing, 5-minute TTL, graceful degradation on Valkey failure
+- REST API: `GET /v1/analytics/{auth-rates,psp-health,revenue,declines}` with query params (from, to, groupBy, granularity, filters)
+- `@PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")` on all analytics endpoints
+- Transactional outbox for analytics events (PspHealthDegraded, AnomalyDetected) following FraudOutboxAdapter pattern
+- New Kafka topic: `nexuspay.analytics.psp-health` with dedicated consumer group `nexuspay-analytics-consumer`
+- Full `AnalyticsProperties` config hierarchy: pipeline, rollup, psp-health (weights), cache (TTL), query (maxDateRangeDays)
+- New gaps identified: GAP-053 (no integration tests for analytics consumers), GAP-054 (analytics consumers use JSON not Avro), GAP-055 (no Grafana analytics dashboard)
+
 **Sprint 3.4 — Event Architecture Upgrade**
 - JSON-to-Avro event serialization migration with Confluent Schema Registry (7.6.1)
 - 21 Avro schema definitions (.avsc) covering all domain events: payment (10), ledger (2), billing (3), fraud (4), routing (3)
