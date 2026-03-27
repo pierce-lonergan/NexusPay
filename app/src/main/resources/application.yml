@@ -244,6 +244,17 @@ nexuspay:
       interval-ms: ${NEXUSPAY_PAYOUT_SCHEDULER_INTERVAL_MS:60000}
     kyc:
       provider: ${NEXUSPAY_KYC_PROVIDER:stub}
+  b2b:
+    enabled: ${NEXUSPAY_B2B_ENABLED:true}
+    card-issuing:
+      provider: ${NEXUSPAY_B2B_CARD_ISSUING_PROVIDER:stub}
+      default-expiry-days: ${NEXUSPAY_B2B_CARD_EXPIRY_DAYS:90}
+    vendor-payment:
+      execution-provider: ${NEXUSPAY_B2B_VENDOR_EXECUTION_PROVIDER:stub}
+      batch-max-size: ${NEXUSPAY_B2B_BATCH_MAX_SIZE:100}
+    level23:
+      enrichment-enabled: ${NEXUSPAY_B2B_LEVEL23_ENABLED:true}
+      level3-threshold: ${NEXUSPAY_B2B_LEVEL3_THRESHOLD:500000}
 
 # Resilience4j
 resilience4j:

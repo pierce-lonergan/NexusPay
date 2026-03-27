@@ -18,6 +18,7 @@ dependencies {
     implementation(project(":analytics"))
     implementation(project(":vault"))
     implementation(project(":marketplace"))
+    implementation(project(":b2b"))
 
     implementation(rootProject.libs.spring.boot.starter.web)
     implementation(rootProject.libs.spring.boot.starter.actuator)
