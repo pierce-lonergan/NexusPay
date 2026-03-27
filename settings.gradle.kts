@@ -12,5 +12,6 @@ include(
     "workflow",
     "billing",
     "fraud",
+    "analytics",
     "app"
 )
