@@ -1,6 +1,6 @@
 # NexusPay Known Gaps Analysis
 
-Last updated: 2026-03-27 (Sprint 4.2 — Marketplace & Platform Payments)
+Last updated: 2026-03-27 (Sprint 4.3 — B2B Payments)
 
 This document tracks known gaps, technical debt, and deferred decisions in the NexusPay system. Each gap is categorized by severity, the sprint it was identified, and the planned resolution timeline.
 
@@ -414,6 +414,41 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Risk**: RLS policy correctness, Flyway migration execution, and cross-module wiring are untested.
 - **Resolution**: Sprint 4.3 — add Testcontainers-based integration tests.
 
+### GAP-066: B2B Module — Card Issuing Provider Stub Only
+- **Identified**: Sprint 4.3
+- **Status**: Deferred to Phase 5
+- **Description**: `CardIssuingStubAdapter` returns simulated card issuance responses. Real provider integration (Marqeta, Lithic, Stripe Issuing) requires API contracts, webhook handling for transaction notifications, spend control enforcement at the provider level, and card lifecycle management.
+- **Risk**: Cannot issue real virtual cards for B2B payments.
+- **Resolution**: Phase 5 — integrate with card issuing provider (Marqeta recommended for B2B due to just-in-time funding).
+
+### GAP-067: B2B Module — Vendor Payment Execution Stub Only
+- **Identified**: Sprint 4.3
+- **Status**: Deferred to Phase 5
+- **Description**: `VendorPaymentExecutionStubAdapter` simulates successful vendor disbursements. Real execution requires integration with ACH/Nacha files, SWIFT wire transfers, check printing services, and vendor bank account verification.
+- **Risk**: Cannot disburse real funds to vendors.
+- **Resolution**: Phase 5 — integrate with payment rail providers (Modern Treasury, Column, or direct bank APIs).
+
+### GAP-068: B2B Module — No Approval Workflow for POs and Vendor Payments
+- **Identified**: Sprint 4.3
+- **Status**: Deferred to Phase 4
+- **Description**: PO approval and vendor payment approval are single-step operations. Production B2B workflows typically require multi-level approval chains (e.g., manager → finance → CFO for amounts above threshold), delegation rules, and approval deadline enforcement.
+- **Risk**: Insufficient controls for large B2B transactions.
+- **Resolution**: Sprint 4.4 or Phase 5 — integrate with workflow module for configurable approval chains.
+
+### GAP-069: B2B Module — No Ledger Integration
+- **Identified**: Sprint 4.3
+- **Status**: Deferred to Phase 4
+- **Description**: B2B payment flows (PO approval, invoice payment, vendor disbursement) do not create ledger journal entries. Double-entry accounting entries (DR accounts payable, CR vendor payable, etc.) are needed for complete financial tracking.
+- **Risk**: B2B transactions not reflected in the general ledger.
+- **Resolution**: Sprint 4.4 — wire B2bInvoiceService and VendorPaymentService to ledger module.
+
+### GAP-070: B2B Module — No Integration Tests
+- **Identified**: Sprint 4.3
+- **Status**: Deferred to Phase 4
+- **Description**: Only unit tests and `@WebMvcTest` controller tests exist. No end-to-end integration tests with PostgreSQL, Kafka, and Flyway. Testcontainers-based integration tests needed to verify RLS policies, JSONB serialization, outbox relay, and full request lifecycle.
+- **Risk**: RLS policy correctness, Flyway migration execution, JSONB ↔ domain mapping, and cross-module wiring are untested.
+- **Resolution**: Sprint 4.4 — add Testcontainers-based integration tests.
+
 ---
 
 ## Gap Resolution Timeline
@@ -439,12 +474,13 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 | Sprint 3.6 (complete) | GAP-053, GAP-054, GAP-055 (analytics module — new gaps identified) |
 | Sprint 4.1 (complete) | GAP-056, GAP-057, GAP-058, GAP-059, GAP-060 (vault module — new gaps identified) |
 | Sprint 4.2 (complete) | GAP-061, GAP-062, GAP-063, GAP-064, GAP-065 (marketplace module — new gaps identified) |
+| Sprint 4.3 (complete) | GAP-066, GAP-067, GAP-068, GAP-069, GAP-070 (B2B module — new gaps identified) |
 | Phase 2 (remaining) | GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-026, GAP-027 |
 
 ## Summary
 
-- **Total gaps tracked**: 65
+- **Total gaps tracked**: 70
 - **Resolved**: 34 (GAP-001, 003, 005, 006, 007, 009, 010, 011, 012, 013, 014, 016, 017, 019, 020, 022, 025, 030, 031, 034, 036, 042, 043, 044, 045, 046, 047, 048, 049 + partial GAP-008)
 - **Partially Addressed**: 2 (GAP-023, GAP-032)
-- **Open/Deferred**: 32 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033, GAP-035, GAP-037, GAP-038, GAP-039, GAP-040, GAP-041, GAP-050, GAP-051, GAP-052, GAP-053, GAP-054, GAP-055, GAP-056, GAP-057, GAP-058, GAP-059, GAP-060, GAP-061, GAP-062, GAP-063, GAP-064, GAP-065)
-- **Accepted for Phase 1/2/3/4**: GAP-024, GAP-028, GAP-029, GAP-038, GAP-054, GAP-060, GAP-063, GAP-065
+- **Open/Deferred**: 37 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033, GAP-035, GAP-037, GAP-038, GAP-039, GAP-040, GAP-041, GAP-050, GAP-051, GAP-052, GAP-053, GAP-054, GAP-055, GAP-056, GAP-057, GAP-058, GAP-059, GAP-060, GAP-061, GAP-062, GAP-063, GAP-064, GAP-065, GAP-066, GAP-067, GAP-068, GAP-069, GAP-070)
+- **Accepted for Phase 1/2/3/4**: GAP-024, GAP-028, GAP-029, GAP-038, GAP-054, GAP-060, GAP-063, GAP-065, GAP-068, GAP-069, GAP-070

@@ -6,6 +6,28 @@ All notable changes to NexusPay are documented here. Format follows [Keep a Chan
 
 ### Added
 
+**Sprint 4.3 — B2B Payments**
+- New `b2b` Gradle module with hexagonal architecture (16th module)
+- Purchase order lifecycle management: DRAFT → SUBMITTED → APPROVED → INVOICED → PAID/CANCELLED
+- Payment terms support: DUE_ON_RECEIPT, NET_30, NET_60, NET_90 with automatic due date calculation
+- B2B invoice creation from approved POs with status cascade on payment
+- Virtual card issuance with spend controls, MCC restrictions, freeze/cancel via stub issuing adapter
+- Vendor payment disbursement with ACH, wire, virtual card, and check methods
+- Vendor payment batching with auto-generated batch IDs
+- Level 2/3 commercial card data enrichment for reduced interchange rates
+- 4 domain models: PurchaseOrder, B2bInvoice, VirtualCard, VendorPayment
+- 7 enums: PurchaseOrderStatus, PaymentTerms, VirtualCardType, VirtualCardStatus, VendorPaymentMethod, VendorPaymentStatus, InvoiceStatus
+- JSONB storage for PO line items, text[] for virtual card MCC codes
+- 4 inbound ports, 4 outbound ports, 5 application services + Level23DataEnricher
+- 4 REST controllers with 14 endpoints, 8 DTOs
+- Flyway migration V4003 with 4 tables, RLS policies, and `nexuspay_app` grants
+- Transactional outbox for B2B events (13 event types, 4 aggregate types)
+- Kafka topics: `nexuspay.b2b.events`, `nexuspay.b2b.DLT`
+- OutboxRelay routing updated for PurchaseOrder, B2bInvoice, VirtualCard, VendorPayment aggregates
+- Stub adapters for card issuing (Marqeta/Lithic/Stripe Issuing) and vendor payment execution
+- 32 unit tests across 5 service tests + 1 controller test
+- New gaps identified: GAP-066, GAP-067, GAP-068, GAP-069, GAP-070
+
 **Sprint 4.2 — Marketplace & Platform Payments**
 - New `marketplace` Gradle module with hexagonal architecture (15th module)
 - Connected account onboarding with KYC verification integration (stub adapter)
