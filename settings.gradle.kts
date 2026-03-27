@@ -14,5 +14,6 @@ include(
     "fraud",
     "analytics",
     "vault",
+    "marketplace",
     "app"
 )
