@@ -13,5 +13,6 @@ include(
     "billing",
     "fraud",
     "analytics",
+    "vault",
     "app"
 )
