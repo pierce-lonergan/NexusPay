@@ -70,6 +70,17 @@ public final class EventTypes {
     public static final String ROUTE_FAILED = "RouteFailed";
     public static final String CASCADE_TRIGGERED = "CascadeTriggered";
 
+    // Marketplace lifecycle (Sprint 4.2)
+    public static final String ACCOUNT_ONBOARDED = "AccountOnboarded";
+    public static final String ACCOUNT_UPDATED = "AccountUpdated";
+    public static final String ACCOUNT_SUSPENDED = "AccountSuspended";
+    public static final String ACCOUNT_CLOSED = "AccountClosed";
+    public static final String SPLIT_PAYMENT_CREATED = "SplitPaymentCreated";
+    public static final String PAYOUT_CREATED = "PayoutCreated";
+    public static final String PAYOUT_PAID = "PayoutPaid";
+    public static final String PAYOUT_FAILED = "PayoutFailed";
+    public static final String FEE_CONFIGURED = "FeeConfigured";
+
     // Aggregate types
     public static final String AGGREGATE_PAYMENT = "Payment";
     public static final String AGGREGATE_REFUND = "Refund";
@@ -82,4 +93,7 @@ public final class EventTypes {
     public static final String AGGREGATE_FX_LOCK = "FxLock";
     public static final String AGGREGATE_FX_CONVERSION = "FxConversion";
     public static final String AGGREGATE_ROUTING_DECISION = "RoutingDecision";
+    public static final String AGGREGATE_CONNECTED_ACCOUNT = "ConnectedAccount";
+    public static final String AGGREGATE_SPLIT_PAYMENT = "SplitPayment";
+    public static final String AGGREGATE_PAYOUT = "Payout";
 }

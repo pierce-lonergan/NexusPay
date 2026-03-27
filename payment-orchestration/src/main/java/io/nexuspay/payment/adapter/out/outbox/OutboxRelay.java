@@ -59,7 +59,10 @@ public class OutboxRelay {
             Map.entry(EventTypes.AGGREGATE_FX_RATE, Topics.FX_RATES),
             Map.entry(EventTypes.AGGREGATE_FX_LOCK, Topics.FX_LOCKS),
             Map.entry(EventTypes.AGGREGATE_FX_CONVERSION, Topics.FX_CONVERSIONS),
-            Map.entry(EventTypes.AGGREGATE_ROUTING_DECISION, Topics.ROUTING_DECISIONS)
+            Map.entry(EventTypes.AGGREGATE_ROUTING_DECISION, Topics.ROUTING_DECISIONS),
+            Map.entry(EventTypes.AGGREGATE_CONNECTED_ACCOUNT, Topics.MARKETPLACE_EVENTS),
+            Map.entry(EventTypes.AGGREGATE_SPLIT_PAYMENT, Topics.MARKETPLACE_EVENTS),
+            Map.entry(EventTypes.AGGREGATE_PAYOUT, Topics.MARKETPLACE_EVENTS)
     );
 
     private static final String DEFAULT_TOPIC = Topics.PAYMENTS;

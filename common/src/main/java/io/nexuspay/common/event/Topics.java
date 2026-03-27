@@ -71,6 +71,12 @@ public final class Topics {
     /** Dead letter topic for vault events. */
     public static final String VAULT_DLT = "nexuspay.vault.DLT";
 
+    /** Marketplace lifecycle events (account onboarding, split payments, payouts). Partition key: aggregate_id. */
+    public static final String MARKETPLACE_EVENTS = "nexuspay.marketplace.events";
+
+    /** Dead letter topic for marketplace events. */
+    public static final String MARKETPLACE_DLT = "nexuspay.marketplace.DLT";
+
     // Consumer group IDs
     public static final String LEDGER_CONSUMER_GROUP = "nexuspay-ledger-consumer";
     public static final String GATEWAY_CONSUMER_GROUP = "nexuspay-gateway-consumer";
@@ -81,4 +87,5 @@ public final class Topics {
     public static final String DLQ_CONSUMER_GROUP = "nexuspay-dlq-consumer";
     public static final String ANALYTICS_CONSUMER_GROUP = "nexuspay-analytics-consumer";
     public static final String VAULT_CONSUMER_GROUP = "nexuspay-vault-consumer";
+    public static final String MARKETPLACE_CONSUMER_GROUP = "nexuspay-marketplace-consumer";
 }
