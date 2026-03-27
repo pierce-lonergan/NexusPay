@@ -65,6 +65,12 @@ public final class Topics {
     /** PSP health and anomaly detection events. Partition key: tenantId:pspConnector. */
     public static final String ANALYTICS_PSP_HEALTH = "nexuspay.analytics.psp-health";
 
+    /** Vault lifecycle events (card vaulted, deleted, network token provisioned). Partition key: vaulted_card_id. */
+    public static final String VAULT_EVENTS = "nexuspay.vault.events";
+
+    /** Dead letter topic for vault events. */
+    public static final String VAULT_DLT = "nexuspay.vault.DLT";
+
     // Consumer group IDs
     public static final String LEDGER_CONSUMER_GROUP = "nexuspay-ledger-consumer";
     public static final String GATEWAY_CONSUMER_GROUP = "nexuspay-gateway-consumer";
@@ -74,4 +80,5 @@ public final class Topics {
     public static final String ROUTING_CONSUMER_GROUP = "nexuspay-routing-consumer";
     public static final String DLQ_CONSUMER_GROUP = "nexuspay-dlq-consumer";
     public static final String ANALYTICS_CONSUMER_GROUP = "nexuspay-analytics-consumer";
+    public static final String VAULT_CONSUMER_GROUP = "nexuspay-vault-consumer";
 }

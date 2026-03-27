@@ -228,6 +228,15 @@ nexuspay:
     query:
       max-date-range-days: 365
       default-granularity: DAILY
+  vault:
+    encryption:
+      provider: ${NEXUSPAY_VAULT_ENCRYPTION_PROVIDER:software}
+      master-key: ${NEXUSPAY_VAULT_MASTER_KEY:ZGV2LXZhdWx0LWtleS1iYXNlNjQtbWluLTMyLWNoYXJzIQ==}
+      current-key-id: ${NEXUSPAY_VAULT_KEY_ID:key-001}
+    network-tokens:
+      visa-enabled: ${NEXUSPAY_VAULT_VISA_ENABLED:true}
+      mastercard-enabled: ${NEXUSPAY_VAULT_MC_ENABLED:true}
+      amex-enabled: ${NEXUSPAY_VAULT_AMEX_ENABLED:true}
 
 # Resilience4j
 resilience4j:
