@@ -1,6 +1,6 @@
 # NexusPay Known Gaps Analysis
 
-Last updated: 2026-03-27 (Sprint 4.1 — Universal Card Vault & Network Tokenization)
+Last updated: 2026-03-27 (Sprint 4.2 — Marketplace & Platform Payments)
 
 This document tracks known gaps, technical debt, and deferred decisions in the NexusPay system. Each gap is categorized by severity, the sprint it was identified, and the planned resolution timeline.
 
@@ -379,6 +379,41 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Risk**: PCI DSS audit scope includes the entire monolith rather than just the vault service.
 - **Resolution**: Phase 5 — extract vault module to standalone service with mTLS and dedicated database.
 
+### GAP-061: Marketplace Module — KYC Provider Stub Only
+- **Identified**: Sprint 4.2
+- **Status**: Deferred to Phase 5
+- **Description**: `KycProviderStubAdapter` returns simulated KYC responses. Real provider integration (Onfido, Persona, Jumio) requires API contracts, webhook handling for async verification updates, document upload workflows, and beneficial ownership verification for businesses.
+- **Risk**: Cannot onboard real sub-merchants without identity verification.
+- **Resolution**: Sprint 4.2b or Phase 5 — integrate real KYC provider with webhook listener.
+
+### GAP-062: Marketplace Module — Payout Execution Stub Only
+- **Identified**: Sprint 4.2
+- **Status**: Deferred to Phase 5
+- **Description**: `PayoutExecutionStubAdapter` simulates successful payouts. Real bank transfer and card push execution requires integration with banking rails (ACH, SEPA, Faster Payments) or card network push-to-card APIs.
+- **Risk**: Cannot disburse real funds to connected accounts.
+- **Resolution**: Phase 5 — integrate with banking/card push providers.
+
+### GAP-063: Marketplace Module — No Ledger Integration for Split Payments
+- **Identified**: Sprint 4.2
+- **Status**: Deferred to Phase 4
+- **Description**: Split payments calculate distributions but do not create actual ledger entries (DR customer liability, CR merchant receivable, CR platform revenue). The ledger module integration is needed for true double-entry accounting of splits.
+- **Risk**: Split payment amounts are tracked but not reflected in the general ledger.
+- **Resolution**: Sprint 4.2b — wire SplitPaymentService to ledger module for journal entry creation.
+
+### GAP-064: Marketplace Module — No 1099-K Reporting
+- **Identified**: Sprint 4.2
+- **Status**: Deferred to Phase 5
+- **Description**: Acceptance criteria require 1099-K reporting data collection for US connected accounts. Currently no tax reporting fields (SSN/EIN, aggregate gross amounts, transaction counts per year) are captured.
+- **Risk**: Platform non-compliant with IRS reporting requirements for marketplace facilitators.
+- **Resolution**: Phase 5 — add tax identity fields, annual reporting aggregation, and 1099-K generation.
+
+### GAP-065: Marketplace Module — No Integration Tests
+- **Identified**: Sprint 4.2
+- **Status**: Deferred to Phase 4
+- **Description**: Only unit tests and `@WebMvcTest` controller tests exist. No end-to-end integration tests with PostgreSQL, Kafka, and Flyway. Testcontainers-based integration tests needed to verify RLS policies, outbox relay, and full request lifecycle.
+- **Risk**: RLS policy correctness, Flyway migration execution, and cross-module wiring are untested.
+- **Resolution**: Sprint 4.3 — add Testcontainers-based integration tests.
+
 ---
 
 ## Gap Resolution Timeline
@@ -403,12 +438,13 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 | Sprint 3.5 (complete) | GAP-050, GAP-051, GAP-052 (checkout SDK — new gaps identified) |
 | Sprint 3.6 (complete) | GAP-053, GAP-054, GAP-055 (analytics module — new gaps identified) |
 | Sprint 4.1 (complete) | GAP-056, GAP-057, GAP-058, GAP-059, GAP-060 (vault module — new gaps identified) |
+| Sprint 4.2 (complete) | GAP-061, GAP-062, GAP-063, GAP-064, GAP-065 (marketplace module — new gaps identified) |
 | Phase 2 (remaining) | GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-026, GAP-027 |
 
 ## Summary
 
-- **Total gaps tracked**: 60
+- **Total gaps tracked**: 65
 - **Resolved**: 34 (GAP-001, 003, 005, 006, 007, 009, 010, 011, 012, 013, 014, 016, 017, 019, 020, 022, 025, 030, 031, 034, 036, 042, 043, 044, 045, 046, 047, 048, 049 + partial GAP-008)
 - **Partially Addressed**: 2 (GAP-023, GAP-032)
-- **Open/Deferred**: 27 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033, GAP-035, GAP-037, GAP-038, GAP-039, GAP-040, GAP-041, GAP-050, GAP-051, GAP-052, GAP-053, GAP-054, GAP-055, GAP-056, GAP-057, GAP-058, GAP-059, GAP-060)
-- **Accepted for Phase 1/2/3/4**: GAP-024, GAP-028, GAP-029, GAP-038, GAP-054, GAP-060
+- **Open/Deferred**: 32 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033, GAP-035, GAP-037, GAP-038, GAP-039, GAP-040, GAP-041, GAP-050, GAP-051, GAP-052, GAP-053, GAP-054, GAP-055, GAP-056, GAP-057, GAP-058, GAP-059, GAP-060, GAP-061, GAP-062, GAP-063, GAP-064, GAP-065)
+- **Accepted for Phase 1/2/3/4**: GAP-024, GAP-028, GAP-029, GAP-038, GAP-054, GAP-060, GAP-063, GAP-065

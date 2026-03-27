@@ -6,6 +6,26 @@ All notable changes to NexusPay are documented here. Format follows [Keep a Chan
 
 ### Added
 
+**Sprint 4.2 — Marketplace & Platform Payments**
+- New `marketplace` Gradle module with hexagonal architecture (15th module)
+- Connected account onboarding with KYC verification integration (stub adapter)
+- Account lifecycle management: onboard → verify → activate → suspend → close
+- Split payment engine with rule resolution (PERCENTAGE, FIXED, REMAINDER)
+- Platform fee calculation (percent + fixed) deducted before distribution
+- Payout service with minimum threshold enforcement per connected account
+- Payout scheduler with configurable interval (disabled by default)
+- Payout execution via stub adapter (bank transfer and card push)
+- 5 domain models: ConnectedAccount, SplitPayment, SplitRule, Payout, PlatformFee
+- 7 enums: AccountState, KycStatus, SplitType, PayoutSchedule, PayoutStatus, PayoutMethod, SplitPaymentStatus
+- 4 inbound ports, 4 outbound ports, 4 application services
+- 3 REST controllers with 12 endpoints, 9 DTOs
+- Flyway migration V4002 with 5 tables, RLS policies, and `nexuspay_app` grants
+- Transactional outbox for marketplace events (9 event types, 3 aggregate types)
+- Kafka topics: `nexuspay.marketplace.events`, `nexuspay.marketplace.DLT`
+- OutboxRelay routing updated for ConnectedAccount, SplitPayment, Payout aggregates
+- 25 unit tests across 4 service tests + 1 controller test
+- New gaps identified: GAP-061, GAP-062, GAP-063, GAP-064, GAP-065
+
 **Sprint 4.1 — Universal Card Vault & Network Tokenization**
 - New `vault` Gradle module with hexagonal architecture (14th module)
 - AES-256-GCM encryption at rest for PANs with 12-byte random IV, 128-bit auth tag
