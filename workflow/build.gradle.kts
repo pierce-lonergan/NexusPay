@@ -10,6 +10,15 @@ dependencies {
 
     // Spring Boot for configuration + DI
     implementation(rootProject.libs.spring.boot.starter.web)
+    implementation(rootProject.libs.spring.boot.starter.data.jpa)
+    implementation(rootProject.libs.spring.boot.starter.validation)
+    implementation(rootProject.libs.spring.kafka)
+    implementation(rootProject.libs.flyway.core)
+    implementation(rootProject.libs.flyway.database.postgresql)
+
+    runtimeOnly(rootProject.libs.postgresql)
 
     testImplementation(rootProject.libs.temporal.testing)
+    testImplementation(rootProject.libs.spring.boot.starter.security)
+    testImplementation(rootProject.libs.spring.security.test)
 }
