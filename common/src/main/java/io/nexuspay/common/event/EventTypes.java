@@ -96,6 +96,17 @@ public final class EventTypes {
     public static final String PAYOUT_FAILED = "PayoutFailed";
     public static final String FEE_CONFIGURED = "FeeConfigured";
 
+    // Workflow builder lifecycle (Sprint 4.4)
+    public static final String WORKFLOW_CREATED = "WorkflowCreated";
+    public static final String WORKFLOW_PUBLISHED = "WorkflowPublished";
+    public static final String WORKFLOW_ARCHIVED = "WorkflowArchived";
+    public static final String WORKFLOW_ROLLED_BACK = "WorkflowRolledBack";
+    public static final String WORKFLOW_EXECUTION_STARTED = "WorkflowExecutionStarted";
+    public static final String WORKFLOW_EXECUTION_COMPLETED = "WorkflowExecutionCompleted";
+    public static final String WORKFLOW_EXECUTION_FAILED = "WorkflowExecutionFailed";
+    public static final String WORKFLOW_EXECUTION_CANCELLED = "WorkflowExecutionCancelled";
+    public static final String WEBHOOK_TRIGGER_CREATED = "WebhookTriggerCreated";
+
     // Aggregate types
     public static final String AGGREGATE_PAYMENT = "Payment";
     public static final String AGGREGATE_REFUND = "Refund";
@@ -115,4 +126,7 @@ public final class EventTypes {
     public static final String AGGREGATE_B2B_INVOICE = "B2bInvoice";
     public static final String AGGREGATE_VIRTUAL_CARD = "VirtualCard";
     public static final String AGGREGATE_VENDOR_PAYMENT = "VendorPayment";
+    public static final String AGGREGATE_WORKFLOW_DEFINITION = "WorkflowDefinition";
+    public static final String AGGREGATE_WORKFLOW_EXECUTION = "WorkflowExecution";
+    public static final String AGGREGATE_WEBHOOK_TRIGGER = "WebhookTrigger";
 }
