@@ -6,6 +6,31 @@ All notable changes to NexusPay are documented here. Format follows [Keep a Chan
 
 ### Added
 
+**Sprint 4.4 — Visual Workflow Builder**
+- Extended existing `workflow` module with visual workflow builder backend (DAG-based)
+- WorkflowDefinition domain model with graph lifecycle: DRAFT → PUBLISHED → ARCHIVED
+- 9 node types: TRIGGER, PAYMENT, CONDITION, SPLIT, DELAY, WEBHOOK, NOTIFICATION, CUSTOM_SCRIPT, END
+- 4 trigger types: WEBHOOK, EVENT, SCHEDULE, MANUAL
+- WorkflowNode and WorkflowEdge models for directed acyclic graph representation
+- Canvas position tracking (positionX/Y) for visual layout persistence
+- JSONB storage for workflow nodes, edges, and version graph snapshots
+- Workflow versioning with immutable snapshots and rollback capability
+- WebhookTrigger with unique URL paths, HMAC secret, and activate/deactivate lifecycle
+- WorkflowExecution tracking with Temporal workflow ID integration
+- Flyway migration V4004 with 4 tables (workflow_definitions, workflow_versions, webhook_triggers, workflow_executions)
+- RLS policies and `nexuspay_app` grants on all tables
+- 4 inbound ports: ManageWorkflowUseCase (10 methods), ExecuteWorkflowUseCase, ManageWorkflowVersionUseCase, ManageWebhookTriggerUseCase
+- 2 outbound ports: WorkflowBuilderRepository (14 methods), WorkflowEventPublisher
+- 4 application services: WorkflowDefinitionService, WorkflowExecutionService, WorkflowVersionService, WebhookTriggerService
+- 2 REST controllers with 14 endpoints (11 definition + 3 execution), 9 DTOs
+- Expression sandboxing: JSONLogic only (no SpEL eval)
+- WorkflowBuilderProperties with expression engine and execution config
+- Transactional outbox for workflow events (9 event types, 3 aggregate types)
+- Kafka topics: `nexuspay.workflow.events`, `nexuspay.workflow.DLT`
+- OutboxRelay routing updated for WorkflowDefinition, WorkflowExecution, WebhookTrigger aggregates
+- 30 unit tests across 4 service tests + 1 controller test
+- New gaps identified: GAP-071, GAP-072, GAP-073, GAP-074, GAP-075
+
 **Sprint 4.3 — B2B Payments**
 - New `b2b` Gradle module with hexagonal architecture (16th module)
 - Purchase order lifecycle management: DRAFT → SUBMITTED → APPROVED → INVOICED → PAID/CANCELLED

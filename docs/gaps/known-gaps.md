@@ -449,6 +449,41 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Risk**: RLS policy correctness, Flyway migration execution, JSONB ↔ domain mapping, and cross-module wiring are untested.
 - **Resolution**: Sprint 4.4 — add Testcontainers-based integration tests.
 
+### GAP-071: Workflow Module — Graph-to-Temporal Compilation Not Implemented
+- **Identified**: Sprint 4.4
+- **Status**: Open
+- **Description**: `WorkflowExecutionService.triggerWorkflow()` creates an execution record with a placeholder Temporal workflow ID but does not compile the visual DAG graph into actual Temporal workflow activities. The graph-to-Temporal compilation step (traversing nodes/edges, mapping node types to activities, handling conditions and splits) is not implemented.
+- **Risk**: Workflow executions are recorded but no actual workflow logic is executed. The visual builder is a design tool only until compilation is implemented.
+- **Resolution**: Phase 5 — implement `GraphCompiler` that translates the DAG into Temporal workflow/activity definitions and dispatches to Temporal worker.
+
+### GAP-072: Workflow Module — No JSONLogic Expression Evaluator
+- **Identified**: Sprint 4.4
+- **Status**: Open
+- **Description**: Condition nodes store JSONLogic expressions in the `conditionExpression` field, and `WorkflowBuilderProperties` configures the expression engine as JSONLogic. However, no JSONLogic evaluator library is integrated. Expression evaluation during execution is not implemented.
+- **Risk**: Conditional branching in workflows cannot be evaluated at runtime.
+- **Resolution**: Phase 5 — integrate a JSONLogic Java library (e.g., `io.github.jamsesso:json-logic-java`) and wire it into the graph compiler's condition node handler.
+
+### GAP-073: Workflow Module — Webhook Trigger Ingestion Not Implemented
+- **Identified**: Sprint 4.4
+- **Status**: Open
+- **Description**: `WebhookTriggerService` creates and manages webhook triggers with URL paths and HMAC secrets, but no inbound webhook endpoint exists to receive HTTP POST requests, verify HMAC signatures, and dispatch to `WorkflowExecutionService.triggerWorkflow()`.
+- **Risk**: External systems cannot trigger workflows via webhooks despite triggers being configured.
+- **Resolution**: Phase 5 — add `POST /v1/webhooks/workflows/{urlPathSuffix}` endpoint with HMAC verification and payload forwarding.
+
+### GAP-074: Workflow Module — No Graph Validation (Cycle Detection, Connectivity)
+- **Identified**: Sprint 4.4
+- **Status**: Open
+- **Description**: `WorkflowDefinition.publish()` validates that at least one node exists, but does not validate graph structure: no cycle detection, no reachability check from trigger node, no validation that END nodes are terminal, and no orphan node detection.
+- **Risk**: Invalid workflow graphs (cycles, disconnected nodes) can be published and may cause infinite loops or unreachable code paths during execution.
+- **Resolution**: Phase 5 — add `GraphValidator` with topological sort cycle detection, connectivity analysis, and terminal node validation before publish.
+
+### GAP-075: Workflow Module — No Integration Tests
+- **Identified**: Sprint 4.4
+- **Status**: Deferred to Phase 5
+- **Description**: Only unit tests and `@WebMvcTest` controller tests exist. No end-to-end integration tests with PostgreSQL, Kafka, and Flyway. Testcontainers-based integration tests needed to verify RLS policies, JSONB serialization of graph data, outbox relay, version snapshot roundtrips, and full request lifecycle.
+- **Risk**: RLS policy correctness, Flyway migration execution, JSONB ↔ domain graph mapping, and cross-module wiring are untested.
+- **Resolution**: Phase 5 — add Testcontainers-based integration tests.
+
 ---
 
 ## Gap Resolution Timeline
@@ -475,12 +510,13 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 | Sprint 4.1 (complete) | GAP-056, GAP-057, GAP-058, GAP-059, GAP-060 (vault module — new gaps identified) |
 | Sprint 4.2 (complete) | GAP-061, GAP-062, GAP-063, GAP-064, GAP-065 (marketplace module — new gaps identified) |
 | Sprint 4.3 (complete) | GAP-066, GAP-067, GAP-068, GAP-069, GAP-070 (B2B module — new gaps identified) |
+| Sprint 4.4 (complete) | GAP-071, GAP-072, GAP-073, GAP-074, GAP-075 (workflow builder — new gaps identified) |
 | Phase 2 (remaining) | GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-026, GAP-027 |
 
 ## Summary
 
-- **Total gaps tracked**: 70
+- **Total gaps tracked**: 75
 - **Resolved**: 34 (GAP-001, 003, 005, 006, 007, 009, 010, 011, 012, 013, 014, 016, 017, 019, 020, 022, 025, 030, 031, 034, 036, 042, 043, 044, 045, 046, 047, 048, 049 + partial GAP-008)
 - **Partially Addressed**: 2 (GAP-023, GAP-032)
-- **Open/Deferred**: 37 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033, GAP-035, GAP-037, GAP-038, GAP-039, GAP-040, GAP-041, GAP-050, GAP-051, GAP-052, GAP-053, GAP-054, GAP-055, GAP-056, GAP-057, GAP-058, GAP-059, GAP-060, GAP-061, GAP-062, GAP-063, GAP-064, GAP-065, GAP-066, GAP-067, GAP-068, GAP-069, GAP-070)
-- **Accepted for Phase 1/2/3/4**: GAP-024, GAP-028, GAP-029, GAP-038, GAP-054, GAP-060, GAP-063, GAP-065, GAP-068, GAP-069, GAP-070
+- **Open/Deferred**: 42 (GAP-002, GAP-004, GAP-008, GAP-015, GAP-018, GAP-021, GAP-024, GAP-026, GAP-027, GAP-028, GAP-029, GAP-033, GAP-035, GAP-037, GAP-038, GAP-039, GAP-040, GAP-041, GAP-050, GAP-051, GAP-052, GAP-053, GAP-054, GAP-055, GAP-056, GAP-057, GAP-058, GAP-059, GAP-060, GAP-061, GAP-062, GAP-063, GAP-064, GAP-065, GAP-066, GAP-067, GAP-068, GAP-069, GAP-070, GAP-071, GAP-072, GAP-073, GAP-074, GAP-075)
+- **Accepted for Phase 1/2/3/4/5**: GAP-024, GAP-028, GAP-029, GAP-038, GAP-054, GAP-060, GAP-063, GAP-065, GAP-068, GAP-069, GAP-070, GAP-075
