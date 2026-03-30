@@ -255,6 +255,14 @@ nexuspay:
     level23:
       enrichment-enabled: ${NEXUSPAY_B2B_LEVEL23_ENABLED:true}
       level3-threshold: ${NEXUSPAY_B2B_LEVEL3_THRESHOLD:500000}
+  workflow-builder:
+    enabled: ${NEXUSPAY_WORKFLOW_BUILDER_ENABLED:true}
+    expression:
+      engine: jsonlogic
+      max-expression-length: ${NEXUSPAY_WORKFLOW_EXPR_MAX_LENGTH:4096}
+    execution:
+      max-concurrent-executions: ${NEXUSPAY_WORKFLOW_MAX_CONCURRENT:100}
+      execution-timeout-ms: ${NEXUSPAY_WORKFLOW_EXEC_TIMEOUT_MS:300000}
 
 # Resilience4j
 resilience4j:
