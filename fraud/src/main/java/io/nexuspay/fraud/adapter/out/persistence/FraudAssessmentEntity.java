@@ -3,6 +3,8 @@ package io.nexuspay.fraud.adapter.out.persistence;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.UUID;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * JPA entity for fraud_assessments table.
@@ -39,9 +41,11 @@ public class FraudAssessmentEntity {
     private String decision;
 
     @Column(name = "triggered_rules", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String triggeredRules;
 
     @Column(name = "risk_signals", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String riskSignals;
 
     @Column(name = "review_status")

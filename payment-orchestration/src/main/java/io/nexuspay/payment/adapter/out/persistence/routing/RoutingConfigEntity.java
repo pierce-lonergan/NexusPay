@@ -3,6 +3,8 @@ package io.nexuspay.payment.adapter.out.persistence.routing;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.UUID;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * JPA entity for tenant routing configurations.
@@ -27,6 +29,7 @@ public class RoutingConfigEntity {
     private String strategy;
 
     @Column(name = "psp_list", columnDefinition = "JSONB")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String pspList;
 
     @Column(name = "cascade_enabled", nullable = false)
@@ -36,6 +39,7 @@ public class RoutingConfigEntity {
     private int maxCascadeDepth = 3;
 
     @Column(name = "filters", columnDefinition = "JSONB")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String filters;
 
     @Column(name = "ab_test_id")

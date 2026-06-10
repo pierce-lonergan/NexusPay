@@ -3,6 +3,8 @@ package io.nexuspay.app.event;
 import io.nexuspay.common.event.dlq.DeadLetterStatus;
 import jakarta.persistence.*;
 import java.time.Instant;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * JPA entity representing a failed Kafka event captured from a dead letter topic (.DLT).
@@ -32,6 +34,7 @@ public class DeadLetterEntry {
     private String eventValue;
 
     @Column(name = "event_headers", columnDefinition = "JSONB")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String eventHeaders;
 
     @Column(name = "error_message")

@@ -2,6 +2,8 @@ package io.nexuspay.dispute.adapter.out.persistence;
 
 import jakarta.persistence.*;
 import java.time.Instant;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * JPA entity mapped to the {@code dispute_events} table.
@@ -35,6 +37,7 @@ public class DisputeEventEntity {
     private String actor;
 
     @Column(columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String details;
 
     @Column(name = "created_at", nullable = false)

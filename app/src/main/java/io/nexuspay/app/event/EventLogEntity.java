@@ -2,6 +2,8 @@ package io.nexuspay.app.event;
 
 import jakarta.persistence.*;
 import java.time.Instant;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * JPA entity mapping to the {@code event_log} append-only audit table.
@@ -36,6 +38,7 @@ public class EventLogEntity {
     private String payloadFormat = "JSON";
 
     @Column(name = "metadata", columnDefinition = "JSONB")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String metadata;
 
     @Column(name = "tenant_id", nullable = false, length = 64)

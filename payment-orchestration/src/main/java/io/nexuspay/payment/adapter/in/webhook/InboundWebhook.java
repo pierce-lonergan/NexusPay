@@ -2,6 +2,8 @@ package io.nexuspay.payment.adapter.in.webhook;
 
 import jakarta.persistence.*;
 import java.time.Instant;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * Persistent record of every inbound webhook received from HyperSwitch.
@@ -24,6 +26,7 @@ public class InboundWebhook {
     private String eventType;
 
     @Column(name = "raw_payload", nullable = false, columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String rawPayload;
 
     @Column(name = "received_at", nullable = false)

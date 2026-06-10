@@ -3,6 +3,8 @@ package io.nexuspay.payment.adapter.out.persistence.routing;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.UUID;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * JPA entity for routing decisions (audit trail).
@@ -33,12 +35,14 @@ public class RoutingDecisionEntity {
     private String selectedPsp;
 
     @Column(name = "candidate_scores", columnDefinition = "JSONB", nullable = false)
+    @JdbcTypeCode(SqlTypes.JSON)
     private String candidateScores;
 
     @Column(name = "cascade_depth", nullable = false)
     private int cascadeDepth;
 
     @Column(name = "cascade_psps", columnDefinition = "JSONB")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String cascadePsps;
 
     @Column(name = "final_psp")

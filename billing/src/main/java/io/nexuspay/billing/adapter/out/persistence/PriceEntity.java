@@ -6,6 +6,8 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * JPA entity mapping to the {@code prices} table.
@@ -36,6 +38,7 @@ public class PriceEntity {
     private Long unitAmount;
 
     @Column(name = "tiers", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String tiers;
 
     @Column(name = "billing_interval", length = 16, nullable = false)

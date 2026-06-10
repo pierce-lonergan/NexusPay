@@ -2,6 +2,8 @@ package io.nexuspay.payment.adapter.out.outbox;
 
 import jakarta.persistence.*;
 import java.time.Instant;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * Transactional outbox event.
@@ -34,6 +36,7 @@ public class OutboxEvent {
     private String eventType;
 
     @Column(nullable = false, columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String payload;
 
     @Column(name = "created_at", nullable = false)

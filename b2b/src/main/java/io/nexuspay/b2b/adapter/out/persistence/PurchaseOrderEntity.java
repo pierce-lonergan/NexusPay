@@ -7,6 +7,8 @@ import jakarta.persistence.Table;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * JPA entity for the {@code purchase_orders} table.
@@ -49,6 +51,7 @@ public class PurchaseOrderEntity {
     private String terms;
 
     @Column(name = "line_items", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String lineItems;
 
     @Column(name = "due_date")

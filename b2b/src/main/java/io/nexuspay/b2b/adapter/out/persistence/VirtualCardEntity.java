@@ -41,7 +41,11 @@ public class VirtualCardEntity {
     @Column(name = "currency", nullable = false, length = 3)
     private String currency;
 
-    @Column(name = "merchant_category_codes", columnDefinition = "text[]")
+    // Stored as a comma-separated scalar (the adapter joins/splits on ","); the
+    // column is plain TEXT, not a Postgres text[] array. MCC codes are numeric so
+    // contain no commas. (Was columnDefinition="text[]" on a String field, which
+    // mismatched the entity type under Hibernate validate.)
+    @Column(name = "merchant_category_codes")
     private String merchantCategoryCodes;
 
     @Column(name = "expires_at", nullable = false)

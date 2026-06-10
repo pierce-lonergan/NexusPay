@@ -4,6 +4,8 @@ import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * JPA entity for fraud_rules table.
@@ -28,6 +30,7 @@ public class FraudRuleEntity {
     private String ruleType;
 
     @Column(name = "condition_dsl", columnDefinition = "jsonb", nullable = false)
+    @JdbcTypeCode(SqlTypes.JSON)
     private String conditionDsl;
 
     @Column(name = "action", nullable = false)

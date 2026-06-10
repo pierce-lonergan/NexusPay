@@ -56,7 +56,7 @@ CREATE TABLE virtual_cards (
     card_type               VARCHAR(16)    NOT NULL,
     amount_limit            BIGINT         NOT NULL,
     currency                VARCHAR(3)     NOT NULL,
-    merchant_category_codes TEXT[],
+    merchant_category_codes TEXT,            -- comma-separated; mapped to a String field (see VirtualCardEntity)
     expires_at              TIMESTAMPTZ    NOT NULL,
     status                  VARCHAR(16)    NOT NULL DEFAULT 'ACTIVE',
     spent_amount            BIGINT         NOT NULL DEFAULT 0,

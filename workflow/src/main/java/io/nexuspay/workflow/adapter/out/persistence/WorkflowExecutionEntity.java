@@ -6,6 +6,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * JPA entity for the {@code workflow_executions} table.
@@ -36,9 +38,11 @@ public class WorkflowExecutionEntity {
     private String status;
 
     @Column(name = "trigger_payload", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String triggerPayload;
 
     @Column(name = "result_payload", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String resultPayload;
 
     @Column(name = "failure_reason", columnDefinition = "TEXT")

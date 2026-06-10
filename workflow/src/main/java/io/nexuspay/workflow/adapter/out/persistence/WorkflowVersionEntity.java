@@ -6,6 +6,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * JPA entity for the {@code workflow_versions} table.
@@ -27,6 +29,7 @@ public class WorkflowVersionEntity {
     private int versionNumber;
 
     @Column(name = "graph_snapshot", columnDefinition = "jsonb", nullable = false)
+    @JdbcTypeCode(SqlTypes.JSON)
     private String graphSnapshot;
 
     @Column(name = "change_description", columnDefinition = "TEXT")

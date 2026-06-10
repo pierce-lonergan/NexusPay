@@ -6,6 +6,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * JPA entity for the {@code workflow_definitions} table.
@@ -40,12 +42,15 @@ public class WorkflowDefinitionEntity {
     private String triggerType;
 
     @Column(name = "trigger_config", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String triggerConfig;
 
     @Column(name = "nodes", columnDefinition = "jsonb", nullable = false)
+    @JdbcTypeCode(SqlTypes.JSON)
     private String nodes;
 
     @Column(name = "edges", columnDefinition = "jsonb", nullable = false)
+    @JdbcTypeCode(SqlTypes.JSON)
     private String edges;
 
     @Column(name = "created_at", nullable = false)
