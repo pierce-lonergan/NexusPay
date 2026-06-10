@@ -11,7 +11,7 @@ CREATE TABLE routing_configs (
     max_cascade_depth INTEGER NOT NULL DEFAULT 3,
     filters           JSONB NOT NULL DEFAULT '{}',  -- additional filters (min amount, currency, etc.)
     ab_test_id        UUID,                         -- NULL if not in A/B test
-    ab_test_traffic   DECIMAL(5,4),
+    ab_test_traffic   DOUBLE PRECISION,             -- fraction 0.0-1.0; matches RoutingConfigEntity.abTestTraffic (Double)
     enabled           BOOLEAN NOT NULL DEFAULT true,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
