@@ -51,13 +51,12 @@ public record CurrencyConversion(
 
     /**
      * Calculates the FX gain/loss in settlement currency minor units.
-     * Positive = gain, negative = loss.
+     * Positive = gain, negative = loss. Uses exponent-aware conversion so the
+     * comparison is in true settlement minor units (B-014).
      */
     public long fxGainLoss(BigDecimal currentRate) {
-        long currentSettlement = BigDecimal.valueOf(presentmentAmountMinorUnits)
-                .multiply(currentRate)
-                .setScale(0, java.math.RoundingMode.HALF_UP)
-                .longValue();
+        long currentSettlement = CurrencyMath.convert(
+                presentmentAmountMinorUnits, presentmentCurrency, settlementCurrency, currentRate);
         return settlementAmountMinorUnits - currentSettlement;
     }
 }

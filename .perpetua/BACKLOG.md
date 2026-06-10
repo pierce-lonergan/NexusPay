@@ -20,11 +20,10 @@ claims: (none — single instance)
   per-module history tables; verified migrate. Source: audit (ledger/recon).
 
 - **B-014 | Raise coverage on the lowest money/security modules** | test-strength
-  JaCoCo (B-005) now measures it: gateway-api 2%, billing 4%, common 7%, ledger
-  10%, iam 14% are the thinnest — and fraud & payment-orchestration still have
-  ZERO tests (FX convert, FRM amount scaling). Target the money/security paths
-  first; ratchet coverage_floor_pct up as it rises. Score (4×4)/3 = **5.3**
-  (×rotation priority). AC: ≥1 test class per money path; coverage floor raised.
+  IN PROGRESS. Done so far: fraud + payment-orchestration now have money-math
+  tests; FX exponent bug fixed (see Done). Still thin: gateway-api 2%, billing
+  4%, common 7%, ledger 10%, iam now ~? (rose w/ ApprovalServiceTest). Continue
+  on those; ratchet coverage_floor_pct up as it rises. Score (4×4)/3 = **5.3**.
 
 - **B-002 | RLS enforced at runtime** | T3 security (RESEARCH-first)
   `SET LOCAL` runs outside a txn (no-op) AND app connects as table owner
@@ -90,6 +89,12 @@ claims: (none — single instance)
   idempotency key (fold into B-002/outbox work). Score (4×4)/4 +2 = **6**.
 
 ## Done
+- **B-014a** (2026-06-10) FX currency-exponent convert bug (still-open HIGH from
+  the audit) — `FxRate.convert`/`FxRateLock.convert`/`CurrencyConversion.fxGainLoss`
+  all multiplied raw minor units by a major-unit rate (USD→JPY 100× off). Extracted
+  exponent-aware `CurrencyMath`, fixed all 3 sites; CurrencyMathTest+FrmAmountsTest
+  (11 tests) — first tests for the fraud + payment-orchestration modules. Review SHIP
+  (found the 3rd site). L-019.
 - **B-005** (2026-06-10) JaCoCo wired on all modules (per-module XML+HTML);
   measured aggregate line coverage 24%; ratchet `coverage_floor_pct=23` enforced
   in CI (perpetua-gates). Exposed the thin modules for B-014.

@@ -49,16 +49,14 @@ public record FxRate(
     }
 
     /**
-     * Converts an amount from base currency to quote currency.
+     * Converts an amount from base currency to quote currency, honoring each
+     * currency's ISO 4217 exponent (so e.g. USD→JPY is not 100× off).
      *
-     * @param amountMinorUnits amount in minor units (e.g., cents)
-     * @return converted amount in minor units
+     * @param amountMinorUnits amount in BASE-currency minor units
+     * @return converted amount in QUOTE-currency minor units
      */
     public long convert(long amountMinorUnits) {
-        return BigDecimal.valueOf(amountMinorUnits)
-                .multiply(rate)
-                .setScale(0, RoundingMode.HALF_UP)
-                .longValue();
+        return CurrencyMath.convert(amountMinorUnits, pair.baseCurrency(), pair.quoteCurrency(), rate);
     }
 
     /**

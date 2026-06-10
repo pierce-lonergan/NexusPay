@@ -81,13 +81,11 @@ public class FxRateLock {
     }
 
     /**
-     * Converts an amount using the locked rate.
+     * Converts an amount using the locked rate, honoring each currency's ISO 4217
+     * exponent (fromCurrency → toCurrency); see {@link CurrencyMath}.
      */
     public long convert(long amountMinorUnits) {
-        return BigDecimal.valueOf(amountMinorUnits)
-                .multiply(rate)
-                .setScale(0, java.math.RoundingMode.HALF_UP)
-                .longValue();
+        return CurrencyMath.convert(amountMinorUnits, fromCurrency, toCurrency, rate);
     }
 
     // Getters
