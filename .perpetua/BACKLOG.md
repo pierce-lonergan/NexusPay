@@ -8,12 +8,6 @@ claims: (none — single instance)
 
 ## Ready (sorted by score)
 
-- **B-004 | Secrets default to committed dev values, no prod guard** | T2 security
-  `nexuspay.session.jwt-secret`, vault master-key, webhook-secret resolve to
-  in-source defaults; a missing env var in prod signs/encrypts with a public
-  key. Score (4×5)/2 +2 = **12**. AC: fail-fast at startup when a known default
-  is resolved under a non-local profile; unit test. Source: audit (iam/app).
-
 - **B-006 | Run + record baseline security scans** | security
   gitleaks (history once), OSV/dependency-check, semgrep java. Findings →
   security/AUDITS.md; Critical/High → top of backlog. Score (4×5)/2 = **10**.
@@ -105,6 +99,11 @@ claims: (none — single instance)
   Score (2×3)/2 = **3**.
 
 ## Done
+- **B-004** (2026-06-10) secrets fail-fast — `StartupSecretsValidator` warns in
+  dev, THROWS under a prod-like profile (or NEXUSPAY_REQUIRE_MANAGED_SECRETS=true)
+  when a built-in default secret is in effect; added `application-production.yml`
+  (forces the guard) + a drift-guard test so the control can't fail open. 8 tests.
+  Adversarial review: SHIP (both SHOULDs addressed).
 - **B-019** (2026-06-10, human-directed) token-aware adaptive scheduling —
   `perpetua-pace.sh` (pure controller, 11 unit tests) + `perpetua-usage.sh`
   (ccusage wrapper, graceful degradation) + harness v3 pacing + CLAUDE.md rigor
