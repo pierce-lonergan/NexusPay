@@ -3,13 +3,15 @@ spring:
     hibernate:
       ddl-auto: validate
     open-in-view: false
+  # Flyway: intentionally NO `locations` override here. A profile-specific list
+  # REPLACES (not merges) the base list, and the old hand-maintained 4-leaf list
+  # (payment/ledger/iam/gateway) silently omitted the `app` leaf that defines
+  # current_tenant_id(), so gateway's V3015 RLS policy failed once the V1 version
+  # collision (which had been aborting the resolver first) was fixed. Inheriting
+  # application.yml's full 11-leaf list keeps the integration-test schema identical
+  # to production and is the single source of truth.
   flyway:
     enabled: true
-    locations:
-      - classpath:db/migration/payment
-      - classpath:db/migration/ledger
-      - classpath:db/migration/iam
-      - classpath:db/migration/gateway
     baseline-on-migrate: true
 
   # Disable Keycloak JWT validation in tests

@@ -21,11 +21,30 @@ spring:
         jdbc:
           time_zone: UTC
 
-  # Flyway — module-specific paths added via FlywayConfigurationCustomizer beans per module (GAP-017)
+  # Flyway — explicit per-module leaf locations (B-011).
+  # We deliberately do NOT use a bare `classpath:db/migration` base: Flyway's
+  # recursive classpath scan of that parent is unreliable across separate module
+  # JARs (it silently discovered only 4 of 11 module dirs, skipping V2001 which
+  # defines current_tenant_id() — every later RLS policy then failed). Leaf-path
+  # locations resolve per-JAR deterministically. Each migration lives in exactly
+  # one listed leaf, so there is no recursion overlap and no double-discovery.
+  # fail-on-missing-locations makes a mis-typed/absent leaf a LOUD build failure
+  # instead of a silent skip (the failure mode this bug exposed).
   flyway:
     enabled: true
+    fail-on-missing-locations: true
     locations:
-      - classpath:db/migration
+      - classpath:db/migration/app
+      - classpath:db/migration/ledger
+      - classpath:db/migration/iam
+      - classpath:db/migration/gateway
+      - classpath:db/migration/payment
+      - classpath:db/migration/fraud
+      - classpath:db/migration/analytics
+      - classpath:db/migration/vault
+      - classpath:db/migration/marketplace
+      - classpath:db/migration/b2b
+      - classpath:db/migration/workflow
     baseline-on-migrate: true
 
   # Kafka (producer/consumer config in Java: KafkaProducerConfig, KafkaConsumerConfig)
