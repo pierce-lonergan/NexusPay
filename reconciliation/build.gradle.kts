@@ -9,6 +9,7 @@ dependencies {
     // Spring Boot — web + JPA for REST API and persistence
     implementation(rootProject.libs.spring.boot.starter.web)
     implementation(rootProject.libs.spring.boot.starter.data.jpa)
+    implementation(rootProject.libs.spring.modulith.starter.core)
 
     // Flyway — migration path registration
     implementation(rootProject.libs.flyway.core)

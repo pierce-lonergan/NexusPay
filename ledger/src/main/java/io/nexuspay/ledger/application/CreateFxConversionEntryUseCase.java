@@ -1,8 +1,8 @@
 package io.nexuspay.ledger.application;
 
-import io.nexuspay.common.id.PrefixedId;
+import io.nexuspay.ledger.application.CreateJournalEntryUseCase.CreateJournalEntryCommand;
+import io.nexuspay.ledger.application.CreateJournalEntryUseCase.CreateJournalEntryCommand.PostingLine;
 import io.nexuspay.ledger.application.port.FxGainLossAccountRepository;
-import io.nexuspay.ledger.application.port.JournalEntryRepository;
 import io.nexuspay.ledger.application.port.LedgerAccountRepository;
 import io.nexuspay.ledger.domain.*;
 import org.slf4j.Logger;
@@ -20,12 +20,16 @@ import java.util.Map;
 /**
  * Creates multi-leg journal entries for FX currency conversions.
  *
- * <p>A cross-currency payment settlement produces a 3-leg journal entry:</p>
+ * <p>A cross-currency payment settlement books legs that balance to zero
+ * <em>per currency</em>, using per-currency FX clearing (position) accounts:</p>
  * <ul>
- *   <li>Leg 1: DR merchant_receivable_{presentment_ccy} / CR customer_liability_{presentment_ccy}</li>
- *   <li>Leg 2: DR merchant_receivable_{settlement_ccy} / CR merchant_receivable_{presentment_ccy}</li>
- *   <li>Leg 3: DR/CR fx_gain_loss_{ccy_pair} (balancing entry for rate difference)</li>
+ *   <li>Presentment ccy: DR merchant_recv / CR customer_liab (capture), then
+ *       DR fx_clearing / CR merchant_recv (sell presentment currency)</li>
+ *   <li>Settlement ccy: DR merchant_recv / CR fx_clearing (buy settlement currency)</li>
  * </ul>
+ *
+ * <p>The fx_clearing accounts carry the open FX position; revaluation gains and
+ * losses are tracked against the {@code la_fx_gain_loss_{pair}} account.</p>
  *
  * @since 0.3.0 (Sprint 3.2)
  */
@@ -35,17 +39,17 @@ public class CreateFxConversionEntryUseCase {
     private static final Logger LOG = LoggerFactory.getLogger(CreateFxConversionEntryUseCase.class);
 
     private final EnsureAccountsExistUseCase ensureAccounts;
-    private final JournalEntryRepository journalEntryRepo;
+    private final CreateJournalEntryUseCase createJournalEntry;
     private final LedgerAccountRepository accountRepo;
     private final FxGainLossAccountRepository fxGlRepo;
 
     public CreateFxConversionEntryUseCase(
             EnsureAccountsExistUseCase ensureAccounts,
-            JournalEntryRepository journalEntryRepo,
+            CreateJournalEntryUseCase createJournalEntry,
             LedgerAccountRepository accountRepo,
             FxGainLossAccountRepository fxGlRepo) {
         this.ensureAccounts = ensureAccounts;
-        this.journalEntryRepo = journalEntryRepo;
+        this.createJournalEntry = createJournalEntry;
         this.accountRepo = accountRepo;
         this.fxGlRepo = fxGlRepo;
     }
@@ -75,93 +79,84 @@ public class CreateFxConversionEntryUseCase {
                 req.paymentId(), req.presentmentAmountMinorUnits(), req.presentmentCurrency(),
                 req.settlementAmountMinorUnits(), req.settlementCurrency());
 
+        String presentmentCcy = req.presentmentCurrency().toUpperCase();
+        String settlementCcy = req.settlementCurrency().toUpperCase();
+
         // Ensure accounts exist for both currencies
-        ensureAccounts.ensureAccountsForCurrency(req.presentmentCurrency(), req.tenantId());
-        ensureAccounts.ensureAccountsForCurrency(req.settlementCurrency(), req.tenantId());
+        ensureAccounts.ensureAccountsForCurrency(presentmentCcy, req.tenantId());
+        ensureAccounts.ensureAccountsForCurrency(settlementCcy, req.tenantId());
+        ensureFxClearingAccount(req.tenantId(), presentmentCcy);
+        ensureFxClearingAccount(req.tenantId(), settlementCcy);
 
-        // Ensure FX gain/loss account exists
-        String currencyPair = req.presentmentCurrency() + "/" + req.settlementCurrency();
-        ensureFxGainLossAccount(req.tenantId(), currencyPair, req.settlementCurrency());
+        // Ensure FX gain/loss tracking exists for the pair
+        String currencyPair = presentmentCcy + "/" + settlementCcy;
+        ensureFxGainLossAccount(req.tenantId(), currencyPair, settlementCcy);
 
-        // Build the 3-leg posting set
-        List<Posting> postings = new ArrayList<>();
+        String merchantRecvPresentment = EnsureAccountsExistUseCase.merchantReceivablesId(presentmentCcy);
+        String customerLiabPresentment = EnsureAccountsExistUseCase.customerLiabilityId(presentmentCcy);
+        String merchantRecvSettlement = EnsureAccountsExistUseCase.merchantReceivablesId(settlementCcy);
+        String fxClearingPresentment = EnsureAccountsExistUseCase.fxClearingId(presentmentCcy);
+        String fxClearingSettlement = EnsureAccountsExistUseCase.fxClearingId(settlementCcy);
 
-        // Account IDs follow the convention from EnsureAccountsExistUseCase
-        String merchantRecvPresentment = "la_merchant_recv_" + req.presentmentCurrency().toLowerCase();
-        String customerLiabPresentment = "la_customer_liab_" + req.presentmentCurrency().toLowerCase();
-        String merchantRecvSettlement = "la_merchant_recv_" + req.settlementCurrency().toLowerCase();
-        String fxGainLossAccount = "la_fx_gain_loss_" + currencyPair.replace("/", "_").toLowerCase();
+        List<PostingLine> postings = new ArrayList<>();
 
         // Leg 1: Customer payment in presentment currency
-        // DR merchant_receivable_{presentment} (asset increases)
-        // CR customer_liability_{presentment} (liability increases)
-        postings.add(new Posting(PrefixedId.posting(), merchantRecvPresentment,
-                req.presentmentAmountMinorUnits(), req.presentmentCurrency()));
-        postings.add(new Posting(PrefixedId.posting(), customerLiabPresentment,
-                -req.presentmentAmountMinorUnits(), req.presentmentCurrency()));
+        // DR merchant_receivable_{presentment} / CR customer_liability_{presentment}
+        postings.add(new PostingLine(merchantRecvPresentment,
+                req.presentmentAmountMinorUnits(), presentmentCcy));
+        postings.add(new PostingLine(customerLiabPresentment,
+                -req.presentmentAmountMinorUnits(), presentmentCcy));
 
-        // Leg 2: FX conversion — move from presentment to settlement currency
-        // DR merchant_receivable_{settlement} (settlement currency asset increases)
-        // CR merchant_receivable_{presentment} (presentment currency asset decreases)
-        postings.add(new Posting(PrefixedId.posting(), merchantRecvSettlement,
-                req.settlementAmountMinorUnits(), req.settlementCurrency()));
-        postings.add(new Posting(PrefixedId.posting(), merchantRecvPresentment,
-                -req.presentmentAmountMinorUnits(), req.presentmentCurrency()));
+        // Leg 2: Sell the presentment currency into the FX position
+        // DR fx_clearing_{presentment} / CR merchant_receivable_{presentment}
+        postings.add(new PostingLine(fxClearingPresentment,
+                req.presentmentAmountMinorUnits(), presentmentCcy));
+        postings.add(new PostingLine(merchantRecvPresentment,
+                -req.presentmentAmountMinorUnits(), presentmentCcy));
 
-        // Leg 3: FX gain/loss balancing entry
-        // The net of Leg 1 + Leg 2 must be zero across all currencies
-        // The gain/loss = settlementAmount - (presentmentAmount * rate_at_time_of_accounting)
-        // For simplicity, we book the conversion differential to the FX G/L account
-        long fxDifferential = calculateFxDifferential(req);
-        if (fxDifferential != 0) {
-            postings.add(new Posting(PrefixedId.posting(), fxGainLossAccount,
-                    fxDifferential, req.settlementCurrency()));
-        }
+        // Leg 3: Buy the settlement currency out of the FX position
+        // DR merchant_receivable_{settlement} / CR fx_clearing_{settlement}
+        postings.add(new PostingLine(merchantRecvSettlement,
+                req.settlementAmountMinorUnits(), settlementCcy));
+        postings.add(new PostingLine(fxClearingSettlement,
+                -req.settlementAmountMinorUnits(), settlementCcy));
 
-        // Create the journal entry
-        String entryId = PrefixedId.journalEntry();
-        JournalEntry entry = new JournalEntry(
-                entryId,
+        var command = new CreateJournalEntryCommand(
                 req.paymentId(),
-                "FX conversion: " + req.presentmentCurrency() + " → " + req.settlementCurrency(),
+                "FX conversion: " + presentmentCcy + " → " + settlementCcy,
                 req.tenantId(),
-                Instant.now(),
                 Map.of(
                         "fx_rate", req.appliedRate().toPlainString(),
                         "fx_provider", req.rateProvider(),
-                        "presentment_currency", req.presentmentCurrency(),
-                        "settlement_currency", req.settlementCurrency(),
+                        "presentment_currency", presentmentCcy,
+                        "settlement_currency", settlementCcy,
                         "type", "fx_conversion"
                 ),
                 postings
         );
 
-        // Persist and update account balances
-        journalEntryRepo.save(entry);
-
-        for (Posting posting : postings) {
-            updateAccountBalance(posting);
-        }
+        JournalEntry entry = createJournalEntry.execute(command);
 
         LOG.info("FX conversion journal entry {} created for payment {} (rate: {})",
-                entryId, req.paymentId(), req.appliedRate());
+                entry.getId(), req.paymentId(), req.appliedRate());
 
         return entry;
     }
 
-    private long calculateFxDifferential(FxConversionRequest req) {
-        // The differential accounts for any rounding differences
-        // In a multi-currency ledger, the FX G/L account absorbs rounding
-        // This ensures the overall ledger stays balanced
-        return 0; // Zero for now — exact conversion at locked rate
-    }
-
-    private void updateAccountBalance(Posting posting) {
-        LedgerAccount account = accountRepo.findById(posting.ledgerAccountId())
-                .orElseThrow(() -> new RuntimeException(
-                        "Ledger account not found: " + posting.ledgerAccountId()));
-        account.applyPosting(posting.amount());
-        accountRepo.save(account);
+    private void ensureFxClearingAccount(String tenantId, String currency) {
+        String accountId = EnsureAccountsExistUseCase.fxClearingId(currency);
+        if (accountRepo.findById(accountId).isEmpty()) {
+            LedgerAccount clearing = new LedgerAccount(
+                    accountId,
+                    "FX Clearing (" + currency + ")",
+                    AccountType.ASSET,
+                    currency,
+                    0L, 0L, tenantId,
+                    Instant.now(), Instant.now()
+            );
+            accountRepo.save(clearing);
+            LOG.info("Created FX clearing ledger account: {}", accountId);
+        }
     }
 
     private void ensureFxGainLossAccount(String tenantId, String currencyPair, String settlementCurrency) {

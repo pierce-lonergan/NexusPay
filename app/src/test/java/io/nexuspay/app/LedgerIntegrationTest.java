@@ -3,7 +3,7 @@ package io.nexuspay.app;
 import io.nexuspay.app.config.TestSecurityConfig;
 import io.nexuspay.ledger.application.CreateJournalEntryUseCase;
 import io.nexuspay.ledger.application.CreateJournalEntryUseCase.CreateJournalEntryCommand;
-import io.nexuspay.ledger.application.CreateJournalEntryUseCase.PostingLine;
+import io.nexuspay.ledger.application.CreateJournalEntryUseCase.CreateJournalEntryCommand.PostingLine;
 import io.nexuspay.ledger.application.GetBalanceUseCase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

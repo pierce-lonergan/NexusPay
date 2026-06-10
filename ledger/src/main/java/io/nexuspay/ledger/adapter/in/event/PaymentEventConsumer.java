@@ -69,18 +69,20 @@ public class PaymentEventConsumer {
             return;
         }
 
-        // Ensure accounts exist for this currency
-        ensureAccountsExistUseCase.ensureAccountsForCurrency(currency);
+        String tenantId = tenantOf(event);
 
-        String merchantRecvAccount = "la_merchant_recv_" + currency.toLowerCase();
-        String customerLiabAccount = "la_customer_liab_" + currency.toLowerCase();
+        // Ensure accounts exist for this currency
+        ensureAccountsExistUseCase.ensureAccountsForCurrency(currency, tenantId);
+
+        String merchantRecvAccount = EnsureAccountsExistUseCase.merchantReceivablesId(currency);
+        String customerLiabAccount = EnsureAccountsExistUseCase.customerLiabilityId(currency);
 
         // DR Merchant Receivables (asset increases)
         // CR Customer Liability (liability increases)
         var command = new CreateJournalEntryCommand(
                 paymentId,
                 "Payment captured",
-                "default",
+                tenantId,
                 Map.of("event_id", event.get("event_id")),
                 List.of(
                         new PostingLine(merchantRecvAccount, amount, currency),
@@ -107,18 +109,20 @@ public class PaymentEventConsumer {
             return;
         }
 
-        // Ensure accounts exist for this currency
-        ensureAccountsExistUseCase.ensureAccountsForCurrency(currency);
+        String tenantId = tenantOf(event);
 
-        String refundsAccount = "la_refunds_" + currency.toLowerCase();
-        String merchantRecvAccount = "la_merchant_recv_" + currency.toLowerCase();
+        // Ensure accounts exist for this currency
+        ensureAccountsExistUseCase.ensureAccountsForCurrency(currency, tenantId);
+
+        String refundsAccount = EnsureAccountsExistUseCase.refundsId(currency);
+        String merchantRecvAccount = EnsureAccountsExistUseCase.merchantReceivablesId(currency);
 
         // DR Refunds (expense increases)
         // CR Merchant Receivables (asset decreases)
         var command = new CreateJournalEntryCommand(
                 refundId,
                 "Refund completed",
-                "default",
+                tenantId,
                 Map.of("event_id", event.get("event_id"), "payment_id", paymentId),
                 List.of(
                         new PostingLine(refundsAccount, amount, currency),
@@ -129,5 +133,18 @@ public class PaymentEventConsumer {
         var entry = createJournalEntryUseCase.execute(command);
         log.info("Created ledger entry {} for refund: {} {} {}",
                 entry.getId(), refundId, amount, currency);
+    }
+
+    /**
+     * Resolves the tenant from the event envelope (top-level or payload),
+     * falling back to the default tenant for legacy events that carry none.
+     */
+    @SuppressWarnings("unchecked")
+    private static String tenantOf(Map<String, Object> event) {
+        Object tenant = event.get("tenant_id");
+        if (tenant == null && event.get("payload") instanceof Map<?, ?> payload) {
+            tenant = ((Map<String, Object>) payload).get("tenant_id");
+        }
+        return tenant instanceof String s && !s.isBlank() ? s : EnsureAccountsExistUseCase.DEFAULT_TENANT;
     }
 }

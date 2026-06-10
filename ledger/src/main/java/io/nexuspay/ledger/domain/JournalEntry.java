@@ -4,6 +4,7 @@ import io.nexuspay.common.exception.LedgerException;
 
 import java.time.Instant;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -38,12 +39,19 @@ public class JournalEntry {
     }
 
     /**
-     * Core invariant: all postings must sum to zero (balanced entry).
+     * Core invariant: postings must sum to zero <em>within each currency</em>.
+     * A single numeric sum across currencies would accept entries like
+     * {@code +10000 JPY / -10000 USD}, which are semantically unbalanced.
      */
     private void validateZeroSum() {
-        long sum = postings.stream().mapToLong(Posting::amount).sum();
-        if (sum != 0) {
-            throw LedgerException.unbalancedEntry(sum);
+        Map<String, Long> sumsByCurrency = new HashMap<>();
+        for (Posting posting : postings) {
+            sumsByCurrency.merge(posting.currency(), posting.amount(), Long::sum);
+        }
+        for (var entry : sumsByCurrency.entrySet()) {
+            if (entry.getValue() != 0) {
+                throw LedgerException.unbalancedEntry(entry.getKey(), entry.getValue());
+            }
         }
     }
 

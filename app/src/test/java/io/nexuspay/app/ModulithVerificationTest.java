@@ -1,5 +1,6 @@
 package io.nexuspay.app;
 
+import io.nexuspay.NexusPayApplication;
 import org.junit.jupiter.api.Test;
 import org.springframework.modulith.core.ApplicationModules;
 

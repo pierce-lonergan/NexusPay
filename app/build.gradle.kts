@@ -22,6 +22,11 @@ dependencies {
 
     implementation(rootProject.libs.spring.boot.starter.web)
     implementation(rootProject.libs.spring.boot.starter.actuator)
+    implementation(rootProject.libs.spring.boot.starter.security)
+    implementation(rootProject.libs.spring.boot.starter.data.jpa)
+    implementation("org.springframework.boot:spring-boot-starter-data-redis")
+    implementation(rootProject.libs.spring.kafka)
+    implementation(rootProject.libs.kafka.clients)
     implementation(rootProject.libs.spring.modulith.starter.core)
     implementation(rootProject.libs.spring.modulith.starter.jpa)
     implementation(rootProject.libs.logstash.logback.encoder)
@@ -39,6 +44,7 @@ dependencies {
 
     testImplementation(rootProject.libs.spring.modulith.test)
     testImplementation(rootProject.libs.spring.security.test)
+    testImplementation(rootProject.libs.spring.boot.starter.oauth2.resource.server)
     testImplementation(rootProject.libs.testcontainers.junit.jupiter)
     testImplementation(rootProject.libs.testcontainers.postgresql)
     testImplementation(rootProject.libs.testcontainers.kafka)
@@ -46,5 +52,5 @@ dependencies {
 }
 
 springBoot {
-    mainClass.set("io.nexuspay.app.NexusPayApplication")
+    mainClass.set("io.nexuspay.NexusPayApplication")
 }

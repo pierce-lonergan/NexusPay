@@ -177,13 +177,21 @@ public class DisputeLifecycleService {
         Dispute dispute = getOrThrow(disputeId);
         int eventsBefore = dispute.getEvents().size();
         dispute.expire();
+        // expire() is idempotent — it no-ops on an already-terminal dispute and
+        // produces no new event. Post to the ledger ONLY when the transition
+        // actually happened; otherwise a redundant dispute.expired webhook would
+        // double-post the chargeback expense and drain the reserve twice.
+        boolean transitioned = dispute.getEvents().size() > eventsBefore;
         dispute = disputeRepository.save(dispute);
         saveNewEvents(dispute, eventsBefore);
 
-        // Lost by default — finalise chargeback
-        ledgerPort.finaliseChargebackExpense(dispute.getId(), dispute.getAmount(), dispute.getCurrency());
-
-        log.info("Dispute expired: id={}", disputeId);
+        if (transitioned) {
+            // Lost by default — finalise chargeback
+            ledgerPort.finaliseChargebackExpense(dispute.getId(), dispute.getAmount(), dispute.getCurrency());
+            log.info("Dispute expired: id={}", disputeId);
+        } else {
+            log.info("Dispute {} already terminal, skipping ledger finalisation", disputeId);
+        }
         return dispute;
     }
 

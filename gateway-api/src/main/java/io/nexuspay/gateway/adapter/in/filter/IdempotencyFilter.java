@@ -14,7 +14,11 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingResponseWrapper;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.util.HexFormat;
 import java.util.concurrent.locks.LockSupport;
 
 /**
@@ -57,7 +61,10 @@ public class IdempotencyFilter extends OncePerRequestFilter {
             return;
         }
 
-        String redisKey = "idempotency:" + idempotencyKey;
+        // Scope the key to the caller's credential. Without this, two different
+        // merchants reusing a common Idempotency-Key (e.g. "order-1") collide and
+        // merchant B receives merchant A's cached response body.
+        String redisKey = "idempotency:" + callerScope(request) + ":" + idempotencyKey;
 
         try {
             // Try to acquire processing lock
@@ -99,20 +106,45 @@ public class IdempotencyFilter extends OncePerRequestFilter {
         try {
             filterChain.doFilter(request, wrappedResponse);
 
-            // Cache the response
             int status = wrappedResponse.getStatus();
-            String contentType = wrappedResponse.getContentType();
-            byte[] body = wrappedResponse.getContentAsByteArray();
-
-            var cachedEntry = new CachedResponse(status, contentType, new String(body));
-            String json = objectMapper.writeValueAsString(cachedEntry);
-            redisTemplate.opsForValue().set(redisKey, json, CACHE_TTL);
+            // Only cache deterministic outcomes (2xx success, 4xx client errors).
+            // A 5xx is typically transient — caching it would pin the failure to
+            // the idempotency key for 24h so every legitimate retry replays the
+            // error and can never succeed. Release the lock instead.
+            if (status >= 500) {
+                redisTemplate.delete(redisKey);
+            } else {
+                String contentType = wrappedResponse.getContentType();
+                byte[] body = wrappedResponse.getContentAsByteArray();
+                var cachedEntry = new CachedResponse(status, contentType, new String(body));
+                String json = objectMapper.writeValueAsString(cachedEntry);
+                redisTemplate.opsForValue().set(redisKey, json, CACHE_TTL);
+            }
 
             wrappedResponse.copyBodyToResponse();
         } catch (Exception e) {
             // On error, delete the lock so retries can proceed
             redisTemplate.delete(redisKey);
             throw e;
+        }
+    }
+
+    /**
+     * Derives a stable per-caller scope from the Authorization header (API key
+     * or bearer token), hashed so the raw secret never lands in Valkey. Falls
+     * back to a shared anonymous scope when unauthenticated.
+     */
+    private String callerScope(HttpServletRequest request) {
+        String auth = request.getHeader("Authorization");
+        if (auth == null || auth.isBlank()) {
+            return "anon";
+        }
+        try {
+            MessageDigest sha = MessageDigest.getInstance("SHA-256");
+            byte[] digest = sha.digest(auth.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest, 0, 8);
+        } catch (NoSuchAlgorithmException e) {
+            return "anon";
         }
     }
 

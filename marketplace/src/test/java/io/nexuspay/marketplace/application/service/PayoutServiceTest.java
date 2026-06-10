@@ -39,9 +39,17 @@ class PayoutServiceTest {
         service = new PayoutService(repository, payoutExecution, eventPublisher);
     }
 
+    /** Builds an ACTIVE, KYC-verified account — the precondition for payouts. */
+    private static ConnectedAccount activeAccount() {
+        ConnectedAccount account = ConnectedAccount.create("tenant-1", "Test Biz", "t@test.com", "US", "USD");
+        account.setKycStatus(KycStatus.VERIFIED);
+        account.setStatus(AccountState.ACTIVE);
+        return account;
+    }
+
     @Test
     void createPayout_succeeds() {
-        ConnectedAccount account = ConnectedAccount.create("tenant-1", "Test Biz", "t@test.com", "US", "USD");
+        ConnectedAccount account = activeAccount();
         account.setPayoutMinimum(100);
         when(repository.findAccountById(account.getId())).thenReturn(Optional.of(account));
         when(repository.savePayout(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -58,11 +66,22 @@ class PayoutServiceTest {
 
     @Test
     void createPayout_rejectsBelowMinimum() {
-        ConnectedAccount account = ConnectedAccount.create("tenant-1", "Test Biz", "t@test.com", "US", "USD");
+        ConnectedAccount account = activeAccount();
         account.setPayoutMinimum(10000);
         when(repository.findAccountById(account.getId())).thenReturn(Optional.of(account));
 
         assertThrows(IllegalArgumentException.class, () ->
+                service.createPayout(new SchedulePayoutUseCase.CreatePayoutCommand(
+                        "tenant-1", account.getId(), 5000, "USD", PayoutMethod.BANK_TRANSFER, null)));
+    }
+
+    @Test
+    void createPayout_rejectsInactiveAccount() {
+        ConnectedAccount account = ConnectedAccount.create("tenant-1", "Test Biz", "t@test.com", "US", "USD");
+        account.setPayoutMinimum(100); // ONBOARDING, not yet activated
+        when(repository.findAccountById(account.getId())).thenReturn(Optional.of(account));
+
+        assertThrows(IllegalStateException.class, () ->
                 service.createPayout(new SchedulePayoutUseCase.CreatePayoutCommand(
                         "tenant-1", account.getId(), 5000, "USD", PayoutMethod.BANK_TRANSFER, null)));
     }

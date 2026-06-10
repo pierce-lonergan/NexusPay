@@ -11,6 +11,7 @@ dependencies {
     implementation(rootProject.libs.spring.boot.starter.oauth2.resource.server)
     implementation(rootProject.libs.spring.boot.starter.validation)
     implementation(rootProject.libs.spring.boot.starter.actuator)
+    implementation(rootProject.libs.spring.modulith.starter.core)
     implementation("org.springframework.boot:spring-boot-starter-aop")
     implementation(rootProject.libs.flyway.core)
     implementation(rootProject.libs.flyway.database.postgresql)

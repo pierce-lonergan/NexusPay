@@ -1,7 +1,6 @@
 package io.nexuspay.billing.adapter.out.payment;
 
 import io.nexuspay.billing.application.port.out.PaymentPort;
-import io.nexuspay.common.id.PrefixedId;
 import io.nexuspay.payment.application.port.PaymentGatewayPort;
 import io.nexuspay.payment.domain.PaymentRequest;
 import io.nexuspay.payment.domain.PaymentResponse;
@@ -9,6 +8,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.Map;
 
 /**
@@ -41,7 +44,12 @@ public class PaymentOrchestrationAdapter implements PaymentPort {
                 tenantId, customerId, amount, currency, invoiceId);
 
         try {
-            String idempotencyKey = "billing_" + invoiceId + "_" + System.currentTimeMillis();
+            // Deterministic per (invoice, logical attempt). The description
+            // distinguishes the initial collection from each dunning retry, so a
+            // genuine network retry dedupes at HyperSwitch while distinct attempts
+            // do not. A wall-clock suffix here would make every call unique and
+            // defeat retry de-duplication entirely → double charges.
+            String idempotencyKey = "billing_" + invoiceId + "_" + shortHash(description);
 
             PaymentRequest request = new PaymentRequest(
                     amount,
@@ -82,6 +90,18 @@ public class PaymentOrchestrationAdapter implements PaymentPort {
         } catch (Exception e) {
             log.error("Payment collection error: invoice={}, error={}", invoiceId, e.getMessage(), e);
             return PaymentResult.failure("Payment system error: " + e.getMessage());
+        }
+    }
+
+    /** Stable short hash of the charge description (distinguishes attempts). */
+    private static String shortHash(String value) {
+        if (value == null) return "0";
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest, 0, 6);
+        } catch (NoSuchAlgorithmException e) {
+            return Integer.toHexString(value.hashCode());
         }
     }
 }

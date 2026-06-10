@@ -3,6 +3,8 @@ package io.nexuspay.billing.domain;
 import io.nexuspay.common.id.PrefixedId;
 
 import java.time.Instant;
+import java.time.Period;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.Map;
 
@@ -175,13 +177,22 @@ public class Subscription {
     }
 
     private static Instant calculatePeriodEnd(Instant start, Price price) {
+        int count = price.getBillingIntervalCount();
+        // MONTH/YEAR use calendar arithmetic (not fixed 30/365 days): a flat day
+        // count makes a "monthly" plan drift forward ~5-6 days/year and never
+        // land on a stable day-of-month, and misses leap years for "yearly".
         return switch (price.getBillingInterval().toUpperCase()) {
-            case "DAY" -> start.plus(price.getBillingIntervalCount(), ChronoUnit.DAYS);
-            case "WEEK" -> start.plus((long) price.getBillingIntervalCount() * 7, ChronoUnit.DAYS);
-            case "MONTH" -> start.plus((long) price.getBillingIntervalCount() * 30, ChronoUnit.DAYS);
-            case "YEAR" -> start.plus((long) price.getBillingIntervalCount() * 365, ChronoUnit.DAYS);
-            default -> start.plus(30, ChronoUnit.DAYS);
+            case "DAY" -> start.plus(count, ChronoUnit.DAYS);
+            case "WEEK" -> start.plus((long) count * 7, ChronoUnit.DAYS);
+            case "MONTH" -> plusCalendar(start, Period.ofMonths(count));
+            case "YEAR" -> plusCalendar(start, Period.ofYears(count));
+            default -> plusCalendar(start, Period.ofMonths(1));
         };
+    }
+
+    /** Adds a calendar period in UTC, preserving day-of-month with clamping. */
+    private static Instant plusCalendar(Instant start, Period period) {
+        return start.atZone(ZoneOffset.UTC).plus(period).toInstant();
     }
 
     // -- Getters & setters --

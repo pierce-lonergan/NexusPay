@@ -7,6 +7,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.Cipher;
+import javax.crypto.Mac;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
@@ -94,13 +95,27 @@ public class AesGcmEncryptionAdapter implements EncryptionPort {
 
     @Override
     public String generateFingerprint(String pan) {
+        // A PAN has very low entropy (known BIN + Luhn + a handful of free
+        // digits), so an unkeyed SHA-256 is brute-forceable in seconds — anyone
+        // who reads the fingerprint column could recover the full PAN. Use an
+        // HMAC keyed by a value derived from the master key so the fingerprint is
+        // only reproducible by this service.
         try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(pan.getBytes(StandardCharsets.UTF_8));
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(fingerprintKey(), "HmacSHA256"));
+            byte[] hash = mac.doFinal(pan.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(hash);
         } catch (Exception e) {
             throw new VaultEncryptionException("Failed to generate fingerprint", e);
         }
+    }
+
+    /** Derives a dedicated fingerprint key from the master key (domain-separated). */
+    private byte[] fingerprintKey() throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        digest.update(Base64.getDecoder().decode(masterKeyBase64));
+        digest.update("fingerprint".getBytes(StandardCharsets.UTF_8));
+        return digest.digest();
     }
 
     private SecretKey deriveKey(String keyId) {

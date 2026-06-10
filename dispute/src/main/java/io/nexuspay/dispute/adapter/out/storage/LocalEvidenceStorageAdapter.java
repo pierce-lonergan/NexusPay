@@ -29,8 +29,12 @@ public class LocalEvidenceStorageAdapter implements EvidenceStoragePort {
     @Override
     public String store(String tenantId, String disputeId, String fileName,
                         InputStream content, String contentType) {
-        String key = tenantId + "/" + disputeId + "/" + fileName;
-        Path target = STORAGE_ROOT.resolve(key);
+        // Each path segment is sanitized to a single safe component — the raw
+        // tenantId/disputeId/fileName are all caller-controlled, so without this
+        // a value like "../../etc/passwd" would escape STORAGE_ROOT (path
+        // traversal → arbitrary file write).
+        String key = safeSegment(tenantId) + "/" + safeSegment(disputeId) + "/" + safeSegment(fileName);
+        Path target = resolveWithinRoot(key);
 
         try {
             Files.createDirectories(target.getParent());
@@ -44,7 +48,7 @@ public class LocalEvidenceStorageAdapter implements EvidenceStoragePort {
 
     @Override
     public InputStream retrieve(String fileKey) {
-        Path file = STORAGE_ROOT.resolve(fileKey);
+        Path file = resolveWithinRoot(fileKey);
         try {
             return Files.newInputStream(file);
         } catch (IOException e) {
@@ -55,10 +59,34 @@ public class LocalEvidenceStorageAdapter implements EvidenceStoragePort {
     @Override
     public void delete(String fileKey) {
         try {
-            Files.deleteIfExists(STORAGE_ROOT.resolve(fileKey));
+            Files.deleteIfExists(resolveWithinRoot(fileKey));
             log.info("Evidence deleted: key={}", fileKey);
         } catch (IOException e) {
             log.warn("Failed to delete evidence file: {}", fileKey, e);
         }
+    }
+
+    /** Reduces an untrusted value to a single safe path component. */
+    private static String safeSegment(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new IllegalArgumentException("Evidence path segment must not be blank");
+        }
+        // Keep only the final name and strip anything but a conservative charset.
+        String name = Path.of(raw).getFileName().toString();
+        String sanitized = name.replaceAll("[^A-Za-z0-9._-]", "_");
+        if (sanitized.isBlank() || sanitized.equals(".") || sanitized.equals("..")) {
+            throw new IllegalArgumentException("Invalid evidence path segment: " + raw);
+        }
+        return sanitized;
+    }
+
+    /** Resolves a key under STORAGE_ROOT and rejects any escape. */
+    private static Path resolveWithinRoot(String key) {
+        Path root = STORAGE_ROOT.toAbsolutePath().normalize();
+        Path resolved = root.resolve(key).normalize();
+        if (!resolved.startsWith(root)) {
+            throw new IllegalArgumentException("Evidence path escapes storage root: " + key);
+        }
+        return resolved;
     }
 }

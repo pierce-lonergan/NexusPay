@@ -72,6 +72,11 @@ public class VaultRepositoryAdapter implements VaultRepository {
     }
 
     @Override
+    public Optional<VaultToken> findTokenByVaultedCardId(String vaultedCardId) {
+        return tokenRepo.findByVaultedCardId(vaultedCardId).map(this::toDomain);
+    }
+
+    @Override
     public void deleteToken(String tokenId) {
         tokenRepo.deleteById(tokenId);
     }

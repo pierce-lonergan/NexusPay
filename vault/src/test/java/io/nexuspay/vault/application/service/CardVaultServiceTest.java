@@ -102,8 +102,8 @@ class CardVaultServiceTest {
 
         when(encryption.generateFingerprint(VISA_PAN)).thenReturn("fp_abc123");
         when(repository.findCardByFingerprint(TENANT, "fp_abc123")).thenReturn(Optional.of(existingCard));
-        // findTokenForCard uses cardId as fallback reference
-        when(repository.findTokenById("vc_existing")).thenReturn(Optional.of(existingToken));
+        // Dedup looks up the existing token by the vaulted-card id.
+        when(repository.findTokenByVaultedCardId("vc_existing")).thenReturn(Optional.of(existingToken));
 
         // Act
         VaultCardResult result = service.vaultCard(command);

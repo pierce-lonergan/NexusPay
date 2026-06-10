@@ -17,8 +17,9 @@ public interface JpaLedgerAccountRepository extends JpaRepository<LedgerAccountE
 
     List<LedgerAccountEntity> findAllByCurrency(String currency);
 
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE LedgerAccountEntity a SET a.postedBalance = :newBalance, " +
+           "a.version = a.version + 1, " +
            "a.updatedAt = :now WHERE a.id = :id AND a.version = :expectedVersion")
     int updateBalanceWithVersion(@Param("id") String id,
                                  @Param("newBalance") long newBalance,

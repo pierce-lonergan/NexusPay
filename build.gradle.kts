@@ -1,3 +1,5 @@
+import io.spring.gradle.dependencymanagement.dsl.DependencyManagementExtension
+
 plugins {
     java
     alias(libs.plugins.spring.boot) apply false
@@ -23,7 +25,7 @@ subprojects {
         targetCompatibility = JavaVersion.VERSION_21
     }
 
-    dependencyManagement {
+    configure<DependencyManagementExtension> {
         imports {
             mavenBom(org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES)
             mavenBom("org.springframework.modulith:spring-modulith-bom:${rootProject.libs.versions.spring.modulith.get()}")

@@ -138,14 +138,18 @@ public class PspHealthScoringService implements QueryPspHealthUseCase {
                 anomaly.map(AnomalyAlert::details).orElse(Collections.emptyMap())
         );
 
+        // Read the prior snapshot BEFORE persisting the new one — otherwise
+        // findLatest returns the row we just saved and prevScore == healthScore.
+        Optional<PspHealthScore> previous = healthRepository.findLatest(tenantId, pspConnector);
+        int prevScore = previous.map(PspHealthScore::healthScore).orElse(100);
+        boolean wasDegraded = previous.map(PspHealthScore::anomalyDetected).orElse(false);
+
         // Persist snapshot
         healthRepository.save(score);
 
-        // Publish degraded event if anomaly detected
-        if (anomalyDetected) {
-            Optional<PspHealthScore> previous = healthRepository.findLatest(tenantId, pspConnector);
-            int prevScore = previous.map(PspHealthScore::healthScore).orElse(100);
-
+        // Publish degraded event only on a healthy→degraded transition
+        // (hysteresis) so consumers aren't spammed every cycle the anomaly persists.
+        if (anomalyDetected && !wasDegraded) {
             eventPublisher.publish(new PspHealthDegraded(
                     tenantId, pspConnector, healthScore, prevScore,
                     "Auth rate anomaly: " + anomaly.get().alertType(),

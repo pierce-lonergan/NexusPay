@@ -80,7 +80,7 @@ public class SiftFraudAdapter implements FraudRiskPort {
         req.put("$api_key", config.getApiKey());
         req.put("$user_id", context.customerId());
         req.put("$user_email", context.customerEmail());
-        req.put("$amount", context.amountMinorUnits() * 10000L); // Sift uses micros
+        req.put("$amount", FrmAmounts.toMicros(context.amountMinorUnits(), context.currency())); // Sift uses micros
         req.put("$currency_code", context.currency());
         req.put("$ip", context.ipAddress());
         req.put("$transaction_id", context.paymentId());

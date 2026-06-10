@@ -4,19 +4,28 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.KafkaContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 /**
  * Base class for integration tests.
  * Uses singleton container pattern — shared across all test classes for speed.
  * Provides PostgreSQL, Kafka, and Valkey testcontainers.
+ *
+ * <p>Skips (rather than errors) when no Docker daemon is available, so the
+ * unit-test task stays green on machines without Docker. Container startup
+ * must therefore not run in a static initializer unconditionally.</p>
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
+@Testcontainers(disabledWithoutDocker = true)
 public abstract class IntegrationTestBase {
+
+    static final boolean DOCKER_AVAILABLE = isDockerAvailable();
 
     static final PostgreSQLContainer<?> nexuspayPg;
     static final KafkaContainer kafka;
@@ -34,9 +43,19 @@ public abstract class IntegrationTestBase {
         valkey = new GenericContainer<>(DockerImageName.parse("valkey/valkey:8-alpine"))
                 .withExposedPorts(6379);
 
-        nexuspayPg.start();
-        kafka.start();
-        valkey.start();
+        if (DOCKER_AVAILABLE) {
+            nexuspayPg.start();
+            kafka.start();
+            valkey.start();
+        }
+    }
+
+    private static boolean isDockerAvailable() {
+        try {
+            return DockerClientFactory.instance().isDockerAvailable();
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     @DynamicPropertySource

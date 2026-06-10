@@ -131,12 +131,15 @@ public class DualWritePublisher {
             // or use a different approach. For simplicity, we'll publish the GenericRecord
             // via a String record with Avro metadata headers and let the consumer detect format.
 
-            // Publish as JSON value (primary) with Avro format header indicating dual-write is active
+            // Publish as JSON value (primary) with DUAL format header. The value is
+            // JSON, so it must NOT be labeled AVRO — consumers route AVRO to the
+            // Schema Registry deserializer, which would fail on every message and
+            // fall back. DUAL tells consumers "dual-write phase, value is JSON".
             var record = new ProducerRecord<>(topic, null, key, jsonPayload);
             attachHeaders(record, headers);
             record.headers().add(new RecordHeader(
                     DualWriteSerializer.HEADER_PAYLOAD_FORMAT,
-                    DualWriteSerializer.FORMAT_AVRO.getBytes(StandardCharsets.UTF_8)));
+                    DualWriteSerializer.FORMAT_DUAL.getBytes(StandardCharsets.UTF_8)));
             // Attach JSON as backup header
             DualWriteSerializer.attachJsonHeader(record.headers(), jsonPayload);
 

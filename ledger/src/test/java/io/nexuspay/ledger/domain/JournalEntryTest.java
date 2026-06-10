@@ -45,14 +45,25 @@ class JournalEntryTest {
     }
 
     @Test
-    void singlePostingThrowsException() {
-        var postings = List.of(
-                new Posting(PrefixedId.posting(), "la_merchant_recv_usd", 0, "USD")
-        );
-
-        // Zero amount posting is rejected by Posting constructor
+    void zeroAmountPostingThrowsException() {
         assertThrows(IllegalArgumentException.class, () ->
                 new Posting(PrefixedId.posting(), "la_merchant_recv_usd", 0, "USD")
+        );
+    }
+
+    @Test
+    void singlePostingThrowsException() {
+        // A lone posting can never balance — but it also fails the
+        // minimum-postings rule before the zero-sum check runs
+        var postings = List.of(
+                new Posting(PrefixedId.posting(), "la_merchant_recv_usd", 10000, "USD")
+        );
+
+        assertThrows(RuntimeException.class, () ->
+                new JournalEntry(
+                        PrefixedId.journalEntry(), "pi_test", "Single posting",
+                        "default", Instant.now(), Map.of(), postings
+                )
         );
     }
 

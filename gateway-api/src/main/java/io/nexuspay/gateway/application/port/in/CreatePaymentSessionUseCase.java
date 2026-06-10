@@ -1,7 +1,7 @@
 package io.nexuspay.gateway.application.port.in;
 
 import io.nexuspay.gateway.domain.PaymentSession;
-import io.nexuspay.gateway.domain.SessionToken;
+import io.nexuspay.common.domain.SessionToken;
 
 import java.util.List;
 import java.util.Map;

@@ -25,6 +25,7 @@ public interface VaultRepository {
     // VaultToken
     VaultToken saveToken(VaultToken token);
     Optional<VaultToken> findTokenById(String tokenId);
+    Optional<VaultToken> findTokenByVaultedCardId(String vaultedCardId);
     void deleteToken(String tokenId);
 
     // NetworkToken

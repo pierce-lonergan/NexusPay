@@ -3,17 +3,12 @@ package io.nexuspay.iam.config;
 import io.nexuspay.iam.domain.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.jdbc.datasource.ConnectionHandle;
-import org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy;
-import org.springframework.lang.NonNull;
 
 import javax.sql.DataSource;
-import java.lang.reflect.InvocationHandler;
-import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -42,17 +37,33 @@ public class TenantAwareDataSourceConfig {
 
     private static final Logger log = LoggerFactory.getLogger(TenantAwareDataSourceConfig.class);
     private static final String SET_TENANT_SQL = "SET LOCAL app.current_tenant_id = ?";
-    private static final String RESET_TENANT_SQL = "RESET app.current_tenant_id";
 
     /**
-     * Wraps the auto-configured DataSource with tenant-aware connection decoration.
-     * Uses {@link LazyConnectionDataSourceProxy} to defer the actual connection
-     * acquisition until the first statement, then injects the tenant context.
+     * Decorates the auto-configured {@link DataSource} <em>in place</em> via a
+     * {@link BeanPostProcessor}.
+     *
+     * <p>Wrapping with a {@code @Bean DataSource} that also consumes a
+     * {@code DataSource} created a bean dependency cycle
+     * (datasource → Flyway → EntityManagerFactory → repositories → … →
+     * datasource) that prevented the application from starting. A post-processor
+     * replaces the existing bean without introducing a second {@code DataSource}
+     * bean or a new edge in the dependency graph.</p>
+     *
+     * <p>Declared {@code static} so it is instantiated early, before the
+     * DataSource it must wrap.</p>
      */
     @Bean
-    public DataSource tenantAwareDataSource(DataSource originalDataSource) {
-        log.info("Enabling tenant-aware DataSource with RLS support");
-        return new TenantAwareDataSource(originalDataSource);
+    static BeanPostProcessor tenantAwareDataSourcePostProcessor() {
+        return new BeanPostProcessor() {
+            @Override
+            public Object postProcessAfterInitialization(Object bean, String beanName) {
+                if (bean instanceof DataSource ds && !(bean instanceof TenantAwareDataSource)) {
+                    log.info("Enabling tenant-aware DataSource with RLS support (decorating bean '{}')", beanName);
+                    return new TenantAwareDataSource(ds);
+                }
+                return bean;
+            }
+        };
     }
 
     /**

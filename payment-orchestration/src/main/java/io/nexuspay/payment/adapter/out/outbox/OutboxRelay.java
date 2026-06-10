@@ -8,7 +8,7 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.internals.RecordHeader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -20,8 +20,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.BiConsumer;
 
 /**
  * Polling-based outbox relay with leader election and graceful shutdown.
@@ -74,6 +74,9 @@ public class OutboxRelay {
 
     private static final String DEFAULT_TOPIC = Topics.PAYMENTS;
 
+    /** Upper bound on waiting for a Kafka acknowledgment per event. */
+    private static final long SEND_ACK_TIMEOUT_SECONDS = 10;
+
     private final OutboxEventRepository outboxRepository;
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final StringRedisTemplate redisTemplate;
@@ -81,25 +84,27 @@ public class OutboxRelay {
     private final AtomicBoolean relaying = new AtomicBoolean(false);
 
     /**
-     * Optional DualWritePublisher — injected when dual-write infrastructure is available.
+     * Optional DualWritePublisher — present when dual-write infrastructure is available.
      * Falls back to direct KafkaTemplate publish when absent.
      */
-    @Autowired(required = false)
-    private DualWritePublisher dualWritePublisher;
+    private final DualWritePublisher dualWritePublisher;
 
     /**
      * Optional post-publish callback for event log appending.
      * Set by configuration to call EventLogAppender.append() when event log is enabled.
      */
-    @Autowired(required = false)
-    private PostPublishCallback postPublishCallback;
+    private final PostPublishCallback postPublishCallback;
 
     public OutboxRelay(OutboxEventRepository outboxRepository,
                        KafkaTemplate<String, String> kafkaTemplate,
-                       StringRedisTemplate redisTemplate) {
+                       StringRedisTemplate redisTemplate,
+                       ObjectProvider<DualWritePublisher> dualWritePublisherProvider,
+                       ObjectProvider<PostPublishCallback> postPublishCallbackProvider) {
         this.outboxRepository = outboxRepository;
         this.kafkaTemplate = kafkaTemplate;
         this.redisTemplate = redisTemplate;
+        this.dualWritePublisher = dualWritePublisherProvider.getIfAvailable();
+        this.postPublishCallback = postPublishCallbackProvider.getIfAvailable();
     }
 
     @Scheduled(fixedDelay = 1000)
@@ -126,18 +131,17 @@ public class OutboxRelay {
                             "aggregate_type", event.getAggregateType(),
                             "aggregate_id", event.getAggregateId());
 
+                    // Await the broker acknowledgment BEFORE marking the event
+                    // published. An async send + immediate markPublished would
+                    // commit publishedAt even when the broker is down, silently
+                    // dropping the event from the at-least-once pipeline.
                     if (dualWritePublisher != null) {
                         // Delegate to DualWritePublisher for format-aware publishing
                         dualWritePublisher.publish(topic, event.getAggregateId(),
                                 event.getPayload(), event.getEventType(),
                                 event.getAggregateType(), event.getAggregateId(),
                                 eventHeaders)
-                                .whenComplete((result, ex) -> {
-                                    if (ex != null) {
-                                        log.error("Failed to publish outbox event {} via DualWritePublisher: {}",
-                                                event.getId(), ex.getMessage());
-                                    }
-                                });
+                                .get(SEND_ACK_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                     } else {
                         // Fallback: direct JSON publish (pre-migration behavior)
                         var record = new ProducerRecord<>(topic, null, event.getAggregateId(), event.getPayload());
@@ -145,12 +149,7 @@ public class OutboxRelay {
                                 record.headers().add(new RecordHeader(k, v.getBytes(StandardCharsets.UTF_8))));
 
                         kafkaTemplate.send(record)
-                                .whenComplete((result, ex) -> {
-                                    if (ex != null) {
-                                        log.error("Failed to publish outbox event {} to Kafka: {}",
-                                                event.getId(), ex.getMessage());
-                                    }
-                                });
+                                .get(SEND_ACK_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                     }
 
                     event.markPublished();

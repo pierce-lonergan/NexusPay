@@ -17,6 +17,13 @@ public class LedgerException extends NexusPayException {
         );
     }
 
+    public static LedgerException unbalancedEntry(String currency, long sum) {
+        return new LedgerException(
+                "Journal entry postings do not balance for currency " + currency + ". Sum: " + sum,
+                "unbalanced_entry"
+        );
+    }
+
     public static LedgerException accountNotFound(String accountId) {
         return new LedgerException(
                 "Ledger account not found: " + accountId,

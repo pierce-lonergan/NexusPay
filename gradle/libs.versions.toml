@@ -39,6 +39,7 @@ spring-cloud-vault-config = { module = "org.springframework.cloud:spring-cloud-s
 # Spring Kafka
 spring-kafka = { module = "org.springframework.kafka:spring-kafka" }
 spring-kafka-test = { module = "org.springframework.kafka:spring-kafka-test" }
+kafka-clients = { module = "org.apache.kafka:kafka-clients" }
 
 # Database
 postgresql = { module = "org.postgresql:postgresql" }

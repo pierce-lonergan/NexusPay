@@ -123,8 +123,9 @@ public class SubscriptionLifecycleService {
     @Transactional
     public Subscription resume(String subscriptionId) {
         Subscription sub = getOrThrow(subscriptionId);
-        Price price = productRepository.findPriceById(sub.getPriceId())
-                .orElseThrow(() -> new IllegalArgumentException("Price not found: " + sub.getPriceId()));
+        String priceId = sub.getPriceId();
+        Price price = productRepository.findPriceById(priceId)
+                .orElseThrow(() -> new IllegalArgumentException("Price not found: " + priceId));
         sub.resume(price);
         sub = subscriptionRepository.save(sub);
 

@@ -51,3 +51,9 @@ test-output/
 checkout-sdk/node_modules/
 checkout-sdk/packages/*/dist/
 checkout-sdk/coverage/
+
+# Local Claude Code settings (machine-specific)
+.claude/
+
+# PERPETUA machine-local runtime (telemetry, locks, logs, budget)
+.perpetua/runtime/

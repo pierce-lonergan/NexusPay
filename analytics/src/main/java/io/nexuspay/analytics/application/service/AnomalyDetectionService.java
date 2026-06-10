@@ -51,28 +51,37 @@ public class AnomalyDetectionService {
             return Optional.empty();
         }
 
-        // Compute mean and standard deviation of auth rates
         double[] rates = dailyMetrics.stream()
                 .mapToDouble(m -> m.authRate().doubleValue())
                 .toArray();
 
-        double mean = 0;
-        for (double r : rates) mean += r;
-        mean /= rates.length;
-
-        double variance = 0;
-        for (double r : rates) variance += (r - mean) * (r - mean);
-        variance /= rates.length;
-        double stdDev = Math.sqrt(variance);
-
-        // Get the most recent data point as "current"
+        // The most recent data point is the value under test. It must be
+        // EXCLUDED from the baseline: including it both drags the mean down and
+        // inflates the deviation, to the point that a single-day crash can
+        // never mathematically exceed 2 sigma for small windows.
         double currentRate = rates[rates.length - 1];
+        int n = rates.length - 1;
+
+        double mean = 0;
+        for (int i = 0; i < n; i++) mean += rates[i];
+        mean /= n;
+
+        // Sample variance (divide by n-1) — these are a small sample of daily
+        // observations, not the full population.
+        double variance = 0;
+        for (int i = 0; i < n; i++) variance += (rates[i] - mean) * (rates[i] - mean);
+        variance /= (n - 1);
+
+        // Floor the deviation so a flat baseline (zero variance) still allows a
+        // large absolute drop to alert, while tiny wobbles stay below the bound.
+        double stdDev = Math.max(Math.sqrt(variance), 0.001);
         double lowerBound = mean - (stdDevThreshold * stdDev);
 
-        if (currentRate < lowerBound && stdDev > 0.001) {
+        if (currentRate < lowerBound) {
             double deviation = (mean - currentRate) / stdDev;
-            LOG.warn("Anomaly detected for PSP {}: auth rate {:.4f} is {:.1f}σ below 7-day mean {:.4f}",
-                    pspConnector, currentRate, deviation, mean);
+            LOG.warn("Anomaly detected for PSP {}: auth rate {} is {} sigma below 7-day mean {}",
+                    pspConnector, String.format("%.4f", currentRate),
+                    String.format("%.1f", deviation), String.format("%.4f", mean));
 
             return Optional.of(new AnomalyAlert(
                     tenantId,

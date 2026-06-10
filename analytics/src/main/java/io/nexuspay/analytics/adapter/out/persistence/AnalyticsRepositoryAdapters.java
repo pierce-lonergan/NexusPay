@@ -1,11 +1,9 @@
 package io.nexuspay.analytics.adapter.out.persistence;
 
 import io.nexuspay.analytics.application.port.out.AuthRateRollupRepository;
-import io.nexuspay.analytics.application.port.out.DeclineRollupRepository;
 import io.nexuspay.analytics.application.port.out.PspHealthRepository;
 import io.nexuspay.analytics.application.port.out.RevenueRollupRepository;
 import io.nexuspay.analytics.domain.model.AuthRateMetric;
-import io.nexuspay.analytics.domain.model.DeclineAnalysis;
 import io.nexuspay.analytics.domain.model.PspHealthScore;
 import io.nexuspay.analytics.domain.model.RevenueMetric;
 import jakarta.persistence.EntityManager;
@@ -24,14 +22,18 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Repository adapter implementing all analytics out-port repository interfaces.
- * Maps between domain models and JPA entities.
+ * Repository adapter implementing the auth-rate, PSP-health, and revenue
+ * out-port repository interfaces. Maps between domain models and JPA entities.
+ *
+ * <p>The decline rollup port lives in {@link DeclineRollupRepositoryAdapter}:
+ * its {@code findDaily} signature collides with the auth-rate port's (same
+ * parameter types, different return type), which Java forbids in one class.</p>
  *
  * @since 0.3.0 (Sprint 3.6)
  */
 @Component
 public class AnalyticsRepositoryAdapters implements AuthRateRollupRepository, PspHealthRepository,
-        RevenueRollupRepository, DeclineRollupRepository {
+        RevenueRollupRepository {
 
     private static final Logger LOG = LoggerFactory.getLogger(AnalyticsRepositoryAdapters.class);
 
@@ -41,7 +43,6 @@ public class AnalyticsRepositoryAdapters implements AuthRateRollupRepository, Ps
     private final JpaPspHealthSnapshotRepository pspHealthRepo;
     private final JpaRevenueHourlyRepository revenueHourlyRepo;
     private final JpaRevenueDailyRepository revenueDailyRepo;
-    private final JpaDeclineDailyRepository declineDailyRepo;
     private final EntityManager entityManager;
 
     public AnalyticsRepositoryAdapters(
@@ -51,7 +52,6 @@ public class AnalyticsRepositoryAdapters implements AuthRateRollupRepository, Ps
             JpaPspHealthSnapshotRepository pspHealthRepo,
             JpaRevenueHourlyRepository revenueHourlyRepo,
             JpaRevenueDailyRepository revenueDailyRepo,
-            JpaDeclineDailyRepository declineDailyRepo,
             EntityManager entityManager) {
         this.authRateHourlyRepo = authRateHourlyRepo;
         this.authRateDailyRepo = authRateDailyRepo;
@@ -59,7 +59,6 @@ public class AnalyticsRepositoryAdapters implements AuthRateRollupRepository, Ps
         this.pspHealthRepo = pspHealthRepo;
         this.revenueHourlyRepo = revenueHourlyRepo;
         this.revenueDailyRepo = revenueDailyRepo;
-        this.declineDailyRepo = declineDailyRepo;
         this.entityManager = entityManager;
     }
 
@@ -237,54 +236,6 @@ public class AnalyticsRepositoryAdapters implements AuthRateRollupRepository, Ps
         query.executeUpdate();
     }
 
-    // --- DeclineRollupRepository ---
-
-    @Override
-    public void saveDaily(DeclineAnalysis decline) {
-        declineDailyRepo.save(toDeclineEntity(decline));
-    }
-
-    @Override
-    public List<DeclineAnalysis> findDaily(String tenantId, LocalDate from, LocalDate to,
-                                            String pspConnector, String declineCode, String cardBrand) {
-        List<DeclineDailyEntity> entities;
-        if (pspConnector != null) {
-            entities = declineDailyRepo.findByTenantIdAndBucketDateBetweenAndPspConnector(
-                    tenantId, from, to, pspConnector);
-        } else {
-            entities = declineDailyRepo.findByTenantIdAndBucketDateBetween(tenantId, from, to);
-        }
-        return entities.stream().map(this::fromDeclineEntity).toList();
-    }
-
-    @Override
-    public void upsertDaily(DeclineAnalysis decline) {
-        Query query = entityManager.createNativeQuery("""
-                INSERT INTO analytics.decline_daily
-                    (id, tenant_id, bucket_date, psp_connector, decline_code, decline_category,
-                     card_brand, issuing_region, issuer_name, total_count, total_volume)
-                VALUES (gen_random_uuid(), :tenantId, :bucketDate, :pspConnector, :declineCode,
-                        :declineCategory, :cardBrand, :issuingRegion, :issuerName,
-                        :totalCount, :totalVolume)
-                ON CONFLICT (tenant_id, bucket_date, psp_connector, decline_code, card_brand,
-                             issuing_region, issuer_name)
-                DO UPDATE SET
-                    total_count = decline_daily.total_count + EXCLUDED.total_count,
-                    total_volume = decline_daily.total_volume + EXCLUDED.total_volume
-                """);
-        query.setParameter("tenantId", decline.tenantId());
-        query.setParameter("bucketDate", decline.bucketDate());
-        query.setParameter("pspConnector", decline.pspConnector());
-        query.setParameter("declineCode", decline.declineCode());
-        query.setParameter("declineCategory", decline.declineCategory());
-        query.setParameter("cardBrand", decline.cardBrand());
-        query.setParameter("issuingRegion", decline.issuingRegion());
-        query.setParameter("issuerName", decline.issuerName());
-        query.setParameter("totalCount", decline.totalCount());
-        query.setParameter("totalVolume", decline.totalVolume());
-        query.executeUpdate();
-    }
-
     // --- Entity ↔ Domain mapping helpers ---
 
     private void setAuthRateParams(Query query, AuthRateMetric m) {
@@ -308,7 +259,7 @@ public class AnalyticsRepositoryAdapters implements AuthRateRollupRepository, Ps
     }
 
     private AuthRateHourlyEntity toHourlyEntity(AuthRateMetric m) {
-        return new AuthRateHourlyEntity(m.tenantId(), m.bucketTime(), m.pspConnector(),
+        return new AuthRateHourlyEntity(null, m.tenantId(), m.bucketTime(), m.pspConnector(),
                 m.cardBrand(), m.cardType(), m.issuingRegion(), m.currency(), m.paymentMethod(),
                 m.totalAttempts(), m.totalApproved(), m.totalDeclined(), m.totalErrors(),
                 m.authRate(), m.avgLatencyMs(), m.p50LatencyMs(), m.p95LatencyMs(), m.p99LatencyMs());
@@ -323,7 +274,7 @@ public class AnalyticsRepositoryAdapters implements AuthRateRollupRepository, Ps
     }
 
     private AuthRateDailyEntity toDailyEntity(AuthRateMetric m) {
-        return new AuthRateDailyEntity(m.tenantId(),
+        return new AuthRateDailyEntity(null, m.tenantId(),
                 m.bucketTime().atZone(ZoneOffset.UTC).toLocalDate(), m.pspConnector(),
                 m.cardBrand(), m.cardType(), m.issuingRegion(), m.currency(), m.paymentMethod(),
                 m.totalAttempts(), m.totalApproved(), m.totalDeclined(), m.totalErrors(),
@@ -340,7 +291,7 @@ public class AnalyticsRepositoryAdapters implements AuthRateRollupRepository, Ps
     }
 
     private AuthRateMonthlyEntity toMonthlyEntity(AuthRateMetric m) {
-        return new AuthRateMonthlyEntity(m.tenantId(),
+        return new AuthRateMonthlyEntity(null, m.tenantId(),
                 m.bucketTime().atZone(ZoneOffset.UTC).toLocalDate().withDayOfMonth(1), m.pspConnector(),
                 m.cardBrand(), m.cardType(), m.issuingRegion(), m.currency(), m.paymentMethod(),
                 m.totalAttempts(), m.totalApproved(), m.totalDeclined(), m.totalErrors(), m.authRate());
@@ -355,7 +306,7 @@ public class AnalyticsRepositoryAdapters implements AuthRateRollupRepository, Ps
     }
 
     private PspHealthSnapshotEntity toHealthEntity(PspHealthScore s) {
-        return new PspHealthSnapshotEntity(s.tenantId(), s.pspConnector(), s.snapshotTime(),
+        return new PspHealthSnapshotEntity(null, s.tenantId(), s.pspConnector(), s.snapshotTime(),
                 s.healthScore(), s.authRateScore(), s.latencyScore(), s.errorRateScore(),
                 s.authRate7d(), s.avgLatencyMs(), s.p95LatencyMs(), s.errorRate(),
                 s.anomalyDetected(), s.anomalyDetails() != null ? s.anomalyDetails().toString() : null);
@@ -369,7 +320,7 @@ public class AnalyticsRepositoryAdapters implements AuthRateRollupRepository, Ps
     }
 
     private RevenueHourlyEntity toRevenueHourlyEntity(RevenueMetric m) {
-        return new RevenueHourlyEntity(m.tenantId(), m.bucketTime(), m.pspConnector(),
+        return new RevenueHourlyEntity(null, m.tenantId(), m.bucketTime(), m.pspConnector(),
                 m.currency(), m.paymentMethod(), m.totalVolume(), m.totalCount(), m.totalFees(),
                 m.netRevenue(), m.refundVolume(), m.refundCount(), m.chargebackVolume(), m.chargebackCount());
     }
@@ -382,7 +333,7 @@ public class AnalyticsRepositoryAdapters implements AuthRateRollupRepository, Ps
     }
 
     private RevenueDailyEntity toRevenueDailyEntity(RevenueMetric m) {
-        return new RevenueDailyEntity(m.tenantId(),
+        return new RevenueDailyEntity(null, m.tenantId(),
                 m.bucketTime().atZone(ZoneOffset.UTC).toLocalDate(), m.pspConnector(),
                 m.currency(), m.paymentMethod(), m.totalVolume(), m.totalCount(), m.totalFees(),
                 m.netRevenue(), m.refundVolume(), m.refundCount(), m.chargebackVolume(), m.chargebackCount());
@@ -396,15 +347,4 @@ public class AnalyticsRepositoryAdapters implements AuthRateRollupRepository, Ps
                 e.getChargebackVolume(), e.getChargebackCount());
     }
 
-    private DeclineDailyEntity toDeclineEntity(DeclineAnalysis d) {
-        return new DeclineDailyEntity(d.tenantId(), d.bucketDate(), d.pspConnector(),
-                d.declineCode(), d.declineCategory(), d.cardBrand(), d.issuingRegion(),
-                d.issuerName(), d.totalCount(), d.totalVolume());
-    }
-
-    private DeclineAnalysis fromDeclineEntity(DeclineDailyEntity e) {
-        return new DeclineAnalysis(e.getTenantId(), e.getBucketDate(), e.getPspConnector(),
-                e.getDeclineCode(), e.getDeclineCategory(), e.getCardBrand(), e.getIssuingRegion(),
-                e.getIssuerName(), e.getTotalCount(), e.getTotalVolume());
-    }
 }

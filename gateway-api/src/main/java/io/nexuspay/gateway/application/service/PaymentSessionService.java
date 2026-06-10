@@ -5,7 +5,7 @@ import io.nexuspay.gateway.application.port.in.CreatePaymentSessionUseCase;
 import io.nexuspay.gateway.application.port.out.PaymentSessionRepository;
 import io.nexuspay.gateway.domain.PaymentSession;
 import io.nexuspay.gateway.domain.SessionExpiredException;
-import io.nexuspay.gateway.domain.SessionToken;
+import io.nexuspay.common.domain.SessionToken;
 import io.nexuspay.iam.application.service.SessionTokenIssuer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

@@ -37,8 +37,7 @@ public class DualWriteConfig {
 
         DualWritePublisher.KafkaSender<String, String> jsonSender = record ->
                 stringKafkaTemplate.send(record)
-                        .thenApply(result -> null)
-                        .toCompletableFuture();
+                        .thenAccept(result -> { });
 
         // Avro sender is null for now — Avro-as-value publishing will be wired
         // when Schema Registry serialization is fully integrated

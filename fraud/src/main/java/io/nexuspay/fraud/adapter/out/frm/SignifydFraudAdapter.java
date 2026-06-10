@@ -82,7 +82,7 @@ public class SignifydFraudAdapter implements FraudRiskPort {
         Map<String, Object> req = new HashMap<>();
 
         Map<String, Object> purchase = new HashMap<>();
-        purchase.put("orderAmount", context.amountMinorUnits() / 100.0); // Signifyd uses major units
+        purchase.put("orderAmount", FrmAmounts.toMajorUnits(context.amountMinorUnits(), context.currency())); // Signifyd uses major units
         purchase.put("orderCurrency", context.currency());
         purchase.put("avsResponseCode", "Y");
         purchase.put("cvvResponseCode", "M");
@@ -105,11 +105,15 @@ public class SignifydFraudAdapter implements FraudRiskPort {
     private int extractScore(Map<String, Object> response) {
         if (response == null) return 50;
 
-        // Signifyd returns "investigationId" and "guaranteeDisposition"
+        // Signifyd's "score" is a TRUST score on 0-1000 where HIGHER = safer
+        // (less likely fraud) — the opposite polarity of the risk score this
+        // method must return. Invert before normalizing to 0-100, otherwise a
+        // clean order (e.g. 950) reads as risk 95 (BLOCK) and a fraudulent order
+        // (e.g. 60) reads as risk 6 (ALLOW).
         Object score = response.get("score");
         if (score instanceof Number n) {
-            // Signifyd scores are 0-1000, normalize to 0-100
-            return Math.min(100, n.intValue() / 10);
+            int risk = (1000 - n.intValue()) / 10;
+            return Math.max(0, Math.min(100, risk));
         }
 
         return 50;

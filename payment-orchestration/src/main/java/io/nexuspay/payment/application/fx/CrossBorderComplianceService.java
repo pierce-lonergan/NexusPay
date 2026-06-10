@@ -40,10 +40,6 @@ public class CrossBorderComplianceService {
             List<String> flags,
             String blockReason
     ) {
-        public static ComplianceResult allowed() {
-            return new ComplianceResult(true, false, false, List.of(), null);
-        }
-
         public static ComplianceResult blocked(String reason) {
             return new ComplianceResult(false, false, false, List.of(), reason);
         }

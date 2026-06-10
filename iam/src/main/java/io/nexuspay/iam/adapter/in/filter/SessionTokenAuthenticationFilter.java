@@ -1,6 +1,6 @@
 package io.nexuspay.iam.adapter.in.filter;
 
-import io.nexuspay.gateway.domain.SessionToken;
+import io.nexuspay.common.domain.SessionToken;
 import io.nexuspay.iam.application.service.SessionTokenIssuer;
 import io.nexuspay.iam.domain.NexusPayPrincipal;
 import io.nexuspay.iam.domain.TenantContext;

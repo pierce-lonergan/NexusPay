@@ -55,16 +55,16 @@ public final class Money {
 
     public Money add(Money other) {
         assertSameCurrency(other);
-        return new Money(this.amountInMinorUnits + other.amountInMinorUnits, this.currency);
+        return new Money(Math.addExact(this.amountInMinorUnits, other.amountInMinorUnits), this.currency);
     }
 
     public Money subtract(Money other) {
         assertSameCurrency(other);
-        return new Money(this.amountInMinorUnits - other.amountInMinorUnits, this.currency);
+        return new Money(Math.subtractExact(this.amountInMinorUnits, other.amountInMinorUnits), this.currency);
     }
 
     public Money negate() {
-        return new Money(-this.amountInMinorUnits, this.currency);
+        return new Money(Math.negateExact(this.amountInMinorUnits), this.currency);
     }
 
     public boolean isPositive() {

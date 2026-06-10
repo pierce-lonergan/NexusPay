@@ -10,7 +10,9 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Orchestrates three-phase fraud rule evaluation:
@@ -109,7 +111,7 @@ public class RuleEvaluationPipeline {
         String fieldValue = resolveVelocityField(field, context);
         if (fieldValue == null) return null;
 
-        String key = String.format("fraud:velocity:%s:%s:%s", context.tenantId(), field, fieldValue);
+        String key = velocityKey(context.tenantId(), field, fieldValue, windowMinutes);
 
         try {
             String countStr = redisTemplate.opsForValue().get(key);
@@ -133,8 +135,15 @@ public class RuleEvaluationPipeline {
 
     /**
      * After evaluation, increment velocity counters so the next payment has accurate counts.
+     *
+     * <p>Each distinct {@code (field, window)} counter is incremented exactly
+     * once per payment — multiple rules over the same field/window share a
+     * counter and must not multiply it. The TTL is set only when the counter is
+     * first created (INCR returns 1); resetting the expiry on every increment
+     * would turn a fixed window into an ever-growing lifetime count.</p>
      */
     private void incrementVelocityCounters(PaymentContext context, List<FraudRule> activeRules) {
+        Map<String, Integer> windowByKey = new HashMap<>();
         for (FraudRule rule : activeRules) {
             if (rule.getRuleType() != RuleType.VELOCITY) continue;
 
@@ -143,14 +152,25 @@ public class RuleEvaluationPipeline {
             String fieldValue = resolveVelocityField(field, context);
             if (fieldValue == null) continue;
 
-            String key = String.format("fraud:velocity:%s:%s:%s", context.tenantId(), field, fieldValue);
+            windowByKey.putIfAbsent(
+                    velocityKey(context.tenantId(), field, fieldValue, windowMinutes), windowMinutes);
+        }
+
+        windowByKey.forEach((key, windowMinutes) -> {
             try {
-                redisTemplate.opsForValue().increment(key);
-                redisTemplate.expire(key, Duration.ofMinutes(windowMinutes));
+                Long newCount = redisTemplate.opsForValue().increment(key);
+                if (newCount != null && newCount == 1L) {
+                    redisTemplate.expire(key, Duration.ofMinutes(windowMinutes));
+                }
             } catch (Exception e) {
                 log.warn("Failed to increment velocity counter: {}", e.getMessage());
             }
-        }
+        });
+    }
+
+    /** Velocity counter key — includes the window so different windows don't share a counter. */
+    private static String velocityKey(String tenantId, String field, String fieldValue, int windowMinutes) {
+        return String.format("fraud:velocity:%s:%s:%s:%dm", tenantId, field, fieldValue, windowMinutes);
     }
 
     private String resolveVelocityField(String field, PaymentContext context) {

@@ -124,11 +124,28 @@ public class DunningService {
             return;
         }
 
-        // Attempt payment
+        // Re-validate state inside the scheduler transaction. The invoice may have
+        // been settled out-of-band (async PaymentCaptured webhook, manual pay) or
+        // the subscription canceled since this attempt was scheduled. Charging
+        // anyway would double-bill an already-paid invoice or resurrect a dead
+        // subscription.
+        if (invoice.getStatus() != InvoiceStatus.OPEN || sub.getStatus() != SubscriptionState.PAST_DUE) {
+            log.info("Skipping obsolete dunning attempt {}: invoiceStatus={}, subStatus={}",
+                    attempt.getId(), invoice.getStatus(), sub.getStatus());
+            attempt.markFailed("Obsolete: invoice/subscription no longer eligible for dunning");
+            invoiceRepository.saveDunningAttempt(attempt);
+            return;
+        }
+
+        // Attempt payment. The description carries the attempt number so the
+        // downstream idempotency key is distinct per dunning attempt (each
+        // attempt is a deliberate re-charge) while a network retry of the SAME
+        // attempt still dedupes.
         PaymentPort.PaymentResult result = paymentPort.collectPayment(
                 sub.getTenantId(), sub.getCustomerId(),
                 sub.getPaymentMethodId(), invoice.getAmountDue(),
-                invoice.getCurrency(), "Dunning retry for " + invoice.getId(),
+                invoice.getCurrency(),
+                "Dunning retry " + attempt.getAttemptNumber() + " for " + invoice.getId(),
                 invoice.getId()
         );
 
@@ -157,8 +174,12 @@ public class DunningService {
 
             int[] retrySchedule = properties.getDunning().getRetrySchedule();
 
-            // Schedule next retry or cancel
-            if (attempt.getAttemptNumber() < retrySchedule.length) {
+            // Schedule the next retry — including one final "grace" attempt past
+            // the last scheduled retry (attemptNumber == length + 1), which
+            // scheduleRetry delays by gracePeriodDays. Only after THAT attempt
+            // fails do we cancel. Using "<" here instead of "<=" canceled
+            // immediately on the last retry and left the grace path dead.
+            if (attempt.getAttemptNumber() <= retrySchedule.length) {
                 scheduleRetry(sub, invoice, attempt.getAttemptNumber() + 1);
 
                 outboxPort.publishEvent("Subscription", sub.getId(),

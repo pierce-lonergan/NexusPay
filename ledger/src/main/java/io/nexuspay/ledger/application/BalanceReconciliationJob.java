@@ -5,6 +5,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -25,6 +27,7 @@ public class BalanceReconciliationJob {
     }
 
     @Scheduled(cron = "${nexuspay.ledger.reconciliation-cron:0 0 * * * *}")
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public void reconcileBalances() {
         log.info("Starting balance reconciliation");
         int driftCount = 0;

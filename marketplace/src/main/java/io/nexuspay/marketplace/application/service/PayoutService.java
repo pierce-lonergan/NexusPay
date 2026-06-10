@@ -4,6 +4,7 @@ import io.nexuspay.marketplace.application.port.in.SchedulePayoutUseCase;
 import io.nexuspay.marketplace.application.port.out.MarketplaceEventPublisher;
 import io.nexuspay.marketplace.application.port.out.MarketplaceRepository;
 import io.nexuspay.marketplace.application.port.out.PayoutExecutionPort;
+import io.nexuspay.marketplace.domain.AccountState;
 import io.nexuspay.marketplace.domain.ConnectedAccount;
 import io.nexuspay.marketplace.domain.Payout;
 import org.slf4j.Logger;
@@ -45,6 +46,19 @@ public class PayoutService implements SchedulePayoutUseCase {
         ConnectedAccount account = repository.findAccountById(command.connectedAccountId())
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Connected account not found: " + command.connectedAccountId()));
+
+        // Only ACTIVE (KYC-verified) accounts may receive funds. Without this
+        // gate, payouts could be created and later executed for ONBOARDING,
+        // SUSPENDED, or CLOSED accounts.
+        if (account.getStatus() != AccountState.ACTIVE) {
+            throw new IllegalStateException(
+                    "Connected account " + command.connectedAccountId() +
+                    " is not eligible for payouts (status=" + account.getStatus() + ")");
+        }
+
+        if (command.amount() <= 0) {
+            throw new IllegalArgumentException("Payout amount must be positive: " + command.amount());
+        }
 
         if (command.amount() < account.getPayoutMinimum()) {
             throw new IllegalArgumentException(

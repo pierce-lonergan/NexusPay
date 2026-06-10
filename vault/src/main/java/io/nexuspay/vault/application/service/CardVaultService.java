@@ -48,12 +48,14 @@ public class CardVaultService implements VaultCardUseCase {
         // Generate fingerprint for dedup
         String fingerprint = encryption.generateFingerprint(pan);
 
-        // Check for duplicate
+        // Check for duplicate — return the existing token instead of inserting a
+        // second row (which would violate the (tenant_id, fingerprint) unique
+        // constraint and surface as a 500).
         var existing = repository.findCardByFingerprint(command.tenantId(), fingerprint);
         if (existing.isPresent()) {
             log.info("Duplicate card detected for tenant={}, returning existing vault token", command.tenantId());
             var existingCard = existing.get();
-            var existingToken = repository.findTokenById(findTokenForCard(existingCard.getId()));
+            var existingToken = repository.findTokenByVaultedCardId(existingCard.getId());
             if (existingToken.isPresent()) {
                 return new VaultCardResult(
                         existingToken.get().getId(),
@@ -64,9 +66,11 @@ public class CardVaultService implements VaultCardUseCase {
             }
         }
 
-        // Extract card details
+        // Extract card details. Store at most the first 6 PAN digits (BIN): with
+        // first-6 + last-4 known, only the middle digits remain secret, so a
+        // wider stored prefix needlessly shrinks the unknown space (PCI guidance).
         String panLast4 = pan.substring(pan.length() - 4);
-        String panBin = pan.substring(0, Math.min(pan.length(), 8));
+        String panBin = pan.substring(0, Math.min(pan.length(), 6));
         CardBrand brand = detectBrand(panBin);
 
         // Encrypt PAN
@@ -180,10 +184,4 @@ public class CardVaultService implements VaultCardUseCase {
         return sum > 0 && sum % 10 == 0;
     }
 
-    private String findTokenForCard(String cardId) {
-        // Simple linear scan — in practice this would be a query
-        // but the repository doesn't have findByCardId for VaultToken.
-        // For dedup, we return the card ID itself as a fallback reference.
-        return cardId;
-    }
 }

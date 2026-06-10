@@ -57,28 +57,57 @@ public class SplitPayment {
      * Resolves calculated amounts for all rules based on totalAmount.
      * PERCENTAGE rules get their share, FIXED rules keep their amount,
      * REMAINDER receives whatever is left.
+     *
+     * <p>Guarantees the calculated amounts reconcile to {@code totalAmount}
+     * exactly: rejects negative or over-allocating rules, and when there is no
+     * REMAINDER rule, assigns the rounding leftover deterministically to the
+     * largest leg. Without this, percentages summing to &lt;100% silently drop
+     * funds and &gt;100% (or oversized FIXED amounts) produce a negative
+     * payout leg.</p>
      */
     public void resolveAmounts() {
         long allocated = 0;
         SplitRule remainderRule = null;
+        SplitRule largestRule = null;
+        long largestAmount = -1;
 
         for (SplitRule rule : rules) {
             switch (rule.getSplitType()) {
                 case PERCENTAGE -> {
+                    if (rule.getPercentage() == null || rule.getPercentage().signum() < 0) {
+                        throw new IllegalArgumentException("Split percentage must be non-negative");
+                    }
                     long amount = (long) (totalAmount * rule.getPercentage().doubleValue() / 100.0);
                     rule.setCalculatedAmount(amount);
                     allocated += amount;
+                    if (amount > largestAmount) { largestAmount = amount; largestRule = rule; }
                 }
                 case FIXED -> {
+                    if (rule.getAmount() < 0) {
+                        throw new IllegalArgumentException("Split fixed amount must be non-negative");
+                    }
                     rule.setCalculatedAmount(rule.getAmount());
                     allocated += rule.getAmount();
+                    if (rule.getAmount() > largestAmount) { largestAmount = rule.getAmount(); largestRule = rule; }
                 }
                 case REMAINDER -> remainderRule = rule;
             }
         }
 
+        if (allocated > totalAmount) {
+            throw new IllegalStateException(
+                    "Split rules over-allocate: " + allocated + " > total " + totalAmount);
+        }
+
+        long unallocated = totalAmount - allocated;
         if (remainderRule != null) {
-            remainderRule.setCalculatedAmount(totalAmount - allocated);
+            remainderRule.setCalculatedAmount(unallocated);
+        } else if (unallocated != 0) {
+            if (largestRule == null) {
+                throw new IllegalStateException(
+                        "Split has no allocatable rule to absorb " + unallocated + " of " + totalAmount);
+            }
+            largestRule.setCalculatedAmount(largestRule.getCalculatedAmount() + unallocated);
         }
     }
 
