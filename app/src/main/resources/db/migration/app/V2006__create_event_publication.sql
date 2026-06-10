@@ -3,21 +3,22 @@
 -- "Schema-validation: missing table [event_publication]" (the JPA variant ships
 -- no DDL of its own, unlike the JDBC variant).
 --
--- Columns/types match the JpaEventPublication entity in
--- spring-modulith-events-jpa 1.2.6 EXACTLY (verified via javap against the jar):
+-- Columns match the JpaEventPublication mapping in spring-modulith-events-jpa
+-- 1.2.6, confirmed against Hibernate `validate` (the authority here):
 --   @Table(name = "EVENT_PUBLICATION")
---   id               java.util.UUID      (@Id)
---   listenerId       java.lang.String    -> listener_id
---   serializedEvent  java.lang.String    -> serialized_event
---   publicationDate  java.time.Instant   -> publication_date  (timestamptz)
---   completionDate   java.time.Instant   -> completion_date   (nullable; set on completion)
--- NOTE: the JPA entity has NO event_type field (the constructor validates the
--- event type but does not persist it), so we deliberately do NOT add an
--- event_type column — a NOT NULL one would break Modulith's inserts.
+--   id               java.util.UUID      (@Id)            -> id               uuid
+--   listenerId       java.lang.String                    -> listener_id      text
+--   eventType        (event class name)                  -> event_type       text NOT NULL
+--   serializedEvent  java.lang.String                    -> serialized_event text
+--   publicationDate  java.time.Instant                   -> publication_date timestamptz
+--   completionDate   java.time.Instant (nullable)        -> completion_date  timestamptz
+-- event_type is NOT NULL: the entity constructor asserts the event type is
+-- non-null, so every persisted row has one (matches Modulith's own DDL).
 
 CREATE TABLE IF NOT EXISTS event_publication (
     id               UUID                     NOT NULL,
     listener_id      TEXT                     NOT NULL,
+    event_type       TEXT                     NOT NULL,
     serialized_event TEXT                     NOT NULL,
     publication_date TIMESTAMP WITH TIME ZONE NOT NULL,
     completion_date  TIMESTAMP WITH TIME ZONE,
