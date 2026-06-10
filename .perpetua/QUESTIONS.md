@@ -11,7 +11,11 @@ commits only — no push, no PR, no merge to main). Please confirm:
   only)?
 - May I **push** branch `perpetua/bootstrap` and **open a PR** to your GitHub
   (`pierce-lonergan/NexusPay`)? (Default until you answer: NO — local only.)
-**ANSWER:**
+**ANSWER:** RESOLVED 2026-06-10 — human chose **L2 + push + allow merge**. Now
+operating L2: push branch, open PRs, may merge to main when ALL CI gates pass
+EXCEPT tier-3 changes (auth/crypto/ledger/vault/money/migrations) which always go
+via PR review (§3/§17.3). NOTE: CHARTER.md still reads `level: L1` (human-owned —
+agent may not edit); please update it to L2 to match.
 
 ### Q-002 | Branch protection on main
 PERPETUA's external-enforcement model (§18.3) wants `main` protected: require the

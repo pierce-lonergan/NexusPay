@@ -2,7 +2,8 @@
 
 PHASE: session 0 (bootstrap + 6 shipped items) → clean stopping point
 BRANCH: perpetua/bootstrap (off main @ 6281809; NOT pushed; ~10 commits ahead)
-AUTONOMY: L1 (local only) — CHARTER awaiting ratification (Q-001)
+AUTONOMY: L2 (push + PR; may merge non-T3 when CI green; T3 always via PR) — set by
+  human 2026-06-10 (Q-001). CHARTER.md still says L1 (human to update). Pushing enabled.
 
 BUILD: green (Gradle, JDK 21). TESTS: 245 pass / 13 skip (Docker integration), 0 fail.
 COVERAGE: ~17% aggregate line (JaCoCo, complete denominator); floor 16%, CI-enforced.
