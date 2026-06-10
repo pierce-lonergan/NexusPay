@@ -100,8 +100,13 @@ CREATE POLICY tenant_isolation_split_payments ON split_payments
     USING (tenant_id = current_setting('app.current_tenant_id', true));
 
 ALTER TABLE split_rules ENABLE ROW LEVEL SECURITY;
+-- split_rules has no tenant_id of its own; a row belongs to the tenant of its
+-- parent split_payment. Compare the PARENT's tenant to the session tenant.
+-- (The original `tenant_id = (subquery)` referenced a non-existent
+--  split_rules.tenant_id column -> "column tenant_id does not exist".)
 CREATE POLICY tenant_isolation_split_rules ON split_rules
-    USING (tenant_id = (SELECT tenant_id FROM split_payments WHERE id = split_payment_id));
+    USING ((SELECT sp.tenant_id FROM split_payments sp WHERE sp.id = split_rules.split_payment_id)
+           = current_setting('app.current_tenant_id', true));
 
 ALTER TABLE payouts ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation_payouts ON payouts

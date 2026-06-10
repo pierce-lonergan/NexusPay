@@ -79,8 +79,11 @@ CREATE POLICY workflow_definitions_tenant_isolation ON workflow_definitions
     USING (tenant_id = current_setting('app.current_tenant_id', true));
 CREATE POLICY workflow_versions_tenant_isolation ON workflow_versions
     USING (workflow_id IN (SELECT id FROM workflow_definitions WHERE tenant_id = current_setting('app.current_tenant_id', true)));
+-- webhook_triggers has no tenant_id of its own; it belongs to the tenant of its
+-- parent workflow_definition (same pattern as workflow_versions above). The
+-- original `tenant_id = ...` referenced a non-existent webhook_triggers.tenant_id.
 CREATE POLICY webhook_triggers_tenant_isolation ON webhook_triggers
-    USING (tenant_id = current_setting('app.current_tenant_id', true));
+    USING (workflow_id IN (SELECT id FROM workflow_definitions WHERE tenant_id = current_setting('app.current_tenant_id', true)));
 CREATE POLICY workflow_executions_tenant_isolation ON workflow_executions
     USING (tenant_id = current_setting('app.current_tenant_id', true));
 
