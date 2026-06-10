@@ -97,6 +97,42 @@ class JournalEntryTest {
     }
 
     @Test
+    void crossCurrencyEntryNettingToZeroByRawSumIsRejected() {
+        // L-001: +10000 JPY and -10000 USD sum to 0 as raw longs but are NOT
+        // balanced — double-entry must hold PER CURRENCY. This must be rejected.
+        var postings = List.of(
+                new Posting(PrefixedId.posting(), "la_merchant_recv_jpy", 10000, "JPY"),
+                new Posting(PrefixedId.posting(), "la_customer_liab_usd", -10000, "USD")
+        );
+
+        var ex = assertThrows(LedgerException.class, () ->
+                new JournalEntry(
+                        PrefixedId.journalEntry(), "pi_xccy", "Cross-currency not balanced",
+                        "default", Instant.now(), Map.of(), postings
+                )
+        );
+        assertTrue(ex.getMessage().contains("do not balance"));
+    }
+
+    @Test
+    void multiCurrencyEntryBalancedWithinEachCurrencyIsAccepted() {
+        // An FX-style entry: balanced within USD AND within JPY independently.
+        var postings = List.of(
+                new Posting(PrefixedId.posting(), "la_fx_clearing_usd", 1000, "USD"),
+                new Posting(PrefixedId.posting(), "la_merchant_recv_usd", -1000, "USD"),
+                new Posting(PrefixedId.posting(), "la_merchant_recv_jpy", 1500, "JPY"),
+                new Posting(PrefixedId.posting(), "la_fx_clearing_jpy", -1500, "JPY")
+        );
+
+        var entry = new JournalEntry(
+                PrefixedId.journalEntry(), "pi_fx", "FX conversion",
+                "default", Instant.now(), Map.of(), postings
+        );
+
+        assertEquals(4, entry.getPostings().size());
+    }
+
+    @Test
     void postingsAreImmutable() {
         var postings = new java.util.ArrayList<>(List.of(
                 new Posting(PrefixedId.posting(), "la_merchant_recv_usd", 10000, "USD"),
