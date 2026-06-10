@@ -63,11 +63,6 @@ claims: (none — single instance)
   assert findDueForRenewal re-returns un-renewed subs after a skipped cycle.
   Score (3×4)/2 = **6**.
 
-- **B-018 | Apply atomic-release + lease-renewal to OutboxRelay leader lock** | T2
-  Discovered in B-001 review: `OutboxRelay.shutdown()` has the same non-atomic
-  GET-then-DELETE release the billing lock just fixed (fail-open is OK there, but
-  the release race isn't). Reuse the SchedulerLock pattern. Score (2×4)/2 = **4**.
-
 - **B-020 | Integration-test pacing against real ccusage output** | test-strength
   Discovered in B-019: the pure pacing controller is unit-tested, but the
   ccusage JSON parse in perpetua-usage.sh is only verified by graceful-degradation.
@@ -89,6 +84,13 @@ claims: (none — single instance)
   idempotency key (fold into B-002/outbox work). Score (4×4)/4 +2 = **6**.
 
 ## Done
+- **B-018** (2026-06-10) OutboxRelay leader-lock release is now an atomic
+  owner-checked Lua compare-and-delete (was non-atomic GET-then-DELETE) — mirrors
+  the reviewed SchedulerLock pattern; closes the release-race the B-001 review found.
+- **B-014b** (2026-06-10) regression tests locking L-001 (per-currency journal
+  balance: cross-currency raw-sum-zero rejected; multi-ccy per-currency-balanced
+  accepted) and L-003 (canonical account-id helpers + idempotent 7-account
+  provisioning + tenant propagation). +6 tests.
 - **B-014a** (2026-06-10) FX currency-exponent convert bug (still-open HIGH from
   the audit) — `FxRate.convert`/`FxRateLock.convert`/`CurrencyConversion.fxGainLoss`
   all multiplied raw minor units by a major-unit rate (USD→JPY 100× off). Extracted

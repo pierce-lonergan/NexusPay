@@ -10,6 +10,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -47,6 +49,13 @@ public class OutboxRelay {
     private static final Logger log = LoggerFactory.getLogger(OutboxRelay.class);
     private static final String LEADER_LOCK_KEY = "outbox:relay:leader";
     private static final Duration LEADER_LOCK_TTL = Duration.ofSeconds(5);
+
+    // Atomic owner-checked release — cannot delete a lock another instance has
+    // since acquired (the prior GET-then-DELETE had a TOCTOU window). Mirrors
+    // billing SchedulerLock (B-018).
+    private static final RedisScript<Long> RELEASE_IF_OWNER = new DefaultRedisScript<>(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+            Long.class);
 
     private static final Map<String, String> TOPIC_MAP = Map.ofEntries(
             Map.entry(EventTypes.AGGREGATE_PAYMENT, Topics.PAYMENTS),
@@ -216,12 +225,10 @@ public class OutboxRelay {
                 break;
             }
         }
-        // Release leader lock
+        // Release leader lock — atomic compare-and-delete so we never delete a
+        // lock another instance acquired after our TTL elapsed.
         try {
-            String holder = redisTemplate.opsForValue().get(LEADER_LOCK_KEY);
-            if (instanceId().equals(holder)) {
-                redisTemplate.delete(LEADER_LOCK_KEY);
-            }
+            redisTemplate.execute(RELEASE_IF_OWNER, List.of(LEADER_LOCK_KEY), instanceId());
         } catch (Exception e) {
             log.debug("Could not release leader lock: {}", e.getMessage());
         }
