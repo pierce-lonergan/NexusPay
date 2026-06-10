@@ -57,3 +57,7 @@ checkout-sdk/coverage/
 
 # PERPETUA machine-local runtime (telemetry, locks, logs, budget)
 .perpetua/runtime/
+
+# Gradle wrapper jar MUST be committed (clean clones + CI build depend on it),
+# even though *.jar is ignored above.
+!gradle/wrapper/gradle-wrapper.jar
