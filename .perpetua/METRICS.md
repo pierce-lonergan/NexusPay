@@ -2,7 +2,7 @@
 
 | session | date | iters | commits | items shipped | tests | build | notes |
 |---|---|---|---|---|---|---|---|
-| 0 | 2026-06-09/10 | 7 + bootstrap | ~13 | B-010,B-001,B-019,B-004,B-008,B-009,B-013,B-005,B-014a (+ pre-PERPETUA audit-fix body) | 234 pass / 13 skip / 0 fail | green | non-building→green+boots; PERPETUA scaffolded; coverage 17% (true, CI-gated); +46 tests; FX 100× bug fixed |
+| 0 | 2026-06-09/10 | 10 + bootstrap | 16 | B-010,B-001,B-019,B-004,B-008,B-009,B-013,B-005,B-014a,B-018,B-014b (+B-007 escalated; +pre-PERPETUA audit-fix body) | 245 pass / 13 skip / 0 fail | green | non-building→green+boots; PERPETUA scaffolded; coverage 17% (CI-gated); +57 tests; FX 100× bug fixed; outbox+billing+approval locks atomic |
 
 ## Trends (updated at meta-review)
 - test_count: 188(pre)→234 executed. coverage: 17% TRUE aggregate line (B-005 first

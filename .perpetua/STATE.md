@@ -4,14 +4,15 @@ PHASE: session 0 (bootstrap + 6 shipped items) → clean stopping point
 BRANCH: perpetua/bootstrap (off main @ 6281809; NOT pushed; ~10 commits ahead)
 AUTONOMY: L1 (local only) — CHARTER awaiting ratification (Q-001)
 
-BUILD: green (Gradle, JDK 21). TESTS: 234 pass / 13 skip (Docker integration), 0 fail.
-COVERAGE: 17% TRUE aggregate line (JaCoCo, complete denominator); floor 16%, CI-enforced.
-  (Earlier 24% was an artifact — fraud/payment-orch had no reports; corrected, Q-006.)
+BUILD: green (Gradle, JDK 21). TESTS: 245 pass / 13 skip (Docker integration), 0 fail.
+COVERAGE: ~17% aggregate line (JaCoCo, complete denominator); floor 16%, CI-enforced.
 APP: boots through full bean wiring (fails only on missing Postgres — expected, no infra).
 
-SHIPPED (PERPETUA loop): B-010, B-001, B-019, B-004, B-008, B-009, B-013, B-005, B-014a.
-ACTIVE ITEM: none in-flight. Next: B-014 cont. (thin-module coverage) / B-007 / B-018.
-BLOCKERS: Q-001 (ratify/push), Q-004 (no Docker → can't verify RLS B-002 / Flyway B-011).
+SHIPPED (PERPETUA loop): B-010, B-001, B-019, B-004, B-008, B-009, B-013, B-005, B-014a,
+  B-018, B-014b; B-007 escalated (stats locked). 16 commits ahead of main.
+ACTIVE ITEM: none in-flight. Next: B-014 cont. (thin-module coverage) / B-006 (scans) / B-002/B-003 RFCs.
+BLOCKERS: Q-001 (ratify/push), Q-004 (no Docker → RLS B-002 / Flyway B-011 unverifiable),
+  Q-006 (coverage-floor correction), Q-007 (A/B wire-vs-delete).
 OPEN money residual: B-022 (stuck-APPROVED refund recovery, pre-existing).
 
 ENV QUIRKS (load-bearing):

@@ -1,5 +1,21 @@
 # DIGEST — human-facing summaries (newest first)
 
+## 2026-06-10 — Concurrency hardening, ledger invariants, dead-code triage
+**Shipped 3:**
+- **B-018** — OutboxRelay's leader-lock release was a non-atomic GET-then-DELETE
+  (could delete another instance's lock); now an atomic owner-checked Lua
+  compare-and-delete, mirroring the reviewed SchedulerLock pattern.
+- **B-014b** — regression tests locking two earlier money fixes that lacked them:
+  per-currency journal balancing (L-001 — a +JPY/−USD entry that only nets to zero
+  as raw longs is now proven rejected) and the canonical account-id convention
+  (L-003). First application-layer tests for the ledger.
+- **B-007** — confirmed the routing A/B framework is dead (selectConfig/recordOutcome
+  have no callers; the correct z-test is never fed). Locked the statistics with a
+  test, and **escalated** the wire-vs-delete product decision to Q-007 rather than
+  unilaterally remove a built API at L1.
+**Tests 234→245, 0 fail.** Three Valkey locks across the system (outbox, billing
+schedulers, approvals) are now race-safe/atomic. New question: Q-007 (A/B wire/delete).
+
 ## 2026-06-10 — FX exponent money bug + coverage honesty (B-014a)
 **Shipped:** fixed a still-open **HIGH** money bug — FX conversion multiplied raw
 minor units by a major-unit rate with no currency exponent, so **USD→JPY was 100×
