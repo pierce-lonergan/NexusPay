@@ -2,7 +2,7 @@
 
 | session | date | iters | commits | items shipped | tests | build | notes |
 |---|---|---|---|---|---|---|---|
-| 0 | 2026-06-09/10 | 10 + bootstrap | 16 | B-010,B-001,B-019,B-004,B-008,B-009,B-013,B-005,B-014a,B-018,B-014b (+B-007 escalated; +pre-PERPETUA audit-fix body) | 245 pass / 13 skip / 0 fail | green | non-building→green+boots; PERPETUA scaffolded; coverage 17% (CI-gated); +57 tests; FX 100× bug fixed; outbox+billing+approval locks atomic |
+| 0 | 2026-06-09/10 | 13 + bootstrap | 20 | …+B-014(billing cov),Q-007(delete A/B −509LOC),B-006(OSV CI+secret baseline),RFCs B-002/B-011/B-003 | 250 pass / 13 skip / 0 fail | green | non-building→green+boots; coverage 17% (CI-gated); +62 tests; FX 100× fixed; 3 locks atomic; dead A/B removed; gated items RFC-ready |
 
 ## Trends (updated at meta-review)
 - test_count: 188(pre)→234 executed. coverage: 17% TRUE aggregate line (B-005 first

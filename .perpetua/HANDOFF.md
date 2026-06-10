@@ -1,11 +1,11 @@
-# Handoff — 2026-06-10 — session 0 (bootstrap + 10 items)
-NOW: clean stopping point. Next §4 item: B-014 cont. (coverage on gateway-api 2%/billing 4%/common 7%) or B-006 (baseline scans — needs tools/CI) or process B-002/B-003 RFCs.
+# Handoff — 2026-06-10 — session 0 (bootstrap + 12 items)
+NOW: clean stopping point. TOP no-DB item next: B-003 (wire fraud/sanctions gate — RFC ready, implementable + unit-testable here, T3 dual-review). DB-gated items (B-002 RLS, B-011 Flyway, B-016 Testcontainers) are RFC-ready, need Postgres → unblock by answering Q-001 (push→CI has PG/Kafka) or Q-004.
 ACTIVE ITEM: none in-flight | branch perpetua/bootstrap | phase SELECT
-DONE (latest turn): B-018 OutboxRelay atomic lock release (4fdf2b2); B-014b ledger L-001/L-003 regression tests (d9c64ba); B-007 A/B stats locked + wire/delete escalated to Q-007 (b5e6a39). Earlier: build-fix, bootstrap, B-010, B-001, B-019, B-004, B-008, B-009, B-005, B-013, B-014a.
-STATE: build green; 245 unit tests pass / 13 Docker-skip / 0 fail; coverage ~17% (floor 16, CI-enforced).
+DONE (latest turn): SubscriptionTest coverage incl. calendar date math (7bed9a0); Q-007 deleted dead A/B framework −509 LOC (db9c6d1); B-006 OSV CI + secret baseline (457ec4b); RFCs for B-002/B-011/B-003 (research/). Earlier: bootstrap, B-010, B-001, B-019, B-004, B-008, B-009, B-005, B-013, B-014a, B-018, B-014b.
+STATE: build green; 250 unit tests pass / 13 Docker-skip / 0 fail; coverage ~17% (floor 16, CI-enforced).
 WATCH OUT:
-- L1 LOCAL ONLY — do NOT push/PR until Q-001 answered. main untouched; all work on perpetua/bootstrap (16 commits ahead).
-- Q-006 BLOCKING: coverage floor corrected 23→16 — awaiting ratification. Q-007: A/B routing wire-vs-delete (product decision).
+- L1 LOCAL ONLY — do NOT push/PR until Q-001 answered. main untouched; all work on perpetua/bootstrap (20 commits ahead).
+- Q-001 (ratify/push) is now the key UNBLOCKER: pushing lets CI (Postgres/Kafka + gitleaks/OSV) run, which is the verification gate for B-002/B-011/B-016 and the first OSV triage. Q-006 (coverage floor 23→16). Q-007 RESOLVED (deleted).
 - B-022 (stuck-APPROVED refund recovery) remains an open pre-existing money residual.
 - BUILD NEEDS JDK 21 + temp dir: JAVA_HOME=<Adoptium jdk-21>, TMP=C:\Temp, then .\gradlew.bat <task>.
 - No Docker here → 13 integration tests skip; RLS (B-002) + Flyway (B-011) still UNVERIFIABLE locally (Q-004).

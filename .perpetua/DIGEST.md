@@ -1,5 +1,23 @@
 # DIGEST — human-facing summaries (newest first)
 
+## 2026-06-10 — Coverage, subtraction, scans wired, gated items designed
+**Shipped:** billing `SubscriptionTest` (10) covering the state machine + the
+calendar billing-period math (Jan-31→Feb-28 clamp); **deleted** the dead routing
+A/B framework (−509 LOC, Q-007 approved, ADR-008); **B-006** wired OSV dependency
+scanning into CI + ran a real local secret baseline (clean) — honest that full
+gitleaks/OSV/semgrep are CI-gated, not faked locally.
+**Designed (RFCs, ready to execute):** the items that genuinely can't be verified
+without a database got concrete RFCs instead of blind code —
+- **B-011 Flyway**: confirmed 4×V1/2×V2 collisions on one shared history + a
+  suspected base-recursion×explicit-location double-scan; fix + FlywayMigrationIT.
+- **B-002 RLS**: confirmed inert (SET LOCAL fires pre-transaction; app runs as the
+  RLS-exempt owner); fix = set_config(...,true) in-tx + non-owner role + isolation IT.
+- **B-003 gate**: fraud/sanctions are built but never called in the payment path;
+  RFC for a synchronous pre-auth gate (implementable here next — no DB needed).
+**Why RFCs not code:** shipping unverified RLS or migration-location changes can
+silently leak tenants / break boot — worse than the known state. They need the CI/
+Docker run that **Q-001** (push) unblocks. Tests 245→250, 0 fail.
+
 ## 2026-06-10 — Concurrency hardening, ledger invariants, dead-code triage
 **Shipped 3:**
 - **B-018** — OutboxRelay's leader-lock release was a non-atomic GET-then-DELETE

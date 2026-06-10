@@ -15,10 +15,10 @@ claims: (none — single instance)
   Score (4×5)/2 = **10**.
 
 - **B-011 | Flyway version collisions across modules (V1/V2)** | T3 it-runs
-  ledger V1 vs payment/iam/gateway V1 (four V1__), ledger V2 vs iam V2 feed one
-  history → "more than one migration with version 1" at startup. Needs a DB to
-  confirm. Score (5×4)/3 +2 = **8.7**. AC: renumber into reserved ranges OR
-  per-module history tables; verified migrate. Source: audit (ledger/recon).
+  RFC READY → research/rfc-b011-flyway-collisions.md (confirmed: 1 Flyway/1 history,
+  4×V1/2×V2 collide + suspected base-recursion×explicit-location double-scan). Fix:
+  de-dup locations + renumber to unique band + FlywayMigrationIT. APPLY+VERIFY needs
+  Postgres (Q-004/CI). Score (5×4)/3 +2 = **8.7**.
 
 - **B-014 | Raise coverage on the lowest money/security modules** | test-strength
   IN PROGRESS. Done so far: fraud + payment-orchestration now have money-math
@@ -26,16 +26,18 @@ claims: (none — single instance)
   4%, common 7%, ledger 10%, iam now ~? (rose w/ ApprovalServiceTest). Continue
   on those; ratchet coverage_floor_pct up as it rises. Score (4×4)/3 = **5.3**.
 
-- **B-002 | RLS enforced at runtime** | T3 security (RESEARCH-first)
-  `SET LOCAL` runs outside a txn (no-op) AND app connects as table owner
-  (bypasses RLS). Real multi-tenant isolation requires a tx-bound GUC +
-  non-owner datasource role. Needs a DB to verify. Score (5×4)/4 +2 = **7**.
-  AC: research note + design RFC before code.
+- **B-002 | RLS enforced at runtime** | T3 security
+  RFC READY → research/rfc-b002-rls-runtime.md (confirmed two-part bug: SET LOCAL
+  pre-tx no-op + owner role bypasses RLS). Fix: set_config(...,true) in-tx +
+  non-owner nexuspay_app role + RlsIsolationIT. APPLY+VERIFY needs Postgres
+  (Q-004/CI) — wrong RLS leaks or blocks all rows, so must not ship blind.
+  Score (5×4)/4 +2 = **7**.
 
-- **B-003 | Wire fraud + cross-border compliance into the payment path** | T3 security (RFC-first)
-  `AssessFraudRiskUseCase` and `CrossBorderComplianceService.validateOrThrow`
-  have zero callers — BLOCK/sanctions decisions gate nothing. Score (5×4)/4 +2
-  = **7**. AC: RFC (module-boundary impact: gateway→fraud), then gated call.
+- **B-003 | Wire fraud + cross-border compliance into the payment path** | T3 security
+  RFC READY → research/rfc-b003-gate-fraud-sanctions.md (synchronous pre-auth gate
+  before PaymentGatewayPort; BLOCK→reject, REVIEW→hold capture, sanctioned→403;
+  modulith boundary: add fraud to gateway OR gate in payment-orchestration).
+  Implementable here (no DB) — own branch, dual T3 review. Score (5×4)/4 +2 = **7**.
 
 - **B-012 | CI hardening: pin actions by SHA, add OSV + secret scan** | build-health
   Existing `.github/workflows/ci.yml` + new perpetua-gates. Score (3×4)/2 = **6**.
