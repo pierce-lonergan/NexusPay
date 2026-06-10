@@ -1,13 +1,12 @@
-# Handoff — 2026-06-10 — session 0 (bootstrap + 2 iterations)
-NOW: session complete & checkpointed. Next session: SELECT B-004 (secrets fail-fast, T2) or B-006 (baseline scans).
-ACTIVE ITEM: none in-flight | branch perpetua/bootstrap | phase SHUTDOWN
-DONE THIS SESSION: 4a1c6ea make-it-build (90 files); 09f0e20 PERPETUA bootstrap; B-010 settlement jsonb (6e8cf67); B-001 scheduler locks (dd2a6e6); B-019 token-aware adaptive pacing (harness v3 + ccusage usage reader + rigor dial). 14 Java tests + 11 pacing tests; all green.
-RUN PERPETUALLY (fills the 5h window with Fable-5 work): `npm i -g ccusage` then schedule `PERPETUA_MODEL=claude-fable-5 ./perpetua-loop.sh --once` (cron/Task Scheduler) or run `./perpetua-loop.sh` as a daemon. Pacing auto-throttles to the budget; STOP file halts.
+# Handoff — 2026-06-10 — session 0 (bootstrap + 6 items)
+NOW: clean stopping point. Next §4 item: B-006 (baseline security scans: gitleaks/OSV/semgrep) or B-014 (raise coverage on gateway-api/billing/common — now measured).
+ACTIVE ITEM: none in-flight | branch perpetua/bootstrap | phase SELECT
+DONE (this turn): B-004 secrets fail-fast (54334b5); B-008 recon PARTIAL (a8f565d); B-009 refund execute-once+idempotency (438423e); B-005 JaCoCo + B-013 build docs (10df9fa). Earlier: build-fix, PERPETUA bootstrap, B-010, B-001, B-019.
+STATE: build green; 223 unit tests pass / 13 Docker-skip / 0 fail; coverage 24% (floor 23, CI-enforced).
 WATCH OUT:
-- L1 LOCAL ONLY — do NOT push/PR until Q-001 answered. main untouched; all work on perpetua/bootstrap.
-- BUILD NEEDS JDK 21 + working temp dir: JAVA_HOME=<Adoptium jdk-21>, TMP=C:\Temp, then .\gradlew.bat <task>.
-- No Docker here → 13 integration tests skip; RLS (B-002) + Flyway (B-011) UNVERIFIABLE locally (Q-004).
-- coverage/mutation UNMEASURED — ratchet floors are placeholders, not achievements (B-005).
-- Don't re-run perpetua-loop.sh from inside a session (it spawns claude -p). Schedule it via WSL2/Task Scheduler.
-BUDGET: bootstrap + 2 iters (≈ session cap). limit status: ok.
-QUEUE: B-004 (secrets fail-fast) · B-006 (baseline gitleaks/OSV/semgrep) · B-005 (wire JaCoCo) · B-008 (recon PARTIAL)
+- L1 LOCAL ONLY — do NOT push/PR until Q-001 answered. main untouched; all work on perpetua/bootstrap (10 commits ahead).
+- BUILD NEEDS JDK 21 + temp dir: JAVA_HOME=<Adoptium jdk-21>, TMP=C:\Temp, then .\gradlew.bat <task>.
+- No Docker here → 13 integration tests skip; RLS (B-002) + Flyway (B-011) still UNVERIFIABLE locally (Q-004).
+- B-022 (stuck-APPROVED refund recovery) is an open pre-existing money residual from B-009.
+BUDGET: heavy session (bootstrap + 6 shipped items). limit status: ok.
+QUEUE: B-006 (scans) · B-014 (coverage on thin modules) · B-002 (RLS, needs DB/RFC) · B-003 (wire fraud/sanctions, RFC) · B-007 (routing A/B: wire or delete)

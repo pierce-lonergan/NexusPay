@@ -1,14 +1,17 @@
 # STATE — NexusPay
 
-PHASE: session 0 (bootstrap + 2 iterations) COMPLETE → clean shutdown
-BRANCH: perpetua/bootstrap (off main @ 6281809; NOT pushed)
+PHASE: session 0 (bootstrap + 6 shipped items) → clean stopping point
+BRANCH: perpetua/bootstrap (off main @ 6281809; NOT pushed; ~10 commits ahead)
 AUTONOMY: L1 (local only) — CHARTER awaiting ratification (Q-001)
 
-BUILD: green (Gradle, JDK 21). TESTS: 202 pass / 13 skip (Docker integration), 0 fail.
+BUILD: green (Gradle, JDK 21). TESTS: 223 pass / 13 skip (Docker integration), 0 fail.
+COVERAGE: 24% aggregate line (JaCoCo); floor 23%, CI-enforced.
 APP: boots through full bean wiring (fails only on missing Postgres — expected, no infra).
 
-ACTIVE ITEM: none in-flight. Next: B-004 (secrets fail-fast) or B-006 (baseline scans).
+SHIPPED (PERPETUA loop): B-010, B-001, B-019, B-004, B-008, B-009, B-013, B-005.
+ACTIVE ITEM: none in-flight. Next: B-006 (baseline scans) or B-014 (coverage on thin modules).
 BLOCKERS: Q-001 (ratify/push), Q-004 (no Docker → can't verify RLS B-002 / Flyway B-011).
+OPEN money residual: B-022 (stuck-APPROVED refund recovery, pre-existing).
 
 ENV QUIRKS (load-bearing):
 - Build REQUIRES JDK 21: `JAVA_HOME=<Adoptium jdk-21>`. Machine default was 17.

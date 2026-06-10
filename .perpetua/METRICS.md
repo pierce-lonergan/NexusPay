@@ -2,14 +2,17 @@
 
 | session | date | iters | commits | items shipped | tests | build | notes |
 |---|---|---|---|---|---|---|---|
-| 0 | 2026-06-09/10 | 2 + bootstrap | 4 | B-010, B-001 (+ pre-PERPETUA audit-fix body) | 202 pass / 13 skip / 0 fail | green | repo non-building → green + boots; PERPETUA scaffolded; +14 tests |
+| 0 | 2026-06-09/10 | 6 + bootstrap | 10 | B-010,B-001,B-019,B-004,B-008,B-009,B-013,B-005 (+ pre-PERPETUA audit-fix body) | 223 pass / 13 skip / 0 fail | green | repo non-building → green+boots; PERPETUA scaffolded; coverage measured 24%; +35 tests |
 
 ## Trends (updated at meta-review)
-- test_count: 188(pre)→202 executed (215 incl. 13 Docker-skipped). Floor corrected
-  201→202 (was an un-measured assertion). coverage: UNMEASURED. mutation: UNMEASURED.
-- open HIGH security findings: 6→5 effective (double-billing B-001 PARTIALLY CLOSED;
-  RLS, fraud-gate, sanctions-gate, secrets, maker-checker refund, dispute-webhook remain).
-- velocity: 2 items shipped (B-010 T2, B-001 T3). Rotation: 1 correctness, 1 money/security.
+- test_count: 188(pre)→223 executed. coverage: 24% aggregate line (measured B-005;
+  floor 23%, CI-enforced). mutation: UNMEASURED (next).
+- open HIGH security findings: 6 → 3 (double-billing B-001 PARTIALLY CLOSED; secrets
+  B-004 CLOSED; maker-checker refund B-009 CLOSED). Remaining: RLS runtime (B-002),
+  fraud-not-gating (B-003), sanctions-not-gating (B-003), dispute-webhook.
+- velocity: 8 items shipped. Rotation (healthy): security ×2 (B-004,B-009), correctness
+  ×2 (B-008,B-010), money ×2 (B-001,B-009), test-strength (B-005), docs (B-013),
+  tooling/DX (B-019). New residual: B-022 (stuck-APPROVED refund).
 
 ## Events of note
 - 2026-06-09/10 LIMIT-HIT: none.

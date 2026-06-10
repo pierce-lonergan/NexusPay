@@ -1,5 +1,27 @@
 # DIGEST — human-facing summaries (newest first)
 
+## 2026-06-10 — Backlog full-send (B-004, B-008, B-009, B-013, B-005)
+**Shipped 5 items, each a full §4 loop with subagent review(s):**
+- **B-004** (security): app refuses to boot with built-in DEV default secrets under
+  a production profile; added a real `application-production.yml` + a drift-guard
+  test so the control can't fail open. Adversarial review SHIP.
+- **B-008** (correctness): reconciliation "payment matched, ledger entry missing"
+  (PARTIAL) is now a tracked MISSING_LEDGER_ENTRY exception and counted, not dropped.
+- **B-009** (T3 money): maker-checker refund is now execute-once — atomic conditional
+  approve (closes the concurrent double-approve race) + tenant-ownership check (closes
+  cross-tenant approve) + deterministic gateway idempotency key (dedups duplicate
+  execution). Security review SHIP; adversarial flagged a *pre-existing* stuck-approval
+  recovery gap → tracked as B-022 (not a regression). Threat model: duplicate-refund
+  race CLOSED.
+- **B-005** (test-strength): JaCoCo wired across all modules; measured aggregate line
+  coverage **24%** and made it a CI-enforced ratchet (floor 23%). Exposed the thin
+  modules (gateway-api 2%, billing 4%, common 7%) for B-014.
+- **B-013** (docs): CONTRIBUTING now documents the real build-env gotchas (JDK-21
+  JAVA_HOME, gradlew.bat, the temp-dir loopback error, Docker-skip integration tests).
+**Tests:** 202 → 223 pass (+21), 0 fail, build green. **Open HIGH findings: 6 → 3.**
+Branch `perpetua/bootstrap`, still local (Q-001). **Next:** B-006 (baseline scans),
+B-014 (coverage on thin modules).
+
 ## 2026-06-10 — Token-aware adaptive scheduling (B-019, human-directed)
 **Shipped:** the harness now spends the 5-hour token window deliberately instead of
 on a fixed timer. Each cycle it reads local usage (ccusage), compares against the
