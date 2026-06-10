@@ -37,6 +37,23 @@ OPEN — MEDIUM:
 - Pagination DoS (`limit=0` div-by-zero; offset-as-page misuse) → BACKLOG.
 - DCC/rate-lock/A-B mutable singleton state breaks multi-instance → BACKLOG.
 
+## 2026-06-10 — Baseline scans (B-006, partial)
+Tooling not installable in this sandbox (no gitleaks/osv/semgrep binaries), so:
+- **Local secret baseline (real, manual):** `git grep` over all tracked files for
+  AWS keys, PEM private keys, Slack/GitHub/Stripe live tokens, and hardcoded
+  literal `password|secret|api_key|token = "…"` in non-test Java. RESULT: CLEAN —
+  no live-secret patterns; the only "secrets" are the `${ENV:default}` dev
+  placeholders in application.yml, which are intentional and now fail-fast-guarded
+  in prod (B-004). No finding.
+- **CI scanners wired** (run on push, gate merges): gitleaks (secret-scan job) +
+  OSV-Scanner (dependency-scan job, fails on High+ CVEs per high_vulns_max=0).
+  semgrep still PENDING (B-006 remainder).
+- **Dependency posture:** versions are centralized in gradle/libs.versions.toml;
+  no lockfile committed (OSV scans the resolved graph in CI). First OSV run's
+  findings → triage here + BACKLOG, never silent-suppress.
+STATUS: local baseline clean; full automated scan results pending the first CI run
+(needs push — Q-001) or local tool install (Q-003).
+
 NEXT DEEP AUDIT should: run gitleaks over history, OSV-scan all Gradle deps,
 semgrep java rulesets, and re-verify the OPEN-HIGH items above are closed or
 still tracked. Log results here.

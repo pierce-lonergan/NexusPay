@@ -8,10 +8,11 @@ claims: (none — single instance)
 
 ## Ready (sorted by score)
 
-- **B-006 | Run + record baseline security scans** | security
-  gitleaks (history once), OSV/dependency-check, semgrep java. Findings →
-  security/AUDITS.md; Critical/High → top of backlog. Score (4×5)/2 = **10**.
-  AC: scans run, AUDITS.md populated, ratchets high_vulns reflects reality.
+- **B-006 | Run + record baseline security scans** | security — PARTIAL
+  DONE: real local secret-pattern baseline (clean); gitleaks + OSV-Scanner wired
+  into CI as gating jobs; AUDITS recorded. REMAINING: semgrep java SAST in CI;
+  first CI run's OSV findings triaged (needs push, Q-001) or local tools (Q-003).
+  Score (4×5)/2 = **10**.
 
 - **B-011 | Flyway version collisions across modules (V1/V2)** | T3 it-runs
   ledger V1 vs payment/iam/gateway V1 (four V1__), ledger V2 vs iam V2 feed one

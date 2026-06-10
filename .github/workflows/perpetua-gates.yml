@@ -92,10 +92,22 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Dependency/OSV vulnerability scan (B-006). Fails on known High+ CVEs in the
+  # resolved Gradle dependency graph (ratchets high_vulns_max=0). First run's
+  # findings are triaged into security/AUDITS.md + BACKLOG (§15.3), not suppressed.
+  dependency-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: OSV-Scanner
+        uses: google/osv-scanner-action@v1
+        with:
+          scan-args: |-
+            --recursive
+            ./
+
   # PENDING gates (enable as the tooling lands; do not fake-pass):
-  #  - coverage vs ratchets.coverage_floor        -> B-005 (JaCoCo)
   #  - scoped mutation on changed modules         -> B-005 (PIT)
-  #  - dependency/OSV audit + license check       -> B-006 (osv-scanner)
-  #  - SAST (semgrep java rulesets)               -> B-006
+  #  - SAST (semgrep java rulesets)               -> B-006 (semgrep)
   #  - benchmark smoke vs ratchets.benchmarks     -> ROADMAP Later (JMH)
   # TODO(B-012): pin all third-party actions by commit SHA.
