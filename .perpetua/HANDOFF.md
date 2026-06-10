@@ -1,5 +1,5 @@
 # Handoff — 2026-06-10 — session 0 (bootstrap + 12 items)
-NOW: clean stopping point. TOP no-DB item next: B-003 (wire fraud/sanctions gate — RFC ready, implementable + unit-testable here, T3 dual-review). DB-gated items (B-002 RLS, B-011 Flyway, B-016 Testcontainers) are RFC-ready, need Postgres → unblock by answering Q-001 (push→CI has PG/Kafka) or Q-004.
+NOW: PR #1 open (github.com/pierce-lonergan/NexusPay/pull/1); CI is the verifier (L2, push authorized). CI status: 250 UNIT tests PASS; 13 integration tests fail on B-011 (Flyway duplicate-version, now CI-REPRODUCED at CompositeMigrationResolver:87). TOP next item: **B-011** — now CI-verifiable; apply rfc-b011 (unique versions + de-dup base-vs-explicit locations), push, watch CI. Then B-002 RLS, B-003 gate.
 ACTIVE ITEM: none in-flight | branch perpetua/bootstrap | phase SELECT
 DONE (latest turn): SubscriptionTest coverage incl. calendar date math (7bed9a0); Q-007 deleted dead A/B framework −509 LOC (db9c6d1); B-006 OSV CI + secret baseline (457ec4b); RFCs for B-002/B-011/B-003 (research/). Earlier: bootstrap, B-010, B-001, B-019, B-004, B-008, B-009, B-005, B-013, B-014a, B-018, B-014b.
 STATE: build green; 250 unit tests pass / 13 Docker-skip / 0 fail; coverage ~17% (floor 16, CI-enforced).

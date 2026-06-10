@@ -1,5 +1,19 @@
 # DIGEST — human-facing summaries (newest first)
 
+## 2026-06-10 — Pushed to GitHub (L2); CI iteration cleared 4 hidden blockers
+You set autonomy to **L2 + push**, so I pushed `perpetua/bootstrap` and opened
+**PR #1**. CI (which has Postgres/Kafka this sandbox lacks) immediately earned its
+keep — it surfaced FOUR real repo-health blockers that no local Windows run could
+catch, and I fixed each: (1) `gradlew` lost its executable bit (exit 126); (2)
+`gradle-wrapper.jar` was gitignored and never committed (no clean clone could
+build); (3) Testcontainers↔commons-compress incompatibility; (4) the catalog
+pinned Flyway 10.15.0 + a Flyway-10-only artifact that broke against Boot 3.2.5's
+Flyway-9 autoconfig. After those, CI runs the **250 unit tests green** and the 13
+integration tests now reach — and reproduce — the real **B-011** Flyway
+duplicate-version collision (CompositeMigrationResolver). So B-011 is no longer a
+"needs a DB to verify" RFC: CI is now the verifier, and B-011 is the clear next
+fix. Lessons L-020/021/022.
+
 ## 2026-06-10 — Coverage, subtraction, scans wired, gated items designed
 **Shipped:** billing `SubscriptionTest` (10) covering the state machine + the
 calendar billing-period math (Jan-31→Feb-28 clamp); **deleted** the dead routing
