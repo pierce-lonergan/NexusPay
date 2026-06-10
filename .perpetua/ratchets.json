@@ -1,6 +1,6 @@
 {
-  "_comment": "Quality constitution. Floors rise only (meta-review action). Lowering requires a human-ratified ADR. Values below are MEASURED reality at bootstrap 2026-06-09, except where marked unmeasured.",
-  "test_count_floor": 201,
+  "_comment": "Quality constitution. Floors rise only (meta-review action). Lowering requires a human-ratified ADR. Values below are MEASURED reality at bootstrap 2026-06-09/10, except where marked unmeasured. test_count_floor was corrected from an un-measured 201 to the true full-suite count (202 executed, 215 incl. 13 Docker-skipped) after B-010/B-001 added 14 tests.",
+  "test_count_floor": 202,
   "coverage_floor": 0.0,
   "coverage_status": "UNMEASURED — no JaCoCo wired yet (B-005). Floor is a placeholder, not a real baseline.",
   "mutation_floor": { "default": 0.0 },

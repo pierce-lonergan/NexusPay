@@ -1,5 +1,22 @@
 # DIGEST — human-facing summaries (newest first)
 
+## 2026-06-10 — Session 0 iterations (B-010, B-001)
+**Shipped (2 items, full §4 loop each, both reviewed by subagents):**
+- **B-010** settlement-ingest jsonb mapping — `raw_data` was a String on a jsonb
+  column with no `@JdbcTypeCode`, so every settlement-file INSERT aborted; the
+  Stripe parser also stored a non-JSON line. Fixed + first-ever reconciliation
+  tests (4). Adversarial review: SHIP.
+- **B-001** billing scheduler double-billing — the renewal/dunning/trial crons
+  fired on every replica with no coordination. Added `SchedulerLock` (Valkey,
+  fail-closed, self-renewing lease, atomic Lua release, reentrancy guard) on all
+  3 crons (10 tests). Adversarial review caught a real TTL-expiry-mid-run
+  double-charge BLOCKER → fixed with lease renewal; security review SHIP.
+**Tests:** 188→202 executed pass (+14), 0 fail, build green. **Threat model:**
+double-billing OPEN → PARTIALLY CLOSED. **Decided:** ADR-006 (fail-closed +
+renew). **Honesty note:** corrected the ratchet test-count floor (was an
+un-measured 201 → measured 202). **Follow-ups:** B-015..B-018.
+**Next:** B-004 (secrets fail-fast), B-006 (baseline scans), B-005 (coverage).
+
 ## 2026-06-09 — Bootstrap + first fixes
 **Shipped:** Took NexusPay from *not compiling* to a green build — 201 unit tests
 pass, the executable boot jar assembles, and the app now boots through full Spring
