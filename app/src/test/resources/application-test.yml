@@ -21,6 +21,14 @@ spring:
         jwt:
           issuer-uri: http://localhost:0/realms/nexuspay
 
+  # No HashiCorp Vault server in integration tests. Nothing injects VaultTemplate
+  # (the vault MODULE does its own card crypto); spring-cloud-starter-vault-config
+  # is only for prod config sourcing. Without this, the Vault auto-config fails:
+  # "Cannot create authentication mechanism for TOKEN" (no token available).
+  cloud:
+    vault:
+      enabled: false
+
 server:
   port: 0
 
