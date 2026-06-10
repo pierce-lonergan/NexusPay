@@ -34,6 +34,10 @@ ABUSE CASES (top, STRIDE-lite)
   self-renewing Valkey lease; residual = lock requires due-based re-selection,
   pinned by B-017); duplicate refund via maker-checker race (OPEN → B-009);
   cross-currency "balanced" entries (FIXED, L-001).
+  Duplicate refund via maker-checker race — CLOSED (B-009): atomic conditional
+  approve (one winner) + deterministic gateway idempotency key; cross-tenant
+  approve also closed. Residual (LOW): approved-but-unexecuted refund on
+  gateway failure has no auto-reconciler → B-022.
 - **Elevation/RCE-adjacent** — dependency install scripts; Kafka JSON
   deserialization (ErrorHandlingDeserializer present); prompt-injection via repo/
   issue/web content (agent self-defense, §15.5).

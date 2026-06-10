@@ -13,12 +13,6 @@ claims: (none — single instance)
   security/AUDITS.md; Critical/High → top of backlog. Score (4×5)/2 = **10**.
   AC: scans run, AUDITS.md populated, ratchets high_vulns reflects reality.
 
-- **B-009 | Maker-checker refund: execute-once + idempotency key** | T3 money/security
-  Approved refund executes `createRefund(idempotencyKey=null)` in a separate
-  tx with no execute-once guard → duplicate/lost refund on retry. Score
-  (4×4)/3 +2 = **7.3**. AC: deterministic idempotency key from approval id;
-  APPROVED→EXECUTED guard; tests. Source: audit (gateway/iam).
-
 - **B-005 | Wire coverage (JaCoCo) + set real ratchet baseline** | test-strength
   No coverage measured. Add jacoco, run, set `coverage_floor` to reality, gate
   in CI. Score (3×5)/2 = **7.5**. AC: jacoco report, ratchets updated, CI check.
@@ -92,7 +86,24 @@ claims: (none — single instance)
   signal should force LEAN regardless of the 5h line. ccusage can report it.
   Score (2×3)/2 = **3**.
 
+- **B-022 | Reconcile approved-but-unexecuted refunds (stuck APPROVED)** | T3 money (RFC-first)
+  Discovered in B-009 dual review (pre-existing, not introduced): `approve()`
+  commits APPROVED in its own tx, then `executeApprovedRefund` runs outside it;
+  if the gateway throws, the approval is APPROVED-forever and a retry's approve()
+  throws "not pending" → the legitimate refund never executes, needs manual
+  recovery. The deterministic idempotency key (B-009) now makes a re-drive safe.
+  Fix: an outbox/reconciler over APPROVED-unexecuted refunds keyed on the same
+  idempotency key (fold into B-002/outbox work). Score (4×4)/4 +2 = **6**.
+
 ## Done
+- **B-009** (2026-06-10) maker-checker refund execute-once + idempotency —
+  atomic conditional approve (`transitionFromPending`, rows-affected==1) closes
+  the concurrent double-approve race; tenant-ownership check closes cross-tenant
+  approve; deterministic idempotency key (`refund-approval-<id>`) dedups any
+  duplicate execution at the gateway. 9 tests. Reviews: security SHIP, adversarial
+  flagged a pre-existing stuck-approval recovery gap → tracked as B-022 (not a
+  regression; commit boundary unchanged). Threat model: duplicate-refund race
+  OPEN→CLOSED.
 - **B-008** (2026-06-10) reconciliation PARTIAL → MISSING_LEDGER_ENTRY exception,
   counted (run buckets now partition: total=matched+unmatched+exceptions). 4 tests.
   Adversarial review: SHIP.

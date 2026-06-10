@@ -63,16 +63,20 @@ public class RefundOrchestrationService {
     }
 
     /**
-     * Executes a previously approved refund.
+     * Executes a previously approved refund. The idempotency key is derived
+     * deterministically from the approval id, so if this refund is ever
+     * submitted twice (a retry, a double-click, or two replicas racing the same
+     * approval) HyperSwitch dedups it to a single refund (B-009).
      */
     public RefundResponse executeApprovedRefund(PendingApproval approval) {
         var payload = approval.getPayload();
+        String idempotencyKey = "refund-approval-" + approval.getId();
         return paymentGatewayPort.createRefund(new RefundRequest(
                 (String) payload.get("payment_id"),
                 ((Number) payload.get("amount")).longValue(),
                 (String) payload.get("currency"),
                 (String) payload.get("reason"),
-                null
+                idempotencyKey
         ));
     }
 }
