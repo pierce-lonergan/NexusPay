@@ -2,11 +2,12 @@
 
 | session | date | iters | commits | items shipped | tests | build | notes |
 |---|---|---|---|---|---|---|---|
-| 0 | 2026-06-09/10 | 6 + bootstrap | 10 | B-010,B-001,B-019,B-004,B-008,B-009,B-013,B-005 (+ pre-PERPETUA audit-fix body) | 223 pass / 13 skip / 0 fail | green | repo non-building → green+boots; PERPETUA scaffolded; coverage measured 24%; +35 tests |
+| 0 | 2026-06-09/10 | 7 + bootstrap | ~13 | B-010,B-001,B-019,B-004,B-008,B-009,B-013,B-005,B-014a (+ pre-PERPETUA audit-fix body) | 234 pass / 13 skip / 0 fail | green | non-building→green+boots; PERPETUA scaffolded; coverage 17% (true, CI-gated); +46 tests; FX 100× bug fixed |
 
 ## Trends (updated at meta-review)
-- test_count: 188(pre)→223 executed. coverage: 24% aggregate line (measured B-005;
-  floor 23%, CI-enforced). mutation: UNMEASURED (next).
+- test_count: 188(pre)→234 executed. coverage: 17% TRUE aggregate line (B-005 first
+  read 24% on an incomplete denominator; corrected after B-014a completed it; floor
+  16%, CI-enforced; Q-006 ratify). mutation: UNMEASURED (next).
 - open HIGH security findings: 6 → 3 (double-billing B-001 PARTIALLY CLOSED; secrets
   B-004 CLOSED; maker-checker refund B-009 CLOSED). Remaining: RLS runtime (B-002),
   fraud-not-gating (B-003), sanctions-not-gating (B-003), dispute-webhook.

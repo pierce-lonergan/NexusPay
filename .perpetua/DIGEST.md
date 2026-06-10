@@ -1,5 +1,18 @@
 # DIGEST — human-facing summaries (newest first)
 
+## 2026-06-10 — FX exponent money bug + coverage honesty (B-014a)
+**Shipped:** fixed a still-open **HIGH** money bug — FX conversion multiplied raw
+minor units by a major-unit rate with no currency exponent, so **USD→JPY was 100×
+too high** (BHD/KWD 10× off). Found in 3 sites (FxRate, FxRateLock, and — caught by
+the reviewer — CurrencyConversion.fxGainLoss); all now delegate to one
+exponent-aware `CurrencyMath`. Added the **first tests** for the fraud and
+payment-orchestration modules (11 tests). Review SHIP.
+**Honesty correction:** wiring tests into those two modules completed the JaCoCo
+denominator and revealed the real aggregate coverage is **17%, not the 24%** first
+reported (which had silently excluded those untested modules). Covered lines
+actually rose. Corrected the ratchet floor 23→16 and flagged it for ratification
+(**Q-006**) rather than fudging the number to stay green. Tests 223→234, 0 fail.
+
 ## 2026-06-10 — Backlog full-send (B-004, B-008, B-009, B-013, B-005)
 **Shipped 5 items, each a full §4 loop with subagent review(s):**
 - **B-004** (security): app refuses to boot with built-in DEV default secrets under
