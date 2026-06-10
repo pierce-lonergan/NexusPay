@@ -29,9 +29,11 @@ ABUSE CASES (top, STRIDE-lite)
   dispute webhook has NO signature/idempotency (OPEN → audit, BACKLOG candidate).
 - **Info-leak** — PAN recovery from unkeyed fingerprint + 8-digit BIN (FIXED,
   L-009); idempotency cross-merchant response leak (FIXED, L-010).
-- **Tamper (money)** — double-billing via lockless schedulers (OPEN → B-001);
-  duplicate refund via maker-checker race (OPEN → B-009); cross-currency
-  "balanced" entries (FIXED, L-001).
+- **Tamper (money)** — double-billing via lockless schedulers (PARTIALLY CLOSED,
+  B-001 done: concurrent-replica cron fire now locked with a fail-closed,
+  self-renewing Valkey lease; residual = lock requires due-based re-selection,
+  pinned by B-017); duplicate refund via maker-checker race (OPEN → B-009);
+  cross-currency "balanced" entries (FIXED, L-001).
 - **Elevation/RCE-adjacent** — dependency install scripts; Kafka JSON
   deserialization (ErrorHandlingDeserializer present); prompt-injection via repo/
   issue/web content (agent self-defense, §15.5).

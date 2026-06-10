@@ -28,6 +28,20 @@ Alternative: `@DependsOn`/`@Primary` juggling (rejected — fragile). Note: the
 RLS `SET LOCAL`-on-checkout mechanism itself is still semantically broken
 (B-002); this ADR only fixes the boot cycle.
 
+## ADR-006 | 2026-06-10 | Billing scheduler lock fails CLOSED + renews its lease
+Context (B-001): billing crons fired on every replica → double-charges. Decision:
+a Valkey SET-NX-EX lock (like OutboxRelay) BUT (a) fail CLOSED on Valkey-down —
+skip the cycle rather than run unguarded, because the work is due-based and
+self-heals next cycle whereas an unguarded run double-charges; (b) RENEW the
+lease at ttl/3 while work runs (a long ≤500-sub charge loop could otherwise
+outlive a fixed TTL and let a second replica start — adversarial review found
+this; new invoice per cycle ⇒ new idempotency key ⇒ no downstream dedup); (c)
+atomic owner-checked Lua for renew+release so neither can touch a lease another
+instance now holds. Alternatives: fail-open (rejected — money); fixed TTL +
+batch cap (rejected — fragile vs PSP latency). Residual: renewal *timing* is
+integration-tested only; fail-closed safety assumes due-based re-selection
+(B-017 regression test).
+
 ## ADR-005 | 2026-06-09 | Reconciliation/dispute ports backed by the ledger module
 Context: PaymentQueryPort/LedgerQueryPort (recon) and LedgerPort (dispute) had no
 implementations → context fails. reconciliation/dispute may depend on `ledger`

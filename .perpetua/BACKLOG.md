@@ -8,13 +8,6 @@ claims: (none — single instance)
 
 ## Ready (sorted by score)
 
-- **B-001 | Distributed locks on billing schedulers (double-billing)** | T3 money
-  `RenewalScheduler`, `TrialExpirationScheduler`, `DunningService` run on every
-  instance with no leader lock → N instances charge the same invoice N times.
-  Pattern exists (`OutboxRelay` Valkey lock). Score (5×4)/2 +2 = **12**.
-  AC: shared lock helper, 3 schedulers guarded, unit tests for lock skip/run.
-  Source: audit (billing).
-
 - **B-004 | Secrets default to committed dev values, no prod guard** | T2 security
   `nexuspay.session.jwt-secret`, vault master-key, webhook-secret resolve to
   in-source defaults; a missing env var in prod signs/encrypts with a public
@@ -88,7 +81,24 @@ claims: (none — single instance)
   test asserting `jsonb_typeof(raw_data)='object'` after save. Needs Docker (Q-004).
   Score (3×4)/2 = **6**.
 
+- **B-017 | Regression test: fail-closed lock relies on due-based re-selection** | test-strength
+  Discovered in B-001 review. The scheduler lock's fail-closed safety assumes a
+  skipped cycle re-selects the same subscriptions next run. If renewal selection
+  ever became consume-once, fail-closed would silently drop charges. Pin it:
+  assert findDueForRenewal re-returns un-renewed subs after a skipped cycle.
+  Score (3×4)/2 = **6**.
+
+- **B-018 | Apply atomic-release + lease-renewal to OutboxRelay leader lock** | T2
+  Discovered in B-001 review: `OutboxRelay.shutdown()` has the same non-atomic
+  GET-then-DELETE release the billing lock just fixed (fail-open is OK there, but
+  the release race isn't). Reuse the SchedulerLock pattern. Score (2×4)/2 = **4**.
+
 ## Done
+- **B-001** (2026-06-10) billing scheduler distributed locks — `SchedulerLock`
+  (fail-closed, self-renewing lease, atomic owner-checked Lua release, reentrancy
+  guard) wraps all 3 billing crons; 10 tests. Adversarial review found a TTL-
+  expiry-mid-run double-charge BLOCKER → fixed with lease renewal; security
+  review SHIP. ADR-006. Threat-model: B-001 OPEN→PARTIALLY CLOSED.
 - **B-010** (2026-06-09→10) settlement-ingest jsonb mapping — entity annotated
   `@JdbcTypeCode(SqlTypes.JSON)`, StripeCsvParser emits valid JSON; 4-test
   `StripeCsvParserTest` added (test count 201→205). Adversarial review: SHIP.

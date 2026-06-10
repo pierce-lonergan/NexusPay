@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -33,24 +34,32 @@ public class RenewalScheduler {
     private final InvoiceGenerationService invoiceService;
     private final DunningService dunningService;
     private final BillingOutboxPort outboxPort;
+    private final SchedulerLock schedulerLock;
 
     public RenewalScheduler(SubscriptionRepository subscriptionRepository,
                              ProductRepository productRepository,
                              InvoiceGenerationService invoiceService,
                              DunningService dunningService,
-                             BillingOutboxPort outboxPort) {
+                             BillingOutboxPort outboxPort,
+                             SchedulerLock schedulerLock) {
         this.subscriptionRepository = subscriptionRepository;
         this.productRepository = productRepository;
         this.invoiceService = invoiceService;
         this.dunningService = dunningService;
         this.outboxPort = outboxPort;
+        this.schedulerLock = schedulerLock;
     }
 
     /**
      * Runs daily at 2:00 AM — processes subscription renewals.
+     * Guarded by a cross-instance lock so only one replica charges per cycle (B-001).
      */
     @Scheduled(cron = "0 0 2 * * *")
     public void processRenewals() {
+        schedulerLock.runExclusively("renewals", Duration.ofHours(1), this::doProcessRenewals);
+    }
+
+    void doProcessRenewals() {
         log.info("Starting subscription renewal cycle");
 
         List<Subscription> due = subscriptionRepository.findDueForRenewal(Instant.now(), 500);
@@ -101,12 +110,15 @@ public class RenewalScheduler {
 
     /**
      * Runs every 4 hours — processes pending dunning retries.
+     * Guarded by a cross-instance lock so only one replica retries per cycle (B-001).
      */
     @Scheduled(cron = "0 0 */4 * * *")
     public void processDunning() {
-        int processed = dunningService.processPendingAttempts();
-        if (processed > 0) {
-            log.info("Dunning cycle complete: {} attempts processed", processed);
-        }
+        schedulerLock.runExclusively("dunning", Duration.ofHours(1), () -> {
+            int processed = dunningService.processPendingAttempts();
+            if (processed > 0) {
+                log.info("Dunning cycle complete: {} attempts processed", processed);
+            }
+        });
     }
 }
