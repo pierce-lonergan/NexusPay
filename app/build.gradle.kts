@@ -51,6 +51,17 @@ dependencies {
     testImplementation("com.jayway.jsonpath:json-path")
 }
 
+// Testcontainers 1.19.x was built against commons-compress 1.24.0; the Spring Boot
+// 3.2.5 BOM manages 1.25.0, whose TarArchiveOutputStream trips an
+// ExceptionInInitializerError when Testcontainers builds the image context
+// (NoClassDefFoundError in the integration tests). Pin 1.24.0 for compatibility.
+// commons-compress is test-only here (not a runtime dependency).
+configurations.all {
+    resolutionStrategy {
+        force("org.apache.commons:commons-compress:1.24.0")
+    }
+}
+
 springBoot {
     mainClass.set("io.nexuspay.NexusPayApplication")
 }
