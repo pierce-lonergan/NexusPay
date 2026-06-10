@@ -32,6 +32,22 @@ so CI isn't perma-red on a wrong floor. Please confirm the correction is sound.
 The floor rises from here as modules gain tests (B-014 continues).
 **ANSWER:**
 
+### Q-007 | Routing A/B testing: wire it or delete it? (B-007, product call)
+The A/B framework (`RoutingAbTestService` + `RoutingAbTestController`, REST under
+`/v1/routing/ab-tests`) is built and its two-proportion z-test is correct (now
+unit-tested), BUT it is **unreachable**: the routing engine never calls
+`selectConfig` (to assign a group) or `recordOutcome` (to feed the counters), so
+every test reports "insufficient data" forever. Two options:
+- **WIRE** — call selectConfig in the routing decision path + recordOutcome after
+  payment auth. Only worth it once the routing engine is actually on the live
+  payment path (today it isn't — same gate as B-003). Larger, T3-ish.
+- **DELETE** — remove the controller + service + the abTestId/abTestGroup fields
+  (subtraction; removes a non-functional API surface). Smaller, reversible via git.
+I did NOT do either (removing/▸completing a product API is your call at L1). My lean:
+**delete now** (it's dead surface; re-add cleanly when routing goes live), unless
+A/B routing is near-term on the roadmap. Which?
+**ANSWER:**
+
 ## FYI / lower priority
 
 ### Q-005 | (FYI, resolved-by-default) Token-aware pacing is wired

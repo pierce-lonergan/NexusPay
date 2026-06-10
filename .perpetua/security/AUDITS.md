@@ -25,6 +25,11 @@ OPEN — HIGH (tracked in BACKLOG, preempt feature work per §15.3):
 - **Billing schedulers**: no distributed lock → multi-instance double-billing.
   → B-001.
 
+DEAD-CODE / ARCHITECTURE (not a vuln; tracked):
+- Routing A/B framework unreachable (B-007): `selectConfig`/`recordOutcome` have
+  no callers; z-test correct but never fed. Wire-vs-delete escalated to Q-007.
+  Stats locked by RoutingAbTestServiceTest so neither path regresses the math.
+
 OPEN — MEDIUM:
 - Reconciliation settlement ingest INSERT fails (jsonb mapping) → B-010.
 - Reconciliation PARTIAL (missing-ledger) silently swallowed → B-008.

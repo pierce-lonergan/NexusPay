@@ -37,9 +37,14 @@ claims: (none — single instance)
   = **7**. AC: RFC (module-boundary impact: gateway→fraud), then gated call.
 
 - **B-007 | Routing A/B framework is dead code — wire or remove** | T2 subtraction
-  `RoutingEngine` never tags decisions / records outcomes, so significance is
-  always false. Decide: wire it or delete it (subtraction mandate). Score
-  (2×4)/2 = **4**. AC: ADR + either path.
+  CONFIRMED dead: RoutingAbTestService.selectConfig/recordOutcome have ZERO
+  callers; the engine only copies abTestId/group onto decision records, never
+  picks a group or records an outcome → getTestSummary is permanently
+  "insufficient data". Stats math IS correct (now locked by RoutingAbTestServiceTest).
+  Wire-vs-delete is a PRODUCT decision (removing a built REST API surface vs.
+  completing it — and completion depends on the routing engine being on the live
+  payment path, B-003). ESCALATED → Q-007. Score (2×4)/2 = **4**. AC: human picks
+  wire or delete; then ADR + execute.
 
 - **B-012 | CI hardening: pin actions by SHA, add OSV + secret scan** | build-health
   Existing `.github/workflows/ci.yml` + new perpetua-gates. Score (3×4)/2 = **6**.
