@@ -4,7 +4,7 @@ CREATE TABLE webhook_endpoints (
     url         VARCHAR(512) NOT NULL,
     description VARCHAR(256),
     secret      VARCHAR(256) NOT NULL,
-    events      TEXT[]       NOT NULL,  -- e.g. {'payment.captured', 'refund.completed'}
+    events      JSONB        NOT NULL,  -- JSON array, e.g. ["payment.captured","refund.completed"]; Hibernate maps List<String> as JSON
     tenant_id   VARCHAR(64)  NOT NULL,
     enabled     BOOLEAN      NOT NULL DEFAULT TRUE,
     created_at  TIMESTAMP    NOT NULL DEFAULT NOW(),

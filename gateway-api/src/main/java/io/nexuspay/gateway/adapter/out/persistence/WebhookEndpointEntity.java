@@ -25,8 +25,10 @@ public class WebhookEndpointEntity {
     @Column(nullable = false)
     private String secret;
 
-    @JdbcTypeCode(SqlTypes.ARRAY)
-    @Column(columnDefinition = "text[]", nullable = false)
+    // Hibernate 6 maps a basic List<String> as JSON (the ARRAY jdbc type is not
+    // honored for collections here), so store it as jsonb to match.
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb", nullable = false)
     private List<String> events;
 
     @Column(name = "tenant_id", nullable = false)
