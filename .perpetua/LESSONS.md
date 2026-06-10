@@ -17,6 +17,9 @@ L-012 | 2026-06-09 | startup/unimplemented-port | Port interfaces injected into 
 L-013 | 2026-06-09 | startup/bean-cycle | DataSource-decorating @Bean that consumed a DataSource created a Flyway↔datasource cycle | Decorate via BeanPostProcessor (no new bean edge) | 4a1c6ea
 L-014 | 2026-06-09 | outbox/ack-ordering | Relay marked events published before Kafka ack → events lost on broker outage | Await send ack before markPublished | 4a1c6ea
 
+L-015 | 2026-06-10 | persistence/jsonb-as-varchar | `settlement_records.raw_data` jsonb column mapped as a plain String (no @JdbcTypeCode) → every ingest INSERT aborts; parser also stored a non-JSON CSV line | @JdbcTypeCode(SqlTypes.JSON) + parser emits valid JSON; StripeCsvParserTest; GUARDRAIL TODO: a grep/arch test for `columnDefinition="jsonb"` String fields lacking the annotation | B-010
+- (root-cause class "persistence/*" now 2× with L-002 — meta-review watch)
+
 RECURRING-CLASS WATCH (for meta-review): "startup/*" appears 3× (L-011/12/13) — a
 CI context-load smoke test (no external infra, mocked) is the systemic guardrail.
 "money/*" appears 3× (L-001/04/06) — mutation testing on ledger/billing/fraud is

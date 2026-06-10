@@ -8,13 +8,6 @@ claims: (none — single instance)
 
 ## Ready (sorted by score)
 
-- **B-010 | Reconciliation settlement ingest INSERT fails (jsonb mapping)** | T2 correctness
-  `SettlementRecordEntity.rawData` is a String on a `jsonb` column with no
-  `@JdbcTypeCode(SqlTypes.JSON)` (cf. working `JournalEntryEntity`); every
-  ingest INSERT aborts. `StripeCsvParser` also stores a raw CSV line (not JSON).
-  Score (4×4)/1 +2 = **18**. AC: entity annotated, parser stores valid JSON,
-  mapping test. Source: audit (ledger/recon).
-
 - **B-001 | Distributed locks on billing schedulers (double-billing)** | T3 money
   `RenewalScheduler`, `TrialExpirationScheduler`, `DunningService` run on every
   instance with no leader lock → N instances charge the same invoice N times.
@@ -83,5 +76,20 @@ claims: (none — single instance)
   README/CONTRIBUTING: JDK 21 requirement, gradlew.bat, temp-dir/loopback quirk.
   Score (3×5)/2 = **7.5**.
 
-## Done (this session)
+- **B-015 | StripeCsvParser uses naive split(",") — RFC-4180 violation** | T2 correctness
+  Discovered during B-010. A quoted `description` containing a comma shifts every
+  later column; the row then fails numeric parse and is silently dropped (money
+  exits reconciliation with no exception record). Score (3×4)/2 +2 = **8**. AC:
+  quote-aware CSV parse; dropped rows become persisted exceptions, not warnings.
+
+- **B-016 | Testcontainers jsonb round-trip test for settlement ingest** | test-strength
+  Discovered during B-010 review. The jsonb INSERT (the bug's actual failure
+  point) is only unit-tested at the parser level. Add a @DataJpaTest/Testcontainers
+  test asserting `jsonb_typeof(raw_data)='object'` after save. Needs Docker (Q-004).
+  Score (3×4)/2 = **6**.
+
+## Done
+- **B-010** (2026-06-09→10) settlement-ingest jsonb mapping — entity annotated
+  `@JdbcTypeCode(SqlTypes.JSON)`, StripeCsvParser emits valid JSON; 4-test
+  `StripeCsvParserTest` added (test count 201→205). Adversarial review: SHIP.
 - (bootstrap fixes committed as 4a1c6ea — see DIGEST/LESSONS)

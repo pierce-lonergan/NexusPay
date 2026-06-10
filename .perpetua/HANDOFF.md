@@ -1,7 +1,7 @@
-# Handoff — 2026-06-09 — session 0 (bootstrap)
-NOW: bootstrap done; run §4 on B-010 (settlement-ingest jsonb) then B-001 (scheduler locks).
+# Handoff — 2026-06-10 — session 0 (bootstrap + iters)
+NOW: B-010 shipped; next §4 item B-001 (billing scheduler distributed locks, T3).
 ACTIVE ITEM: none in-flight | branch perpetua/bootstrap | phase SELECT
-DONE THIS SESSION: committed audit-fix body (4a1c6ea); scaffolded full .perpetua/, CLAUDE.md, CI gate, harness.
+DONE THIS SESSION: committed audit-fix body (4a1c6ea); bootstrapped .perpetua/+CLAUDE.md+CI+harness (09f0e20); shipped B-010 (settlement jsonb, +4 tests, review SHIP).
 WATCH OUT:
 - L1 LOCAL ONLY — do NOT push or open PRs until Q-001 answered.
 - BUILD NEEDS JDK 21 + working temp dir: set JAVA_HOME to Adoptium jdk-21 and TMP=C:\Temp, then gradlew.bat.

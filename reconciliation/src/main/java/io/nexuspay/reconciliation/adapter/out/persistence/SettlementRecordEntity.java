@@ -1,6 +1,9 @@
 package io.nexuspay.reconciliation.adapter.out.persistence;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 import java.time.Instant;
 
 /**
@@ -59,6 +62,15 @@ public class SettlementRecordEntity {
     @Column(name = "matched_journal_entry_id", length = 64)
     private String matchedJournalEntryId;
 
+    // raw_data is a Postgres jsonb column; this String holds an ALREADY-serialized
+    // JSON document (both parsers emit valid JSON). Without @JdbcTypeCode(SqlTypes.JSON)
+    // Hibernate binds the String as varchar and every INSERT aborts ("column is of
+    // type jsonb but expression is of type character varying"). The codebase maps
+    // structured JSON the same way (e.g. JournalEntryEntity.metadata, a Map); for a
+    // pre-serialized String, Hibernate 6 writes the contents through as-is (no
+    // re-encoding). NOTE: round-trip is unit-tested at the parser level only; a
+    // Testcontainers jsonb round-trip is tracked as B-016 (needs Docker).
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "raw_data", columnDefinition = "jsonb")
     private String rawData;
 

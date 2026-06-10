@@ -1,5 +1,6 @@
 package io.nexuspay.reconciliation.adapter.out.parser;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nexuspay.common.id.PrefixedId;
 import io.nexuspay.reconciliation.application.port.out.SettlementParserPort;
 import io.nexuspay.reconciliation.domain.SettlementRecord;
@@ -38,6 +39,7 @@ public class StripeCsvParser implements SettlementParserPort {
 
     private static final Logger log = LoggerFactory.getLogger(StripeCsvParser.class);
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Override
     public String provider() {
@@ -89,7 +91,9 @@ public class StripeCsvParser implements SettlementParserPort {
                                     .atStartOfDay(ZoneOffset.UTC).toInstant()
                     );
 
-                    record.setRawData(line);
+                    // raw_data is a jsonb column — store a JSON document, not the
+                    // bare CSV line (which is not valid JSON and aborts the INSERT).
+                    record.setRawData(MAPPER.writeValueAsString(Map.of("raw", line)));
                     records.add(record);
 
                 } catch (Exception e) {
