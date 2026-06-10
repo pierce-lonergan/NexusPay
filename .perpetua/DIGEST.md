@@ -1,5 +1,18 @@
 # DIGEST — human-facing summaries (newest first)
 
+## 2026-06-10 — Token-aware adaptive scheduling (B-019, human-directed)
+**Shipped:** the harness now spends the 5-hour token window deliberately instead of
+on a fixed timer. Each cycle it reads local usage (ccusage), compares against the
+window's budget, and paces: **run back-to-back when behind, cool down when ahead,
+pause near the cap** — so the window fills with productive work and quota isn't left
+unspent when it rolls. A `rigor=MAX/NORMAL/LEAN/PAUSE` hint rides the session prompt so
+the agent also scales DEPTH (more reviewers/audits/research/mutation when budget is
+plentiful) — productive burn, never churn. Pure controller is unit-tested (11 tests);
+usage reader degrades gracefully without ccusage. Anthropic's server-side 5h/weekly caps
+remain the hard backstop. **To use:** `npm i -g ccusage`, then run the loop with
+`PERPETUA_MODEL=claude-fable-5`. ADR-007; follow-ups B-020 (ccusage-fixture test), B-021
+(weekly-cap awareness).
+
 ## 2026-06-10 — Session 0 iterations (B-010, B-001)
 **Shipped (2 items, full §4 loop each, both reviewed by subagents):**
 - **B-010** settlement-ingest jsonb mapping — `raw_data` was a String on a jsonb

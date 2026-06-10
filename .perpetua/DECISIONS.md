@@ -28,6 +28,28 @@ Alternative: `@DependsOn`/`@Primary` juggling (rejected — fragile). Note: the
 RLS `SET LOCAL`-on-checkout mechanism itself is still semantically broken
 (B-002); this ADR only fixes the boot cycle.
 
+## ADR-007 | 2026-06-10 | Token-aware adaptive pacing (human-directed, B-019)
+Context: the human wants to spend as much of the per-5h-window Fable-5 token
+budget as possible on productive work while away, without (a) idling with quota
+unspent when the window rolls, or (b) slamming the cap early and sitting blocked.
+Decision: a pacing controller (`scripts/perpetua-pace.sh`) drives the supervisor
+to keep cumulative usage on a steady line from 0→budget across the window —
+AGGRESSIVE (gap 0 + deeper sessions) when behind, COOLDOWN (sleep to re-cross the
+line) when ahead, BLOCKED (wait for the window to free) near the cap, STEADY in a
+deadband. Usage is read locally via ccusage (`scripts/perpetua-usage.sh`); the
+budget ceiling is `PERPETUA_TOKEN_BUDGET` or ccusage's historical-max-block proxy.
+A `rigor=MAX/NORMAL/LEAN/PAUSE` hint rides the prompt so the AGENT scales DEPTH
+(reviewers, audits, research, mutation) — productive burn, never churn (§0/§11.1).
+Alternatives: fixed MIN_GAP (rejected — can't fill or protect the window); a
+hard token cap in-harness (rejected — Anthropic's server-side 5h/weekly caps are
+the real backstop; pacing only optimizes within them). Self-modifies CLAUDE.md +
+the harness — permitted because the human directed it (§0.2). Metric to watch
+(meta-review): window utilization (tokens used / estimated budget per window)
+trends up without a rise in churn/proxy-gaming flags. Residual: pacing depends on
+ccusage being installed + a built usage history for the cap proxy; degrades to
+neutral STEADY otherwise. Live behavior is unit-tested (pure controller) but not
+yet integration-tested against real ccusage (B-020).
+
 ## ADR-006 | 2026-06-10 | Billing scheduler lock fails CLOSED + renews its lease
 Context (B-001): billing crons fired on every replica → double-charges. Decision:
 a Valkey SET-NX-EX lock (like OutboxRelay) BUT (a) fail CLOSED on Valkey-down —

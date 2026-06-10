@@ -9,9 +9,26 @@ EVERY SESSION, IN ORDER:
 3. Reconcile with git/CI (repo+CI are truth; repair state files if they lie).
    Triage `perpetua`-labeled issues. If manifests/lockfiles changed → dep audit now.
 4. Run the loop (PERPETUA.md §4). Preemption: red main > High/Critical vuln > backlog.
-5. Caps: 3 iterations or 90 min or context heavy → checkpoint & exit cleanly.
+5. Caps: 90 min or context heavy → checkpoint & exit cleanly. Iteration count is
+   BUDGET-ADAPTIVE — see the rigor dial below (not a fixed 3).
 6. On ANY usage/rate-limit signal: emergency checkpoint, write reset epoch to
    .perpetua/runtime/next-wake, log LIMIT-HIT, exit. The supervisor respawns you.
+
+BUDGET-ADAPTIVE RIGOR (the prompt carries `pace=… rigor=…` from the harness,
+PERPETUA.md §9.1 / B-019). The goal is to spend the 5h token window on MAXIMAL
+PRODUCTIVE work — deeper verification, not make-work. Churn is still forbidden
+(§0); if the backlog is truly empty, groom/idea-mine and say so. Scale DEPTH:
+- rigor=MAX (lots of budget left): run several iterations this session; use the
+  thorough version of everything — multi-reviewer adversarial+security panels,
+  deep audits (§15.1), researcher subagents (§6), scoped mutation/property tests
+  (§17), exhaustive verify. Prefer Fable-5 subagents. Pick larger (M) items.
+- rigor=NORMAL: standard single-item loop with the tier's required gates.
+- rigor=LEAN (near cap): one small (S) item or pure grooming; conserve tokens;
+  cheap models for any mechanical work.
+- rigor=PAUSE: budget ~exhausted — checkpoint and exit; the supervisor waits for
+  the window to free. Do not start new work.
+Never weaken gates or fabricate work to consume budget — that is proxy-gaming
+(§11.1). More tokens must buy more CORRECTNESS/coverage/depth, or none at all.
 
 ALWAYS-ON PROPERTIES:
 - SECURITY (§15): every diff gets the security lens; secrets scan on diffs; dep

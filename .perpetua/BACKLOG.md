@@ -93,7 +93,23 @@ claims: (none — single instance)
   GET-then-DELETE release the billing lock just fixed (fail-open is OK there, but
   the release race isn't). Reuse the SchedulerLock pattern. Score (2×4)/2 = **4**.
 
+- **B-020 | Integration-test pacing against real ccusage output** | test-strength
+  Discovered in B-019: the pure pacing controller is unit-tested, but the
+  ccusage JSON parse in perpetua-usage.sh is only verified by graceful-degradation.
+  Add a fixture-based test feeding a captured `ccusage blocks --json` sample.
+  Score (3×3)/2 = **4.5**.
+
+- **B-021 | Weekly-cap awareness in pacing** | DX
+  Discovered in B-019: pacing optimizes the 5h window only. A near-weekly-cap
+  signal should force LEAN regardless of the 5h line. ccusage can report it.
+  Score (2×3)/2 = **3**.
+
 ## Done
+- **B-019** (2026-06-10, human-directed) token-aware adaptive scheduling —
+  `perpetua-pace.sh` (pure controller, 11 unit tests) + `perpetua-usage.sh`
+  (ccusage wrapper, graceful degradation) + harness v3 pacing + CLAUDE.md rigor
+  dial. Fills the 5h window with productive Fable-5 work; server caps remain the
+  backstop. ADR-007. Follow-ups B-020, B-021.
 - **B-001** (2026-06-10) billing scheduler distributed locks — `SchedulerLock`
   (fail-closed, self-renewing lease, atomic owner-checked Lua release, reentrancy
   guard) wraps all 3 billing crons; 10 tests. Adversarial review found a TTL-

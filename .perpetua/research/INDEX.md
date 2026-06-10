@@ -1,4 +1,4 @@
 # RESEARCH INDEX (one line per note; expire stale, fold durable facts into DECISIONS)
 
-(none yet — first research likely B-002 RLS tx-bound GUC patterns, or
-Flyway multi-module history-table strategy for B-011)
+- [ccusage-blocks-interface](ccusage-blocks-interface.md) — ccusage v20 `blocks --json`
+  shape + the `--token-limit max`+`--active` no-op gotcha. HIGH, expires ~2026-09. → B-019.

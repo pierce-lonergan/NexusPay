@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# perpetua-loop.sh (v2) — supervisor harness for the PERPETUA autonomous agent
+# perpetua-loop.sh (v3) — supervisor harness for the PERPETUA autonomous agent
 #
 # The agent (Claude Code session) is mortal; this script is the immortality
 # layer. It: holds a lock, honors the STOP kill switch and the agent-written
@@ -8,10 +8,16 @@
 # usage-limit / transient failures, sleeps until reset (with backoff), and
 # respawns forever.
 #
-# v2: injects a [budget hint: ...] into each session prompt — sessions started
-# in the trailing 5-hour window + window age — so the agent can right-size its
-# iteration count (PERPETUA.md §9.1). Enrich via PERPETUA_BUDGET_CMD (any
-# command printing one line, e.g. a ccusage-style local estimator).
+# v2: injects a [budget hint: ...] into each session prompt.
+# v3 (B-019/ADR-007): TOKEN-AWARE ADAPTIVE PACING. Before each session it asks
+#   scripts/perpetua-usage.sh how much of the current 5-hour window's token
+#   budget is spent, and scripts/perpetua-pace.sh how to pace so the window is
+#   filled STEADILY — run back-to-back when behind, cool down when ahead, pause
+#   until the window frees near the cap. The decision + a "rigor" hint ride in
+#   the session prompt so the agent also scales how DEEP each session goes
+#   (more reviewers / audits / research when budget is plentiful). This maximizes
+#   PRODUCTIVE token usage within the plan; Anthropic's server-side 5h/weekly
+#   caps remain the hard backstop — pacing only optimizes within them.
 #
 # Modes:
 #   ./perpetua-loop.sh            # daemon mode: loop forever (systemd/launchd)
@@ -19,13 +25,21 @@
 #
 # Env config (all optional):
 #   PERPETUA_REPO       repo root            (default: directory of this script)
-#   PERPETUA_MODEL      model id             (default: account default)
+#   PERPETUA_MODEL      model id             (default: account default; set
+#                       claude-fable-5 to spend the premium window on this repo)
 #   PERPETUA_YOLO=1     fully unattended via --dangerously-skip-permissions
 #                       (ONLY inside a container/VM/dedicated user — §18.4)
 #   PERPETUA_TOOLS      --allowedTools value when YOLO is off
 #   PERPETUA_BUDGET_CMD command whose 1-line stdout is appended to the hint
 #   PERPETUA_MIN_GAP    min seconds between session starts   (default 300)
 #   PERPETUA_MAX_LOG_DAYS  log retention in days             (default 14)
+#   --- v3 pacing ---
+#   PERPETUA_PACE        1 to enable adaptive pacing (default 1)
+#   PERPETUA_TOKEN_BUDGET per-5h-window token ceiling override (else ccusage
+#                        derives it from your historical max block)
+#   PACE_CAP_PCT         back off at this % of budget   (default 90)
+#   PACE_BAND_PCT        steady-state deadband, % of budget (default 10)
+#   PERPETUA_CCUSAGE_CMD how to invoke ccusage (default: ccusage|bunx|npx)
 # =============================================================================
 set -uo pipefail   # NOT -e: claude failures are expected, handled events
 
@@ -46,6 +60,12 @@ BUDGET_CMD="${PERPETUA_BUDGET_CMD:-}"
 MIN_GAP="${PERPETUA_MIN_GAP:-300}"
 MAX_LOG_DAYS="${PERPETUA_MAX_LOG_DAYS:-14}"
 
+PACE_ENABLED="${PERPETUA_PACE:-1}"
+USAGE_SCRIPT="$SCRIPT_DIR/scripts/perpetua-usage.sh"
+PACE_SCRIPT="$SCRIPT_DIR/scripts/perpetua-pace.sh"
+# shellcheck disable=SC1090
+if [[ -f "$PACE_SCRIPT" ]]; then source "$PACE_SCRIPT"; else PACE_ENABLED=0; fi
+
 WINDOW_SECS=18000                           # 5-hour rolling window
 BACKOFF_TRANSIENT_START=900                 # 15 min
 BACKOFF_MAX=18000                           # 5 h ceiling
@@ -55,6 +75,9 @@ FAIL_STREAK_ALERT=8
 ONCE=0; [[ "${1:-}" == "--once" ]] && ONCE=1
 
 BASE_PROMPT='PERPETUA session start. Follow the operating core in CLAUDE.md exactly, beginning with .perpetua/HANDOFF.md. Checkpoint before exiting.'
+
+# pacing state (refreshed each loop iteration by compute_pacing)
+PACE_DECISION="STEADY"; PACE_SLEEP="-1"; PACE_RIGOR="NORMAL"; PACE_HINT=""
 
 mkdir -p "$LOG_DIR"
 
@@ -103,11 +126,33 @@ budget_hint() {                                # echoes the hint string
   else
     hint="session #1, fresh 5h window"
   fi
+  # v3: token-budget signal + how deep to go this session.
+  if [[ -n "$PACE_HINT" ]]; then
+    hint="$hint; $PACE_HINT; pace=$PACE_DECISION rigor=$PACE_RIGOR"
+  fi
   if [[ -n "$BUDGET_CMD" ]]; then
     extra="$(bash -c "$BUDGET_CMD" 2>/dev/null | head -1 | tr -d '\n' || true)"
     [[ -n "$extra" ]] && hint="$hint; $extra"
   fi
   echo "$hint"
+}
+
+# ---------- v3: token-aware pacing --------------------------------------------
+compute_pacing() {
+  PACE_DECISION="STEADY"; PACE_SLEEP="-1"; PACE_RIGOR="NORMAL"; PACE_HINT=""
+  [[ "$PACE_ENABLED" == "1" && -f "$USAGE_SCRIPT" ]] || return 0
+
+  PACE_HINT="$(PERPETUA_RUN_DIR="$RUN_DIR" bash "$USAGE_SCRIPT" 2>/dev/null | head -1 || true)"
+  local sf="$RUN_DIR/budget-state"
+  [[ -f "$sf" ]] || return 0
+  local U B TE TW
+  U="$(awk -F= '/^U=/{v=$2} END{print v+0}' "$sf")"
+  B="$(awk -F= '/^B=/{v=$2} END{print v+0}' "$sf")"
+  TE="$(awk -F= '/^T_ELAPSED=/{v=$2} END{print v+0}' "$sf")"
+  TW="$(awk -F= '/^T_WINDOW=/{v=$2} END{print v+0}' "$sf")"
+  [[ -n "$TW" && "$TW" -gt 0 ]] || TW=$WINDOW_SECS
+  read -r PACE_DECISION PACE_SLEEP < <(pace_decision "${U:-0}" "${B:-0}" "${TE:-0}" "$TW")
+  PACE_RIGOR="$(rigor_for "$PACE_DECISION")"
 }
 
 # ---------- limit detection ----------------------------------------------------
@@ -162,6 +207,15 @@ run_session() {
 
 rotate_logs() { find "$LOG_DIR" -type f -mtime +"$MAX_LOG_DAYS" -delete 2>/dev/null || true; }
 
+# ---------- pacing gap after a successful session -----------------------------
+pacing_gap() {   # echoes seconds to wait before the next session start
+  case "$PACE_DECISION" in
+    AGGRESSIVE) echo 0 ;;
+    COOLDOWN)   (( PACE_SLEEP > 0 )) && echo "$PACE_SLEEP" || echo "$MIN_GAP" ;;
+    *)          echo "$MIN_GAP" ;;    # STEADY / unknown
+  esac
+}
+
 # ================================ main =========================================
 command -v claude >/dev/null 2>&1 || { alert "claude CLI not found in PATH"; exit 127; }
 [[ -d "$REPO_DIR/.git" ]] || { alert "$REPO_DIR is not a git repo"; exit 1; }
@@ -184,6 +238,15 @@ while :; do
     do_wait "$rem"; continue
   fi
 
+  # v3: decide pacing BEFORE running. If the window's budget is ~spent, don't
+  # start a session — wait until it frees (write next-wake so --once/cron retry).
+  compute_pacing
+  if [[ "$PACE_DECISION" == "BLOCKED" ]]; then
+    log "budget ~exhausted ($PACE_HINT) — pausing ${PACE_SLEEP}s until the 5h window frees"
+    echo $(( $(date +%s) + PACE_SLEEP )) > "$WAKE_FILE"
+    do_wait "$PACE_SLEEP"; rm -f "$WAKE_FILE"; continue
+  fi
+
   start=$(date +%s)
   run_session; status=$?
   case $status in
@@ -204,6 +267,15 @@ while :; do
 
   (( ONCE )) && { log "(--once) cycle complete — exiting"; exit 0; }
 
-  elapsed=$(( $(date +%s) - start ))
-  (( elapsed < MIN_GAP )) && sleep $(( MIN_GAP - elapsed ))
+  # v3: gap between sessions follows the pacing decision (0 when behind budget,
+  # cool-down seconds when ahead, MIN_GAP when steady). Only after a clean run;
+  # the limit/transient branches already waited above.
+  if (( status == 0 )); then
+    gap="$(pacing_gap)"
+    elapsed=$(( $(date +%s) - start ))
+    if (( elapsed < gap )); then
+      (( gap > 0 )) && log "pacing=$PACE_DECISION — next session in $(( gap - elapsed ))s"
+      sleep $(( gap - elapsed ))
+    fi
+  fi
 done

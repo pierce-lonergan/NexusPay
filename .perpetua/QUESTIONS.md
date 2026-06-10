@@ -22,6 +22,14 @@ an L3 whitelist)?
 
 ## FYI / lower priority
 
+### Q-005 | (FYI, resolved-by-default) Token-aware pacing is wired
+B-019 added adaptive pacing so the harness fills each 5h window with productive
+Fable-5 work. To use it: (1) `npm i -g ccusage` (or it falls back to neutral
+pacing); (2) run the loop with `PERPETUA_MODEL=claude-fable-5`; optionally set
+`PERPETUA_TOKEN_BUDGET=<tokens>` if you know your plan's per-window number (else
+ccusage infers it from your historical max). Tune `PACE_CAP_PCT` (default 90) /
+`PACE_BAND_PCT` (default 10). No answer needed unless you want different defaults.
+
 ### Q-003 | Tooling install for always-on scanners
 The quality ratchets need tools the repo doesn't yet have: JaCoCo (coverage),
 PIT (mutation), gitleaks/OSV/semgrep (security), JMH (bench). I can add the
