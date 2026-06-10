@@ -5,6 +5,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -55,7 +56,7 @@ public class BatchKafkaConsumerConfig {
 
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, Map<String, Object>> batchKafkaListenerContainerFactory(
-            ConsumerFactory<String, Map<String, Object>> batchConsumerFactory,
+            @Qualifier("batchConsumerFactory") ConsumerFactory<String, Map<String, Object>> batchConsumerFactory,
             CommonErrorHandler kafkaErrorHandler) {
         var factory = new ConcurrentKafkaListenerContainerFactory<String, Map<String, Object>>();
         factory.setConsumerFactory(batchConsumerFactory);
