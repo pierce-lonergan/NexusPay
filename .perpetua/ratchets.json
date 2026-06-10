@@ -1,0 +1,43 @@
+{
+  "_comment": "Quality constitution. Floors rise only (meta-review action). Lowering requires a human-ratified ADR. Values below are MEASURED reality at bootstrap 2026-06-09, except where marked unmeasured.",
+  "test_count_floor": 201,
+  "coverage_floor": 0.0,
+  "coverage_status": "UNMEASURED — no JaCoCo wired yet (B-005). Floor is a placeholder, not a real baseline.",
+  "mutation_floor": { "default": 0.0 },
+  "mutation_status": "UNMEASURED — no PIT wired yet (B-005).",
+  "high_vulns_max": 0,
+  "high_vulns_status": "No automated scan run yet (B-006). Audit-identified design risks tracked in security/AUDITS.md + BACKLOG.",
+  "suppressions_require_expiry": true,
+  "bench_regression_pct": 5,
+  "benchmarks": {},
+  "benchmarks_status": "No benchmarks/ harness yet. Establish after a profile target is chosen (ROADMAP Later).",
+  "risk_map": {
+    "t3_globs": [
+      "**/ledger/**",
+      "**/vault/**",
+      "**/*Webhook*",
+      "**/*Hmac*",
+      "**/iam/**",
+      "**/fraud/**",
+      "**/payment/application/fx/**",
+      "**/*Idempotency*",
+      "**/marketplace/**/SplitPayment*",
+      "**/marketplace/**/Payout*",
+      "**/billing/**/Dunning*",
+      "**/billing/**/*Scheduler*",
+      "**/db/migration/**",
+      "**/common/**/avro/**"
+    ]
+  },
+  "tooling": {
+    "build": "gradle (wrapper); REQUIRES JDK 21 (JAVA_HOME) and a working temp dir",
+    "test": "gradle test (JUnit 5); integration tests need Docker (Testcontainers) and self-skip without it",
+    "coverage": "RECOMMENDED jacoco gradle plugin — not yet wired (B-005)",
+    "mutation": "RECOMMENDED info.solidsoft.pitest — not yet wired (B-005)",
+    "property": "RECOMMENDED net.jqwik:jqwik — not yet wired",
+    "bench": "RECOMMENDED JMH (me.champeau.jmh) — not yet wired",
+    "sast": "RECOMMENDED semgrep (java rulesets) — not yet run (B-006)",
+    "secrets": "RECOMMENDED gitleaks — not yet run (B-006)",
+    "deps": "RECOMMENDED google/osv-scanner + OWASP dependency-check — not yet run (B-006)"
+  }
+}

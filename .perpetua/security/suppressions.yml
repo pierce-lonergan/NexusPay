@@ -1,0 +1,3 @@
+# Suppressed security findings. EVERY entry needs: id, justification, owner, expiry.
+# Expired suppressions count as OPEN findings (§15.3). Empty = good.
+suppressions: []
