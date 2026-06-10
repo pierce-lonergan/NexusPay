@@ -2,6 +2,7 @@ package io.nexuspay;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.modulith.Modulithic;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
@@ -21,6 +22,12 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         sharedModules = {"common"}
 )
 @EnableScheduling
+// considerNestedRepositories=true: four out-adapters (Invoice, Billing, Dispute,
+// Reconciliation) declare their Spring Data interfaces as nested types — the
+// default scan ignores those, leaving the adapters' constructor deps unsatisfied
+// (NoSuchBeanDefinitionException). Base package defaults to io.nexuspay (this
+// class's package), matching the prior auto-configured scan scope.
+@EnableJpaRepositories(considerNestedRepositories = true)
 public class NexusPayApplication {
 
     public static void main(String[] args) {
