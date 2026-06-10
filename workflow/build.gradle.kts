@@ -17,7 +17,6 @@ dependencies {
     implementation(rootProject.libs.spring.modulith.starter.core)
     implementation(rootProject.libs.spring.kafka)
     implementation(rootProject.libs.flyway.core)
-    implementation(rootProject.libs.flyway.database.postgresql)
 
     runtimeOnly(rootProject.libs.postgresql)
 

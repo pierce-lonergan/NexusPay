@@ -14,7 +14,6 @@ dependencies {
     implementation(rootProject.libs.resilience4j.spring.boot3)
     implementation(rootProject.libs.spring.kafka)
     implementation(rootProject.libs.flyway.core)
-    implementation(rootProject.libs.flyway.database.postgresql)
 
     // Valkey/Redis for webhook deduplication
     implementation("org.springframework.boot:spring-boot-starter-data-redis")

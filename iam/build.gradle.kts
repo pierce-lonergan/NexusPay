@@ -14,7 +14,6 @@ dependencies {
     implementation(rootProject.libs.spring.modulith.starter.core)
     implementation("org.springframework.boot:spring-boot-starter-aop")
     implementation(rootProject.libs.flyway.core)
-    implementation(rootProject.libs.flyway.database.postgresql)
 
     // JJWT — Session token signing/validation (Sprint 3.5)
     implementation(rootProject.libs.jjwt.api)

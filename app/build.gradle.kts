@@ -59,11 +59,6 @@ dependencies {
 configurations.all {
     resolutionStrategy {
         force("org.apache.commons:commons-compress:1.24.0")
-        // flyway-core and flyway-database-postgresql MUST be the same version, or
-        // FlywayExecutor throws AbstractMethodError (SPI split). The Spring Boot
-        // BOM and the version catalog disagreed; pin both to the catalog's 10.15.0.
-        force("org.flywaydb:flyway-core:10.15.0")
-        force("org.flywaydb:flyway-database-postgresql:10.15.0")
     }
 }
 

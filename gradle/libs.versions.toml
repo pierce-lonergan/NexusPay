@@ -43,8 +43,12 @@ kafka-clients = { module = "org.apache.kafka:kafka-clients" }
 
 # Database
 postgresql = { module = "org.postgresql:postgresql" }
-flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
-flyway-database-postgresql = { module = "org.flywaydb:flyway-database-postgresql", version.ref = "flyway" }
+# Flyway version is managed by the Spring Boot BOM (3.2.5 → Flyway 9.22.3, whose
+# flyway-core already includes PostgreSQL support). The separate
+# flyway-database-postgresql artifact is Flyway 10+ only; pinning Flyway 10.15.0
+# ran it against Boot's Flyway-9 autoconfig → AbstractMethodError in FlywayExecutor.
+# Use Boot's managed flyway-core; the postgresql module is dropped.
+flyway-core = { module = "org.flywaydb:flyway-core" }
 
 # Resilience
 resilience4j-spring-boot3 = { module = "io.github.resilience4j:resilience4j-spring-boot3", version.ref = "resilience4j" }

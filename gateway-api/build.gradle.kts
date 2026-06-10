@@ -17,7 +17,6 @@ dependencies {
     implementation(rootProject.libs.spring.kafka)
     implementation(rootProject.libs.kafka.clients)
     implementation(rootProject.libs.flyway.core)
-    implementation(rootProject.libs.flyway.database.postgresql)
     implementation(rootProject.libs.springdoc.openapi.starter.webmvc.ui)
     implementation(rootProject.libs.logstash.logback.encoder)
 
