@@ -36,16 +36,6 @@ claims: (none — single instance)
   have zero callers — BLOCK/sanctions decisions gate nothing. Score (5×4)/4 +2
   = **7**. AC: RFC (module-boundary impact: gateway→fraud), then gated call.
 
-- **B-007 | Routing A/B framework is dead code — wire or remove** | T2 subtraction
-  CONFIRMED dead: RoutingAbTestService.selectConfig/recordOutcome have ZERO
-  callers; the engine only copies abTestId/group onto decision records, never
-  picks a group or records an outcome → getTestSummary is permanently
-  "insufficient data". Stats math IS correct (now locked by RoutingAbTestServiceTest).
-  Wire-vs-delete is a PRODUCT decision (removing a built REST API surface vs.
-  completing it — and completion depends on the routing engine being on the live
-  payment path, B-003). ESCALATED → Q-007. Score (2×4)/2 = **4**. AC: human picks
-  wire or delete; then ADR + execute.
-
 - **B-012 | CI hardening: pin actions by SHA, add OSV + secret scan** | build-health
   Existing `.github/workflows/ci.yml` + new perpetua-gates. Score (3×4)/2 = **6**.
 
@@ -89,6 +79,9 @@ claims: (none — single instance)
   idempotency key (fold into B-002/outbox work). Score (4×4)/4 +2 = **6**.
 
 ## Done
+- **B-007** (2026-06-10, Q-007 approved) DELETED the dead routing A/B framework
+  (controller + service + test; ~250 LOC) — subtraction §7; re-add when routing is
+  live (B-003). ADR-008. Inert abTest fields left in place.
 - **B-018** (2026-06-10) OutboxRelay leader-lock release is now an atomic
   owner-checked Lua compare-and-delete (was non-atomic GET-then-DELETE) — mirrors
   the reviewed SchedulerLock pattern; closes the release-race the B-001 review found.

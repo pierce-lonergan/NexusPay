@@ -28,6 +28,18 @@ Alternative: `@DependsOn`/`@Primary` juggling (rejected — fragile). Note: the
 RLS `SET LOCAL`-on-checkout mechanism itself is still semantically broken
 (B-002); this ADR only fixes the boot cycle.
 
+## ADR-008 | 2026-06-10 | Delete the dead routing A/B framework (Q-007, human-approved)
+Context (B-007): `RoutingAbTestService`/`RoutingAbTestController` (REST
+`/v1/routing/ab-tests`) were unreachable — the routing engine never assigned a
+group or recorded an outcome, so the (correct) z-test was never fed. Decision:
+DELETE the service + controller + its test (subtraction, §7). Wiring was rejected
+because it requires the routing engine to be on the live payment path, which it
+is not (B-003) — wiring A/B into not-yet-live routing is dead-code-into-dead-code.
+The inert `abTestId`/`abTestGroup` fields + columns on RoutingConfig/RoutingDecision
+are LEFT in place (harmless; removing them touches entities + migrations). Trivially
+restorable from git history when routing goes live. Verified: payment-orchestration
+compiles + tests green; no dangling references.
+
 ## ADR-007 | 2026-06-10 | Token-aware adaptive pacing (human-directed, B-019)
 Context: the human wants to spend as much of the per-5h-window Fable-5 token
 budget as possible on productive work while away, without (a) idling with quota

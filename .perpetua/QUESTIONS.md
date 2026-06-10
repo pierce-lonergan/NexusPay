@@ -46,7 +46,8 @@ every test reports "insufficient data" forever. Two options:
 I did NOT do either (removing/▸completing a product API is your call at L1). My lean:
 **delete now** (it's dead surface; re-add cleanly when routing goes live), unless
 A/B routing is near-term on the roadmap. Which?
-**ANSWER:**
+**ANSWER:** RESOLVED 2026-06-10 — human said full-send the rest → DELETE executed
+(ADR-008). Re-add cleanly when the routing engine is live (B-003).
 
 ## FYI / lower priority
 
