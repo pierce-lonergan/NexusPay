@@ -29,6 +29,31 @@ nexuspay/
 3. Run: `./gradlew bootRun`
 4. Test: `./gradlew test`
 
+## Build requirements & troubleshooting
+
+The build needs a real **JDK 21** toolchain and a working temp directory. The
+gotchas below have each cost someone an afternoon:
+
+- **`JAVA_HOME` must point at JDK 21**, not just "21+ installed". If it points
+  at JDK 17 the build fails with `invalid source release: 21`. Check with
+  `java -version` AND `echo $JAVA_HOME` — they can disagree.
+  - macOS/Linux: `export JAVA_HOME=$(/usr/libexec/java_home -v 21)` (or your distro's path).
+  - Windows (PowerShell): `$env:JAVA_HOME = 'C:\Program Files\Eclipse Adoptium\jdk-21.x.x-hotspot'`.
+- **Windows uses `gradlew.bat`** (`.\gradlew.bat build`), not `./gradlew`.
+- **A broken/locked temp dir breaks Gradle** with a confusing
+  `java.io.IOException: Unable to establish loopback connection` (Gradle's
+  worker uses an NIO loopback pipe). If you hit it, point the JVM temp dir at a
+  writable path, e.g. Windows `set TMP=C:\Temp & set TEMP=C:\Temp` before building.
+- **Integration tests need Docker** (Testcontainers: Postgres, Kafka, Valkey).
+  They self-skip when no Docker daemon is available, so `./gradlew test` stays
+  green on a machine without Docker — but you then haven't exercised the
+  RLS/migration/boot paths. Run them with Docker up for full coverage.
+- **Run one module's tests** with `./gradlew :billing:test` (faster inner loop).
+- **Coverage:** `./gradlew test jacocoTestReport` writes a per-module report to
+  `<module>/build/reports/jacoco/test/html/index.html` (XML alongside). CI sums
+  the module XMLs and fails if aggregate line coverage drops below the ratchet
+  floor in `.perpetua/ratchets.json` (`coverage_floor_pct`).
+
 ## Module Conventions
 
 Each module follows hexagonal architecture:

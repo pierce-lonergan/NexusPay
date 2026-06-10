@@ -1,8 +1,8 @@
 {
   "_comment": "Quality constitution. Floors rise only (meta-review action). Lowering requires a human-ratified ADR. Values below are MEASURED reality at bootstrap 2026-06-09/10, except where marked unmeasured. test_count_floor was corrected from an un-measured 201 to the true full-suite count (202 executed, 215 incl. 13 Docker-skipped) after B-010/B-001 added 14 tests.",
-  "test_count_floor": 202,
-  "coverage_floor": 0.0,
-  "coverage_status": "UNMEASURED — no JaCoCo wired yet (B-005). Floor is a placeholder, not a real baseline.",
+  "test_count_floor": 223,
+  "coverage_floor_pct": 23,
+  "coverage_status": "MEASURED 2026-06-10 via JaCoCo (B-005): aggregate line coverage 24% (2411/9976). Floor set to 23 (1pt under measured to avoid flap); rises only. Lowest modules: gateway-api 2%, billing/app 4%, common 7% — targets for B-014.",
   "mutation_floor": { "default": 0.0 },
   "mutation_status": "UNMEASURED — no PIT wired yet (B-005).",
   "high_vulns_max": 0,
@@ -32,7 +32,7 @@
   "tooling": {
     "build": "gradle (wrapper); REQUIRES JDK 21 (JAVA_HOME) and a working temp dir",
     "test": "gradle test (JUnit 5); integration tests need Docker (Testcontainers) and self-skip without it",
-    "coverage": "RECOMMENDED jacoco gradle plugin — not yet wired (B-005)",
+    "coverage": "WIRED (B-005): jacoco applied to all subprojects; per-module jacocoTestReport XML+HTML; CI aggregates the XMLs vs coverage_floor_pct",
     "mutation": "RECOMMENDED info.solidsoft.pitest — not yet wired (B-005)",
     "property": "RECOMMENDED net.jqwik:jqwik — not yet wired",
     "bench": "RECOMMENDED JMH (me.champeau.jmh) — not yet wired",

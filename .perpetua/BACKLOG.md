@@ -13,20 +13,18 @@ claims: (none — single instance)
   security/AUDITS.md; Critical/High → top of backlog. Score (4×5)/2 = **10**.
   AC: scans run, AUDITS.md populated, ratchets high_vulns reflects reality.
 
-- **B-005 | Wire coverage (JaCoCo) + set real ratchet baseline** | test-strength
-  No coverage measured. Add jacoco, run, set `coverage_floor` to reality, gate
-  in CI. Score (3×5)/2 = **7.5**. AC: jacoco report, ratchets updated, CI check.
-
 - **B-011 | Flyway version collisions across modules (V1/V2)** | T3 it-runs
   ledger V1 vs payment/iam/gateway V1 (four V1__), ledger V2 vs iam V2 feed one
   history → "more than one migration with version 1" at startup. Needs a DB to
   confirm. Score (5×4)/3 +2 = **8.7**. AC: renumber into reserved ranges OR
   per-module history tables; verified migrate. Source: audit (ledger/recon).
 
-- **B-014 | Tests for the zero-test money modules** | test-strength
-  analytics, fraud, payment-orchestration have NO unit tests. Target the money/
-  security paths first (FX convert, FRM amount scaling, rollup math). Score
-  (4×4)/3 = **5.3** (×rotation priority). AC: ≥1 test class per money path.
+- **B-014 | Raise coverage on the lowest money/security modules** | test-strength
+  JaCoCo (B-005) now measures it: gateway-api 2%, billing 4%, common 7%, ledger
+  10%, iam 14% are the thinnest — and fraud & payment-orchestration still have
+  ZERO tests (FX convert, FRM amount scaling). Target the money/security paths
+  first; ratchet coverage_floor_pct up as it rises. Score (4×4)/3 = **5.3**
+  (×rotation priority). AC: ≥1 test class per money path; coverage floor raised.
 
 - **B-002 | RLS enforced at runtime** | T3 security (RESEARCH-first)
   `SET LOCAL` runs outside a txn (no-op) AND app connects as table owner
@@ -46,10 +44,6 @@ claims: (none — single instance)
 
 - **B-012 | CI hardening: pin actions by SHA, add OSV + secret scan** | build-health
   Existing `.github/workflows/ci.yml` + new perpetua-gates. Score (3×4)/2 = **6**.
-
-- **B-013 | Document the build environment** | docs
-  README/CONTRIBUTING: JDK 21 requirement, gradlew.bat, temp-dir/loopback quirk.
-  Score (3×5)/2 = **7.5**.
 
 - **B-015 | StripeCsvParser uses naive split(",") — RFC-4180 violation** | T2 correctness
   Discovered during B-010. A quoted `description` containing a comma shifts every
@@ -96,6 +90,11 @@ claims: (none — single instance)
   idempotency key (fold into B-002/outbox work). Score (4×4)/4 +2 = **6**.
 
 ## Done
+- **B-005** (2026-06-10) JaCoCo wired on all modules (per-module XML+HTML);
+  measured aggregate line coverage 24%; ratchet `coverage_floor_pct=23` enforced
+  in CI (perpetua-gates). Exposed the thin modules for B-014.
+- **B-013** (2026-06-10) build-environment docs in CONTRIBUTING (JDK-21/JAVA_HOME,
+  gradlew.bat, temp-dir loopback gotcha, Docker-skip integration tests, coverage cmd).
 - **B-009** (2026-06-10) maker-checker refund execute-once + idempotency —
   atomic conditional approve (`transitionFromPending`, rows-affected==1) closes
   the concurrent double-approve race; tenant-ownership check closes cross-tenant

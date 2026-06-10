@@ -19,6 +19,7 @@ allprojects {
 subprojects {
     apply(plugin = "java")
     apply(plugin = "io.spring.dependency-management")
+    apply(plugin = "jacoco")   // per-module coverage (B-005); CI aggregates the XMLs vs ratchet floor
 
     java {
         sourceCompatibility = JavaVersion.VERSION_21
@@ -47,5 +48,15 @@ subprojects {
     tasks.withType<Test> {
         useJUnitPlatform()
         jvmArgs("-XX:+EnableDynamicAgentLoading")
+        finalizedBy(tasks.named("jacocoTestReport"))
+    }
+
+    tasks.named<JacocoReport>("jacocoTestReport") {
+        // run after tests; XML for CI aggregation, HTML for humans
+        mustRunAfter(tasks.named("test"))
+        reports {
+            xml.required.set(true)
+            html.required.set(true)
+        }
     }
 }

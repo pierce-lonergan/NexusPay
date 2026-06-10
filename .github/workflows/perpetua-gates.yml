@@ -39,12 +39,27 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      - name: Build + test
-        run: ./gradlew build test --no-daemon
+      - name: Build + test + coverage
+        run: ./gradlew build test jacocoTestReport --no-daemon
         env:
           NEXUSPAY_DB_URL: jdbc:postgresql://localhost:5432/nexuspay
           NEXUSPAY_DB_USER: nexuspay
           NEXUSPAY_DB_PASSWORD: nexuspay_local
+
+      - name: Ratchet — aggregate line coverage must not drop below floor
+        run: |
+          floor=$(grep -oE '"coverage_floor_pct"[[:space:]]*:[[:space:]]*[0-9]+' .perpetua/ratchets.json | grep -oE '[0-9]+$')
+          cov=0; mis=0
+          while read -r f; do
+            line=$(grep -oE '<counter type="LINE"[^/]*/>' "$f" | tail -1)
+            c=$(echo "$line" | grep -oE 'covered="[0-9]+"' | grep -oE '[0-9]+'); m=$(echo "$line" | grep -oE 'missed="[0-9]+"' | grep -oE '[0-9]+')
+            cov=$(( cov + ${c:-0} )); mis=$(( mis + ${m:-0} ))
+          done < <(find . -path '*/build/reports/jacoco/test/jacocoTestReport.xml')
+          total=$(( cov + mis )); pct=0; [ "$total" -gt 0 ] && pct=$(( cov * 100 / total ))
+          echo "aggregate line coverage: ${pct}% (${cov}/${total})   floor: ${floor}%"
+          if [ "$pct" -lt "$floor" ]; then
+            echo "::error::Coverage ${pct}% is below ratchet floor ${floor}%"; exit 1
+          fi
 
       - name: Ratchet — unit test count must not drop below floor
         run: |
