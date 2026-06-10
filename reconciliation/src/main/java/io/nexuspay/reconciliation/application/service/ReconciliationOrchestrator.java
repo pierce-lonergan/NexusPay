@@ -88,11 +88,14 @@ public class ReconciliationOrchestrator {
             List<ReconciliationException> exceptions = exceptionService.createExceptions(
                     run, results, settlements);
 
-            // Step 6: Complete the run with summary stats
+            // Step 6: Complete the run with summary stats. Buckets PARTITION the
+            // records (total = matched + unmatched + exceptions) so PARTIAL
+            // (missing-ledger) lands in exceptions instead of vanishing (B-008).
             int matched = (int) results.stream().filter(MatchResult::isSuccessful).count();
             int unmatched = (int) results.stream()
                     .filter(r -> r.status() == MatchResult.Status.UNMATCHED).count();
-            run.complete(settlements.size(), matched, unmatched, exceptions.size());
+            int exceptionCount = settlements.size() - matched - unmatched; // EXCEPTION + PARTIAL
+            run.complete(settlements.size(), matched, unmatched, exceptionCount);
             repository.saveRun(run);
 
             log.info("Reconciliation run completed: id={}, total={}, matched={}, matchRate={:.1f}%",

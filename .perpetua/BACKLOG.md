@@ -19,12 +19,6 @@ claims: (none — single instance)
   (4×4)/3 +2 = **7.3**. AC: deterministic idempotency key from approval id;
   APPROVED→EXECUTED guard; tests. Source: audit (gateway/iam).
 
-- **B-008 | Reconciliation PARTIAL results silently swallowed** | T2 correctness
-  "payment matched, ledger entry missing" → `markUnmatched` but excluded from
-  exception creation and run counters (total ≠ matched+unmatched+exceptions).
-  Score (3×4)/2 +2 = **8**. AC: PARTIAL → MISSING_LEDGER_ENTRY exception +
-  counted; unit test. Source: audit (recon).
-
 - **B-005 | Wire coverage (JaCoCo) + set real ratchet baseline** | test-strength
   No coverage measured. Add jacoco, run, set `coverage_floor` to reality, gate
   in CI. Score (3×5)/2 = **7.5**. AC: jacoco report, ratchets updated, CI check.
@@ -99,6 +93,9 @@ claims: (none — single instance)
   Score (2×3)/2 = **3**.
 
 ## Done
+- **B-008** (2026-06-10) reconciliation PARTIAL → MISSING_LEDGER_ENTRY exception,
+  counted (run buckets now partition: total=matched+unmatched+exceptions). 4 tests.
+  Adversarial review: SHIP.
 - **B-004** (2026-06-10) secrets fail-fast — `StartupSecretsValidator` warns in
   dev, THROWS under a prod-like profile (or NEXUSPAY_REQUIRE_MANAGED_SECRETS=true)
   when a built-in default secret is in effect; added `application-production.yml`

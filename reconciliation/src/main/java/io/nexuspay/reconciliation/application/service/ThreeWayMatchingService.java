@@ -67,17 +67,18 @@ public class ThreeWayMatchingService {
 
             if (result.isSuccessful()) {
                 settlement.markMatched(result.matchedPaymentId(), result.matchedJournalEntryId());
-            } else if (result.status() == MatchResult.Status.EXCEPTION) {
-                settlement.markException();
-            } else {
+            } else if (result.status() == MatchResult.Status.UNMATCHED) {
                 settlement.markUnmatched();
+            } else {
+                // EXCEPTION and PARTIAL are both discrepancies needing investigation.
+                settlement.markException();
             }
         }
 
         int matched = (int) results.stream().filter(MatchResult::isSuccessful).count();
-        int exceptions = (int) results.stream()
-                .filter(r -> r.status() == MatchResult.Status.EXCEPTION).count();
-        int unmatched = results.size() - matched - exceptions;
+        int unmatched = (int) results.stream()
+                .filter(r -> r.status() == MatchResult.Status.UNMATCHED).count();
+        int exceptions = results.size() - matched - unmatched;   // EXCEPTION + PARTIAL
 
         log.info("Reconciliation complete: total={}, matched={}, unmatched={}, exceptions={}",
                 results.size(), matched, unmatched, exceptions);

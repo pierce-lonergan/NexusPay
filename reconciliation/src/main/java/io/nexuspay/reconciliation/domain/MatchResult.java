@@ -25,6 +25,7 @@ public record MatchResult(
         AMOUNT_MISMATCH,
         MISSING_PAYMENT,
         MISSING_SETTLEMENT,
+        MISSING_LEDGER_ENTRY,
         FEE_DISCREPANCY,
         CURRENCY_MISMATCH,
         DUPLICATE_SETTLEMENT
@@ -35,7 +36,11 @@ public record MatchResult(
     }
 
     public static MatchResult partial(String settlementId, String paymentId) {
-        return new MatchResult(Status.PARTIAL, settlementId, paymentId, null, null,
+        // A matched payment with no ledger entry is a genuine books-missing-money
+        // discrepancy — it carries a MISSING_LEDGER_ENTRY type so it becomes a
+        // tracked exception, not a silently-dropped "unmatched" (B-008).
+        return new MatchResult(Status.PARTIAL, settlementId, paymentId, null,
+                ExceptionType.MISSING_LEDGER_ENTRY,
                 "Payment matched but no ledger entry found");
     }
 

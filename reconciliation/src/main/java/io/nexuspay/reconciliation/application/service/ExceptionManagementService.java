@@ -41,10 +41,15 @@ public class ExceptionManagementService {
                                                            List<SettlementRecord> settlements) {
         List<ReconciliationException> exceptions = new ArrayList<>();
 
+        // Creates a row for every problem record — EXCEPTION, UNMATCHED
+        // (MISSING_PAYMENT) and PARTIAL (MISSING_LEDGER_ENTRY). Note the run's
+        // exceptionCount STAT counts only EXCEPTION+PARTIAL (UNMATCHED has its own
+        // bucket), so #rows == exceptionCount + unmatchedCount by design.
         for (int i = 0; i < matchResults.size(); i++) {
             MatchResult result = matchResults.get(i);
             if (result.status() == MatchResult.Status.EXCEPTION
-                    || result.status() == MatchResult.Status.UNMATCHED) {
+                    || result.status() == MatchResult.Status.UNMATCHED
+                    || result.status() == MatchResult.Status.PARTIAL) {
 
                 SettlementRecord settlement = settlements.get(i);
                 MatchResult.ExceptionType type = result.exceptionType() != null
