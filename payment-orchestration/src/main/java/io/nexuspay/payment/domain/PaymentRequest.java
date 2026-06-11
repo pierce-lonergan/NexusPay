@@ -22,4 +22,11 @@ public record PaymentRequest(
         if (amount <= 0) throw new IllegalArgumentException("amount must be positive");
         if (currency == null || currency.isBlank()) throw new IllegalArgumentException("currency required");
     }
+
+    /** Returns a copy with a different capture method (e.g. forced to "manual" when
+     *  a fraud REVIEW holds capture — B-003). */
+    public PaymentRequest withCaptureMethod(String newCaptureMethod) {
+        return new PaymentRequest(amount, currency, customerId, paymentMethodType,
+                paymentMethodData, returnUrl, description, newCaptureMethod, idempotencyKey, metadata);
+    }
 }

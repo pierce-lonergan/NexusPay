@@ -115,7 +115,10 @@ public class CrossBorderComplianceService {
 
         ComplianceResult result = validateTransaction(sourceCountry, destinationCountry, amount, currency);
         if (!result.allowed()) {
-            throw new PaymentException("cross_border_blocked", result.blockReason());
+            // PaymentException is (message, errorCode) — these were swapped, so the
+            // error code was the reason text and never matched the handler's
+            // "cross_border_blocked" case (silently became a 422 with a code-as-message).
+            throw new PaymentException(result.blockReason(), "cross_border_blocked");
         }
         return result;
     }

@@ -7,6 +7,7 @@ dependencies {
     implementation(project(":payment-orchestration"))
     implementation(project(":ledger"))
     implementation(project(":iam"))
+    implementation(project(":fraud"))   // B-003: pre-authorization fraud gate
 
     implementation(rootProject.libs.spring.boot.starter.web)
     implementation(rootProject.libs.spring.boot.starter.data.jpa)

@@ -1,6 +1,9 @@
 package io.nexuspay.gateway.adapter.in.rest;
 
 import io.nexuspay.gateway.adapter.in.rest.dto.*;
+import io.nexuspay.gateway.application.GateDecision;
+import io.nexuspay.gateway.application.GateSignals;
+import io.nexuspay.gateway.application.PreAuthorizationGate;
 import io.nexuspay.gateway.application.RefundOrchestrationService;
 import io.nexuspay.iam.domain.NexusPayPrincipal;
 import io.nexuspay.payment.application.port.PaymentGatewayPort;
@@ -21,11 +24,14 @@ public class PaymentController {
 
     private final PaymentGatewayPort paymentGateway;
     private final RefundOrchestrationService refundOrchestration;
+    private final PreAuthorizationGate preAuthGate;
 
     public PaymentController(PaymentGatewayPort paymentGateway,
-                              RefundOrchestrationService refundOrchestration) {
+                              RefundOrchestrationService refundOrchestration,
+                              PreAuthorizationGate preAuthGate) {
         this.paymentGateway = paymentGateway;
         this.refundOrchestration = refundOrchestration;
+        this.preAuthGate = preAuthGate;
     }
 
     @PostMapping
@@ -33,13 +39,25 @@ public class PaymentController {
     @Operation(summary = "Create a payment intent")
     public ResponseEntity<PaymentApiResponse> createPayment(
             @Valid @RequestBody CreatePaymentRequest request,
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
-        var response = paymentGateway.createPayment(new PaymentRequest(
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @AuthenticationPrincipal NexusPayPrincipal principal) {
+        var paymentRequest = new PaymentRequest(
                 request.amount(), request.currency(), request.customer_id(),
                 request.payment_method_type(), request.payment_method_data(),
                 request.return_url(), request.description(), request.capture_method(),
-                idempotencyKey, request.metadata()
-        ));
+                idempotencyKey, request.metadata());
+
+        // B-003: pre-authorization fraud + sanctions gate, BEFORE the PSP call.
+        // A sanctioned country or a fraud BLOCK throws here (no PSP call); a fraud
+        // REVIEW authorizes but holds capture (forces manual capture).
+        GateSignals signals = GateSignals.fromRequest(request.metadata(), request.payment_method_data());
+        String tenantId = principal != null ? principal.tenantId() : null;
+        GateDecision gate = preAuthGate.evaluate(idempotencyKey, paymentRequest, tenantId, signals);
+        PaymentRequest effective = gate.holdCapture()
+                ? paymentRequest.withCaptureMethod("manual")
+                : paymentRequest;
+
+        var response = paymentGateway.createPayment(effective);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ResponseMapper.toPaymentResponse(response));
     }

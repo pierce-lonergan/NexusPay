@@ -28,6 +28,8 @@ public class GlobalExceptionHandler {
         HttpStatus status = switch (ex.getErrorCode()) {
             case "payment_not_found" -> HttpStatus.NOT_FOUND;
             case "invalid_state" -> HttpStatus.CONFLICT;
+            case "cross_border_blocked" -> HttpStatus.FORBIDDEN;       // B-003 sanctions block
+            case "fraud_blocked" -> HttpStatus.UNPROCESSABLE_ENTITY;   // B-003 fraud BLOCK
             default -> HttpStatus.UNPROCESSABLE_ENTITY;
         };
         return ResponseEntity.status(status).body(ApiErrorResponse.of(error));
