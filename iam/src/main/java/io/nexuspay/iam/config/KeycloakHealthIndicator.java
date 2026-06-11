@@ -3,6 +3,7 @@ package io.nexuspay.iam.config;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.actuate.autoconfigure.health.ConditionalOnEnabledHealthIndicator;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.stereotype.Component;
@@ -11,8 +12,13 @@ import org.springframework.web.client.RestClient;
 /**
  * Health indicator for Keycloak connectivity.
  * Calls the Keycloak realm endpoint and reports UP/DOWN.
+ *
+ * <p>Default-on; disable with {@code management.health.keycloak.enabled=false}
+ * (e.g. integration tests with no Keycloak, where a connection-refused would
+ * otherwise mark the whole /actuator/health DOWN).</p>
  */
 @Component
+@ConditionalOnEnabledHealthIndicator("keycloak")
 public class KeycloakHealthIndicator implements HealthIndicator {
 
     private static final Logger log = LoggerFactory.getLogger(KeycloakHealthIndicator.class);
