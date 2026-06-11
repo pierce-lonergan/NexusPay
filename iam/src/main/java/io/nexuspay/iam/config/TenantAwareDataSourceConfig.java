@@ -36,7 +36,12 @@ import java.sql.SQLException;
 public class TenantAwareDataSourceConfig {
 
     private static final Logger log = LoggerFactory.getLogger(TenantAwareDataSourceConfig.class);
-    private static final String SET_TENANT_SQL = "SET LOCAL app.current_tenant_id = ?";
+    // PostgreSQL's `SET` command does NOT accept bind parameters, so
+    // `SET LOCAL app.current_tenant_id = ?` is a syntax error when run as a
+    // PreparedStatement (fails connection checkout whenever a tenant is set).
+    // set_config(setting, value, is_local) is the parameterizable equivalent;
+    // is_local=true scopes it to the current transaction like SET LOCAL.
+    private static final String SET_TENANT_SQL = "SELECT set_config('app.current_tenant_id', ?, true)";
 
     /**
      * Decorates the auto-configured {@link DataSource} <em>in place</em> via a
