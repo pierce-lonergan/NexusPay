@@ -133,3 +133,6 @@ claims: (none — single instance)
   `@JdbcTypeCode(SqlTypes.JSON)`, StripeCsvParser emits valid JSON; 4-test
   `StripeCsvParserTest` added (test count 201→205). Adversarial review: SHIP.
 - (bootstrap fixes committed as 4a1c6ea — see DIGEST/LESSONS)
+
+## Triaged from the first real CI scans (2026-06-10, B-006 now operational)
+- **B-023 | checkout-sdk npm dev-dependency vulns** | T2 | OSV's first CI run (report-only, §15.3) flagged 7 vulns (1 Critical, 1 High, 5 Medium) — ALL in `checkout-sdk/package-lock.json` (the frontend SDK), ALL **dev** dependencies, NONE in the Java backend runtime: vitest 1.6.1→3.2.6 (9.8 Crit), picomatch→4.0.4 (7.5 High), vite→6.4.2, postcss→8.5.10, esbuild→0.25.0, ws→8.20.1. All have fix versions. Fix = bump checkout-sdk devDeps + re-test the SDK build, then flip the OSV gate from report-only to blocking (ratchets high_vulns_max=0). Logged in security/AUDITS.md.

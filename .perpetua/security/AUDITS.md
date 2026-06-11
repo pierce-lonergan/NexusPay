@@ -54,6 +54,22 @@ Tooling not installable in this sandbox (no gitleaks/osv/semgrep binaries), so:
 STATUS: local baseline clean; full automated scan results pending the first CI run
 (needs push — Q-001) or local tool install (Q-003).
 
-NEXT DEEP AUDIT should: run gitleaks over history, OSV-scan all Gradle deps,
-semgrep java rulesets, and re-verify the OPEN-HIGH items above are closed or
-still tracked. Log results here.
+## 2026-06-10 — first REAL automated scans ran in CI (B-006 operational, gate GREEN)
+Both scanners now run in perpetua-gates as pinned binaries (gitleaks 8.30.1,
+osv-scanner 2.3.8); the previous marketplace-action versions were broken.
+- **gitleaks (secret-scan, BLOCKING):** working-tree scan, 1 finding → triaged
+  FALSE POSITIVE, allowlisted in `.gitleaks.toml` (scoped to one file). It was
+  `StartupSecretsValidator.java`, which embeds the dev-default secret literals BY
+  DESIGN (the B-004 detect-and-refuse control); public placeholders, not
+  credentials. No real secrets in the working tree. (History scan still TODO.)
+- **osv-scanner (dependency-scan, REPORT-ONLY first run, §15.3):** 7 known vulns
+  (1 Critical / 1 High / 5 Medium), ALL in `checkout-sdk/package-lock.json`
+  (frontend SDK **dev** deps), NONE in the Java backend runtime graph → tracked as
+  **B-023**; flip the gate to blocking after the bump. Java/Gradle deps: no High+.
+- Also FIXED (now CLOSED, no longer just MEDIUM-open): B-010 jsonb, B-008 PARTIAL,
+  **B-011 Flyway** (+ the whole schema↔entity drift behind it) — all verified by the
+  now-green integration suite. semgrep SAST still PENDING.
+
+NEXT DEEP AUDIT should: run gitleaks over git history (not just working tree),
+wire semgrep java rulesets, triage+fix B-023 then enforce OSV, and re-verify the
+OPEN-HIGH items above are closed or still tracked. Log results here.
