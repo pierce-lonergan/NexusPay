@@ -43,3 +43,42 @@ No Postgres here to confirm the GUC actually scopes per-tx, the role is RLS-boun
 and policies match the column. Shipping unverified RLS is worse than the current
 known-broken state (false sense of isolation). Execute under Docker/CI with the IT
 above as the acceptance gate.
+
+## STATUS 2026-06-10 — acceptance gate PROVEN; production activation scoped + deferred
+`RlsIsolationIntegrationTest` (app module) is GREEN in CI: connecting as the
+non-owner `nexuspay_app` role with the GUC set, the V2001 policies isolate tenant A
+from B, a cross-tenant delete affects 0 rows, and no-tenant-bound returns ZERO rows
+(fail-closed). So **the policies + set_config mechanism are correct** — confirmed,
+not assumed. The remaining gap is purely that the running app authenticates as the
+table OWNER (NEXUSPAY_DB_USER=nexuspay), which bypasses RLS.
+
+ACTIVATION PLAN (deliberate, staged — NOT a single blind flip):
+1. **GUC timing.** Replace the on-`getConnection` `set_config(...,true)` (discarded in
+   autocommit) with either (a) Hibernate `MultiTenantConnectionProvider.getConnection
+   (tenant)` running `set_config('app.current_tenant_id', tenant, false)` and
+   `releaseConnection` RESETting it (canonical, no pool leak), or (b) the existing
+   DataSource decorator fixed to set session-scope at checkout + RESET on the wrapped
+   `Connection.close()` before return to the pool. Prefer (a).
+2. **Non-owner role for app traffic.** Point the JPA datasource at `nexuspay_app`
+   (NEXUSPAY_DB_USER); keep the OWNER only for Flyway (`spring.flyway.user/password`)
+   so migrations still create/alter under the owner.
+3. **Cross-tenant background jobs (THE architectural decision — 16 @Scheduled jobs:**
+   RenewalScheduler, TrialExpirationScheduler, PayoutScheduler, OutboxRelay,
+   DeadLetterReprocessor, BalanceReconciliationJob, analytics rollups/retention,
+   FxRateLock/Streaming, DataRetentionJob, OutboxLagMonitor, SanctionsListAdapter).
+   Under a non-owner role these see zero rows unless handled. Two options — pick ONE
+   in an ADR before coding:
+   - **(A) system-tenant policy bypass:** extend every tenant policy to
+     `USING (tenant_id = current_tenant_id() OR current_tenant_id() = 'system')`
+     (TenantContext.SYSTEM_TENANT already exists) and have jobs bind 'system'. Simple,
+     one datasource; WEAKER (a GUC-manipulation/SQL-injection bug → full bypass).
+   - **(B) separate owner/system datasource** used only by the cross-tenant jobs.
+     No policy escape hatch (stronger); more infra (2nd pool + routing).
+4. **Verify:** RlsIsolationIntegrationTest (extend with a system-tenant case for whichever
+   option) + the FULL integration suite + a deliberate check that each of the 16 jobs
+   still returns rows. Roll out behind `nexuspay.multi-tenancy.rls.enabled` with
+   canary/monitoring — a wrong flip leaks tenants OR returns zero rows app-wide.
+WHY DEFERRED: steps 2–3 are high-blast-radius and gated on a security architecture
+decision (A vs B); rushing them at session-end risks app-wide breakage or a leak —
+worse than the current (known, documented) state. The correctness is now PROVEN; the
+rollout is a focused, staged follow-up.

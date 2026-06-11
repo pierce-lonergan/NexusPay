@@ -1,36 +1,36 @@
-# Handoff — 2026-06-10 — session 1 (B-011 + full integration-test bring-up)
-NOW: **CI is GREEN** on branch perpetua/bootstrap / PR #1. For the first time ever the
-app boots end-to-end in CI against real Postgres+Kafka+Redis (Testcontainers) and all
-13 integration tests pass (263 tests total). B-011 CLOSED. CI is the standing verifier (L2).
+# Handoff — 2026-06-10 — session 1 (B-011 bring-up, B-006 scans, B-003 gate, B-002 proof)
+NOW: **CI fully green** (CI + perpetua-gates) on perpetua/bootstrap / PR #1 (MERGEABLE).
+App boots end-to-end on real Postgres/Kafka/Redis; full integration suite passes.
 ACTIVE ITEM: none in-flight | branch perpetua/bootstrap | phase SELECT
-DONE (this session): B-011 — the one Flyway collision was the cork; clearing it surfaced
-~10 latent layers, all fixed with CI-artifact ground truth: Flyway leaf-locations +
-fail-on-missing (+ found the test yaml's 4-leaf list silently dropped the `app` leaf);
-event_publication table; @JdbcTypeCode(JSON) ×23 jsonb; List/array→jsonb; Double type;
-2 child-table RLS policies; nested Spring Data repos (@EnableJpaRepositories); Kafka
-ConsumerFactory @Qualifier; set_config() not `SET …=?`; AccessDenied→403; PSP/Keycloak
-health indicators disableable; Vault off in tests. L-023–L-030. (commits up to e6c2392)
-STATE: CI green; 263 tests pass (250 unit + 13 integration, the latter now EXECUTING not
-skipped); coverage floor 16 (CI-enforced); test floor 234→250.
+DONE (this session): B-011 (Flyway + the whole never-run integration-suite bring-up →
+first green CI); B-006 (gitleaks + osv-scanner as pinned binaries, both gates green;
+gitleaks allowlist for the B-004 default-secret literals); **B-003** fraud+sanctions
+pre-auth gate FIRST CUT (wired on the interactive create path, unit+IT tested, CI-green;
+also fixed a pre-existing PaymentException arg-swap) — T3 review found real gaps, all
+tracked B-024..B-028 + ADR-009; **B-002** acceptance gate PROVEN (RlsIsolationIntegration
+Test green — V2001 policies isolate tenants + fail-closed via the non-owner role), prod
+activation scoped + deferred (see rfc-b002 + below). Latest commit ~366d291.
+STATE: CI green; ~265 tests (250 unit + integration incl. the 2 new gate/RLS ITs);
+coverage floor 16; test floor 250.
 WATCH OUT:
-- **B-002 RLS is still NOT effective** (only made valid+booting). The tenant `set_config`
-  runs at getConnection (pre-transaction, autocommit) so it's discarded, AND tests/app
-  connect as the table OWNER which bypasses RLS (V2001 doesn't FORCE it). Real fix =
-  set tenant INSIDE the tx (Hibernate StatementInspector / tx hook) + a non-owner app
-  role + an isolation IT. RFC: research/rfc-b002. Tracked, unchanged.
-- These migrations had NEVER run before, so they're effectively still "unreleased" — I
-  edited them in place (safe: fresh Testcontainers DB each run, no persisted history).
-- BUILD NEEDS JDK 21 + temp dir: JAVA_HOME=<Adoptium jdk-21>, TMP=C:\Temp, .\gradlew.bat.
-- No Docker locally → integration tests skip here; CI (Docker) is the only place they run.
-  Diagnose CI failures by downloading the `test-results` artifact and reading the JUnit
-  HTML (captures Flyway log + full stack/SQL) — the Gradle console hides exception messages.
-- B-022 (stuck-APPROVED refund recovery) remains an open pre-existing money residual.
-- Q-006 (coverage floor 23→16 ratification), Q-002 (branch protection) still open.
-BUDGET: very heavy session (~15 CI iterations, all real bug fixes). limit status: ok.
-QUEUE (no Flyway/boot blockers left — pick by value):
-- B-002 (RLS effectiveness — now CI-verifiable with an isolation IT; T3) ·
-- B-003 (wire fraud/sanctions pre-auth gate — no DB, T3 dual-review, RFC ready) ·
-- B-014 (coverage on thin modules — gateway/billing/iam were ~2-6%) ·
-- B-006 remainder (semgrep SAST + triage first OSV findings) ·
-- B-016/B-020 (more integration tests now that the harness works) ·
-- update CHARTER L1→L2.
+- **B-002 is PROVEN-correct but NOT YET ENFORCING in prod.** The app connects as the
+  table OWNER (bypasses RLS). Activation = non-owner role + per-tx GUC + a system path
+  for 16 cross-tenant @Scheduled jobs — HIGH blast radius, gated on an A-vs-B security
+  ADR (system-tenant policy bypass vs separate owner datasource). Full plan in
+  research/rfc-b002. Do it as a STAGED change, not a blind flip. RlsIsolationIntegration
+  Test is the gate.
+- **B-003 is a SCOPED first cut, NOT a complete sanctions control.** Only the REST
+  create path is gated (not confirm/capture or billing/b2b/workflow callers → B-024);
+  sanctions geography is client-supplied metadata (B-025); OFAC parser is broken →
+  4-country static fallback (B-026). Don't advertise OFAC coverage. ADR-009, L-031.
+- These migrations had never run before B-011 → effectively unreleased; edited in place
+  (safe: fresh Testcontainers DB per CI run).
+- BUILD: JDK 21 + TMP=C:\Temp, then .\gradlew.bat. No Docker locally → ITs run only in CI.
+  Diagnose CI failures via the `test-results` artifact (JUnit HTML has the real stack/SQL).
+- B-022 (stuck-APPROVED refund recovery) still open. Q-006/Q-002 open.
+BUDGET: very heavy session. limit status: ok.
+QUEUE (no build/boot blockers; pick by value):
+- B-002 activation (staged; needs the A-vs-B ADR) · B-024 gate coverage (BLOCKER-class) ·
+  B-025/B-026 sanctions authority + OFAC parser · B-027 REVIEW/idempotent fraud ·
+  B-023 checkout-sdk npm vulns (then OSV→blocking) · B-014 coverage on thin modules ·
+  update CHARTER L1→L2.
