@@ -64,6 +64,23 @@ class PaymentApiIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
+    @DisplayName("POST /v1/payments - sanctioned destination country is blocked (403) before any PSP call")
+    void createPayment_sanctionedDestination_returns403() throws Exception {
+        // KP is in the default sanctioned list (nexuspay.fx.compliance.sanctioned-countries).
+        // The B-003 pre-auth gate must reject BEFORE the PSP — a 403 (not a 5xx from a
+        // failed HyperSwitch connection) proves the gate intercepted end-to-end.
+        mockMvc.perform(post("/v1/payments")
+                        .with(SecurityMockMvcRequestPostProcessors.authentication(
+                                TestSecurityConfig.authForRole("admin")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"amount": 5000, "currency": "USD",
+                                 "metadata": {"destination_country": "KP"}}
+                                """))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     @DisplayName("GET /actuator/health - public endpoint returns 200")
     void healthEndpoint_returns200() throws Exception {
         mockMvc.perform(get("/actuator/health"))
