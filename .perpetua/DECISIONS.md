@@ -85,3 +85,22 @@ is effectively settlement↔ledger two-way (no reachable payment read-model);
 documented in the adapter + a future payment read-model (B-003-adjacent) would
 upgrade it to true three-way. Alternative: leave unimplemented (rejected — app
 won't start).
+
+## ADR-009 | 2026-06-10 | B-003 ships as a SCOPED first-cut gate, not a complete sanctions control
+Context: B-003 wired the never-called fraud + cross-border modules into the payment
+path. The T3 dual review (adversarial + security) confirmed the fraud half is sound
+and tested, but found the gate is incomplete as a sanctions control: it covers only
+the interactive REST `create` path (not confirm/capture or the billing/b2b/workflow
+port callers — B-024); sanctions geography comes from client-controlled metadata
+that can be omitted/forged (B-025); the OFAC adapter's parser is broken so it runs on
+a 4-country static fallback and fails open (B-026); REVIEW capture-hold is not
+enforced at capture (B-027). Decision: SHIP the first cut — it is a real improvement
+(a fraud BLOCK now stops the PSP call on the dominant create-with-card flow; an
+end-to-end IT proves a sanctioned destination is 403'd) and makes nothing worse — but
+(a) correct the gate's own Javadoc/commit to state the limits honestly, (b) do NOT
+advertise OFAC coverage, and (c) track every review finding as B-024..B-028 with
+severity. Alternatives rejected: silently ship as a "sanctions gate" (dishonest /
+false assurance); re-architect to the port boundary + server-side geography + OFAC
+parser fix in one change (correct end state, but a multi-item epic — sequenced as
+B-024..B-026 instead, each its own T3 review). The fraud-only value is real today;
+the sanctions value is advisory until B-025/B-026 land.

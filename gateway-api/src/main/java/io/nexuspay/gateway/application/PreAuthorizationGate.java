@@ -17,8 +17,9 @@ import java.util.UUID;
 
 /**
  * Synchronous pre-authorization gate (B-003). Runs the cross-border compliance
- * (sanctions) check and the fraud risk assessment <em>before</em> a payment is sent
- * to the PSP, turning two previously-unwired protective modules into actual gates:
+ * check and the fraud risk assessment <em>before</em> a payment is sent to the PSP,
+ * wiring two previously-unwired protective modules (a fraud BLOCK / a sanctioned
+ * country was processed normally before this):
  *
  * <ul>
  *   <li>sanctioned source/destination country → reject ({@code cross_border_blocked});
@@ -28,8 +29,30 @@ import java.util.UUID;
  * </ul>
  *
  * <p>Rejections are signalled by throwing {@code PaymentException} (mapped to 403 /
- * 422 by the gateway's exception handler), so the gate is fail-loud: a missing
- * collaborator surfaces as a 5xx rather than silently letting a payment through.</p>
+ * 422 by the gateway's exception handler), so the gate is fail-loud: a thrown
+ * collaborator error surfaces as a 5xx rather than silently letting a payment
+ * through.</p>
+ *
+ * <p><b>SCOPE / KNOWN LIMITATIONS (first cut — T3 review, tracked follow-ups).</b>
+ * This gate sits on the interactive REST {@code POST /v1/payments} create path only;
+ * it is NOT yet a complete control:
+ * <ul>
+ *   <li><b>Coverage (B-024):</b> {@code confirm}/{@code capture} and the sibling PSP
+ *       callers (billing renewals, B2B vendor payouts, workflow activities) call the
+ *       payment port directly and are not gated. A port-boundary placement is needed
+ *       to cover all money-movement entrypoints.
+ *   <li><b>Sanctions inputs (B-025):</b> source/destination country come from
+ *       client-supplied request metadata; a caller can omit/forge them to evade the
+ *       sanctions check. Authoritative geography (merchant config, geo-IP, BIN→issuer
+ *       country) must drive the OFAC screen before this is relied on as a sanctions
+ *       control.
+ *   <li><b>OFAC list (B-026):</b> the underlying sanctions adapter currently
+ *       degrades to a small static country list; the screen is fraud-grade, not
+ *       comprehensive OFAC, until that is fixed and made fail-closed.
+ *   <li><b>REVIEW enforcement (B-027):</b> the capture-hold is the PSP
+ *       {@code capture_method=manual} flag only; it is not yet persisted/enforced at
+ *       the capture endpoint, and the assessment is not linked to the final payment id.
+ * </ul>
  *
  * @since 0.4.0 (B-003)
  */
