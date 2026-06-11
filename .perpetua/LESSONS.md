@@ -32,3 +32,25 @@ RECURRING-CLASS WATCH (for meta-review): "startup/*" appears 3× (L-011/12/13) �
 CI context-load smoke test (no external infra, mocked) is the systemic guardrail.
 "money/*" appears 3× (L-001/04/06) — mutation testing on ledger/billing/fraud is
 the systemic guardrail (B-005/B-014).
+
+## B-011 saga — the full integration-test bring-up (2026-06-10)
+META-LESSON (the big one): the 13 integration tests had NEVER run since they were
+written — Flyway's cross-module V1 collision aborted the schema before any test
+could boot the context. So ~10 layers of schema↔entity drift and wiring bugs
+accumulated UNVERIFIED behind that one blocker. Clearing it made CI surface them
+one boot-layer at a time (resolver → discovery → DDL → validate → bean wiring →
+external deps → security → assertions). GUARDRAIL (now standing): CI runs the full
+context against real Postgres/Kafka/Redis (Testcontainers) and the integration
+suite is GREEN — this is the systemic guard L-011/12/13 called for, now real. Any
+future drift in this class fails CI immediately. Discipline reaffirmed: do NOT
+delete load-bearing infra on an assumption (I deleted the 13 Flyway customizers
+believing the base scan was redundant — it silently dropped 11 modules; L-013/§13).
+
+L-023 | 2026-06-10 | db/flyway-location-semantics | (a) bare `classpath:db/migration` recursive scan is unreliable across separate module JARs; (b) a profile yaml `locations` list REPLACES (not merges) the base, so application-test.yml's hand-maintained 4-leaf list silently dropped the `app` leaf (current_tenant_id) → every RLS policy after it failed | explicit per-module LEAF locations + `fail-on-missing-locations: true`; test profile inherits the full list (no override) so test schema == prod | B-011
+L-024 | 2026-06-10 | db/rls-policy-references-missing-column | RLS policies on child tables (split_rules, webhook_triggers) compared a `tenant_id` column the table doesn't have (tenant lives on the parent) → 42703 once migrations finally ran | derive tenant from the parent via correlated subquery; GUARDRAIL: a CI parser asserting every `USING (tenant_id` policy's table has the column | B-011
+L-025 | 2026-06-10 | jpa/hibernate-validate-drift | ddl-auto=validate surfaced mass schema↔entity drift never caught before: Spring Modulith event_publication table+event_type missing (JPA variant ships no DDL); 23 jsonb String columns lacked @JdbcTypeCode(JSON) (also breaks INSERT bind); List/Map fields map as JSON not native array (events text[]→jsonb); Double↔DECIMAL | reconcile via the entity (javap for libs); a static entity↔migration type checker batches the whole class instead of 1-CI-cycle-each; GUARDRAIL: validate in CI is now the standing check | B-011
+L-026 | 2026-06-10 | jpa/nested-repositories-not-scanned | 4 out-adapters declared Spring Data interfaces as NESTED types; default Boot scan uses considerNestedRepositories=false → NoSuchBeanDefinitionException, never seen because the context never booted | @EnableJpaRepositories(considerNestedRepositories=true) on the app class (defaults preserve EMF/TM + base package) | B-011
+L-027 | 2026-06-10 | rls/set-command-no-bind-params | `SET LOCAL app.current_tenant_id = ?` as a PreparedStatement is a syntax error — PostgreSQL SET takes no bind parameters; broke every connection checkout with a tenant set | use `SELECT set_config('app.current_tenant_id', ?, true)`; deeper B-002 (set runs pre-transaction at getConnection; test user is RLS-exempt owner) still tracked | B-011/B-002
+L-028 | 2026-06-10 | web/security-exception-as-500 | a @ControllerAdvice catch-all @ExceptionHandler(Exception) caught Spring Security's AccessDeniedException before ExceptionTranslationFilter → authorization failures leaked as 500 instead of 403 | explicit @ExceptionHandler(AccessDeniedException)->403; GUARDRAIL: integration tests asserting 403 for unauthorized roles (now green) | B-011
+L-029 | 2026-06-10 | health/downstream-drags-aggregate | external-dependency health indicators (HyperSwitch PSP, Keycloak) as plain @Component connection-refuse with no backend → aggregate /actuator/health = DOWN (503) in any env lacking them | make such indicators @ConditionalOnEnabledHealthIndicator (default-on) so they're disableable; off in the test profile; (consider moving downstream checks to the readiness group in prod) | B-011
+L-030 | 2026-06-10 | test/external-deps-unguarded | full-context integration tests tried to reach Vault (token), Keycloak, PSP that aren't in the container set; some were guarded (@ConditionalOnProperty Temporal/Vault-config) but others weren't | disable/guard every external integration in the test profile (spring.cloud.vault.enabled=false, health indicators off); pattern: external clients must be conditional so a no-backend env degrades cleanly | B-011

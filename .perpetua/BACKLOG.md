@@ -14,7 +14,7 @@ claims: (none — single instance)
   first CI run's OSV findings triaged (needs push, Q-001) or local tools (Q-003).
   Score (4×5)/2 = **10**.
 
-- **B-011 | Flyway version collisions across modules (V1/V2)** | T3 it-runs
+- ~~**B-011 | Flyway version collisions across modules (V1/V2)**~~ | DONE 2026-06-10 (e6c2392). Far bigger than a version bump: it was the single blocker hiding the entire never-run integration suite. Fixed collisions + leaf-locations + fail-on-missing, then the whole schema↔entity drift + wiring cascade it exposed. CI now boots the full app on real infra and all 13 ITs pass (263 green). See DIGEST + L-023–L-030. Residual: B-002 RLS effectiveness still open.
   RFC READY → research/rfc-b011-flyway-collisions.md (confirmed: 1 Flyway/1 history,
   4×V1/2×V2 collide + suspected base-recursion×explicit-location double-scan). Fix:
   de-dup locations + renumber to unique band + FlywayMigrationIT. APPLY+VERIFY needs

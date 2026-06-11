@@ -1,5 +1,33 @@
 # DIGEST — human-facing summaries (newest first)
 
+## 2026-06-10 — B-011 + the whole integration-test bring-up: FIRST-EVER green CI
+The headline: the app now **boots end-to-end in CI against real Postgres, Kafka and
+Redis, and all 13 integration tests pass** (263 tests green) — something that had
+**never happened** in this repo's history. B-011 ("Flyway version collision") turned
+out to be the cork in the bottle: that one error had aborted the schema before any
+integration test could ever boot the context, so ~10 *layers* of latent drift had
+piled up unverified behind it. Clearing it let CI surface them one boot-layer at a
+time, and I fixed each with ground-truth from the CI artifacts (never guessing):
+- **Flyway** (B-011 core): renumbered the colliding V1×4/V2×2 migrations into a
+  unique band; replaced the unreliable bare-`db/migration` scan with explicit
+  per-module leaf locations + `fail-on-missing-locations`; **and** found the real
+  smoking gun — the test yaml pinned a 4-leaf location list that silently dropped
+  the `app` leaf defining `current_tenant_id()`, so every RLS policy failed.
+- **Schema↔entity drift** (never validated before): created the Spring Modulith
+  `event_publication` table; added `@JdbcTypeCode(JSON)` to **23** jsonb columns
+  (also fixes runtime INSERTs); fixed `List`/array mappings, a `Double` vs DECIMAL
+  type, and two RLS policies referencing a non-existent `tenant_id` on child tables.
+- **Wiring/runtime**: enabled nested Spring Data repos; qualified duplicate Kafka
+  `ConsumerFactory` beans; fixed the tenant-context SQL (`SET … = ?` is illegal →
+  `set_config()`); translated `AccessDeniedException` to **403 not 500**; made the
+  PSP/Keycloak health probes disableable (they were dragging `/actuator/health` to
+  503); disabled Vault in tests.
+Every one of these was a real, shippable bug. CI is now the standing guardrail the
+lessons (L-011/12/13) had been asking for. 8 new lessons (L-023–L-030); test floor
+234→250; B-011 closed. **Caveat:** the deeper B-002 RLS *effectiveness* (the tenant
+set runs pre-transaction; tests run as the RLS-exempt owner) is unchanged and still
+tracked — this work made the SQL valid and the app boot, not RLS enforcement.
+
 ## 2026-06-10 — Pushed to GitHub (L2); CI iteration cleared 4 hidden blockers
 You set autonomy to **L2 + push**, so I pushed `perpetua/bootstrap` and opened
 **PR #1**. CI (which has Postgres/Kafka this sandbox lacks) immediately earned its
