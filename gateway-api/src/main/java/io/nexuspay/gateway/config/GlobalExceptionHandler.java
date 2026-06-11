@@ -11,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -48,6 +49,20 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleAuthorizationException(AuthorizationException ex) {
         log.warn("Authorization error: {} [{}]", ex.getMessage(), ex.getErrorCode());
         ApiError error = new ApiError(ApiError.TYPE_AUTHENTICATION, ex.getErrorCode(), ex.getMessage(), null);
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiErrorResponse.of(error));
+    }
+
+    /**
+     * Spring Security throws {@link AccessDeniedException} from method security
+     * (@PreAuthorize) and URL rules. Without this handler it falls through to the
+     * generic Exception handler and becomes a 500 — leaking an authorization
+     * failure as a server error. An authenticated-but-unauthorized caller must
+     * get 403.
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiErrorResponse> handleAccessDenied(AccessDeniedException ex) {
+        log.warn("Access denied: {}", ex.getMessage());
+        ApiError error = new ApiError(ApiError.TYPE_AUTHENTICATION, "access_denied", "Access denied", null);
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiErrorResponse.of(error));
     }
 
