@@ -95,8 +95,9 @@ jobs:
           curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o /tmp/gl.tgz
           tar -xzf /tmp/gl.tgz -C /tmp gitleaks
           /tmp/gitleaks version
-          # Scan the working tree (matches the clean local baseline); fail on any finding.
-          /tmp/gitleaks detect --source . --no-git --redact --no-banner --exit-code 1
+          # Scan the working tree; fail on any finding. .gitleaks.toml allowlists the
+          # single intentional false positive (B-004 default-secret detection literals).
+          /tmp/gitleaks detect --source . --config .gitleaks.toml --no-git --redact --no-banner --exit-code 1
 
   # Dependency/OSV vulnerability scan (B-006) via the pinned osv-scanner BINARY
   # (the google/osv-scanner-action@v1 ref does not resolve). First run is

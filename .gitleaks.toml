@@ -1,0 +1,20 @@
+# gitleaks configuration for the NexusPay secret-scan gate (B-006, perpetua-gates.yml).
+# Extends the full default ruleset; adds ONE narrowly-scoped allowlist for a
+# deliberate false positive. Everything else is scanned with default rules.
+title = "NexusPay gitleaks"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = """
+StartupSecretsValidator embeds the DEV-DEFAULT secret literals on purpose: the
+whole point of the B-004 control is to recognise these exact placeholder values
+and REFUSE to boot when they are seen under a production profile. They are public,
+non-production placeholders (never real credentials), so gitleaks flagging them as
+generic-api-keys is a false positive. Scoped to this single file only — real
+secrets committed anywhere else still fail the scan.
+"""
+paths = [
+  '''app/src/main/java/io/nexuspay/app/config/StartupSecretsValidator\.java''',
+]
