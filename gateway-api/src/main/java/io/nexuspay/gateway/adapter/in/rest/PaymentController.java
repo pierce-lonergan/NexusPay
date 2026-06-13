@@ -1,9 +1,6 @@
 package io.nexuspay.gateway.adapter.in.rest;
 
 import io.nexuspay.gateway.adapter.in.rest.dto.*;
-import io.nexuspay.payment.application.screening.GateDecision;
-import io.nexuspay.payment.application.screening.GateSignals;
-import io.nexuspay.payment.application.screening.PreAuthorizationGate;
 import io.nexuspay.gateway.application.RefundOrchestrationService;
 import io.nexuspay.iam.domain.NexusPayPrincipal;
 import io.nexuspay.payment.application.port.PaymentGatewayPort;
@@ -17,6 +14,9 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
+import java.util.Map;
+
 @RestController
 @RequestMapping("/v1/payments")
 @Tag(name = "Payments", description = "Payment lifecycle operations")
@@ -24,14 +24,11 @@ public class PaymentController {
 
     private final PaymentGatewayPort paymentGateway;
     private final RefundOrchestrationService refundOrchestration;
-    private final PreAuthorizationGate preAuthGate;
 
     public PaymentController(PaymentGatewayPort paymentGateway,
-                              RefundOrchestrationService refundOrchestration,
-                              PreAuthorizationGate preAuthGate) {
+                              RefundOrchestrationService refundOrchestration) {
         this.paymentGateway = paymentGateway;
         this.refundOrchestration = refundOrchestration;
-        this.preAuthGate = preAuthGate;
     }
 
     @PostMapping
@@ -41,23 +38,27 @@ public class PaymentController {
             @Valid @RequestBody CreatePaymentRequest request,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @AuthenticationPrincipal NexusPayPrincipal principal) {
+        // Interactive flow. Stamp the TRUSTED tenant from the authenticated principal and
+        // strip any client-supplied server-rail markers ("source"/"workflow") so a caller
+        // cannot claim the softer SERVER_RECURRING/SERVER_OTHER screening. The B-024
+        // @Primary GatedPaymentGateway runs the fraud + sanctions screen at the port boundary.
+        Map<String, Object> metadata = new HashMap<>();
+        if (request.metadata() != null) {
+            metadata.putAll(request.metadata());
+        }
+        metadata.remove("source");
+        metadata.remove("workflow");
+        if (principal != null && principal.tenantId() != null) {
+            metadata.put("tenant_id", principal.tenantId());
+        }
+
         var paymentRequest = new PaymentRequest(
                 request.amount(), request.currency(), request.customer_id(),
                 request.payment_method_type(), request.payment_method_data(),
                 request.return_url(), request.description(), request.capture_method(),
-                idempotencyKey, request.metadata());
+                idempotencyKey, metadata);
 
-        // B-003: pre-authorization fraud + sanctions gate, BEFORE the PSP call.
-        // A sanctioned country or a fraud BLOCK throws here (no PSP call); a fraud
-        // REVIEW authorizes but holds capture (forces manual capture).
-        GateSignals signals = GateSignals.fromRequest(request.metadata(), request.payment_method_data());
-        String tenantId = principal != null ? principal.tenantId() : null;
-        GateDecision gate = preAuthGate.evaluate(idempotencyKey, paymentRequest, tenantId, signals);
-        PaymentRequest effective = gate.holdCapture()
-                ? paymentRequest.withCaptureMethod("manual")
-                : paymentRequest;
-
-        var response = paymentGateway.createPayment(effective);
+        var response = paymentGateway.createPayment(paymentRequest);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ResponseMapper.toPaymentResponse(response));
     }

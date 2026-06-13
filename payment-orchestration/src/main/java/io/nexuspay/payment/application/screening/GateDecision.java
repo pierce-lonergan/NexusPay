@@ -22,4 +22,13 @@ public record GateDecision(
         UUID fraudAssessmentId,
         boolean reportingRequired,
         boolean enhancedDueDiligence
-) {}
+) {
+    /**
+     * A capture-held REVIEW produced because the fraud engine itself errored on a
+     * server-initiated rail (fail-to-REVIEW, not fail-open). No assessment was persisted,
+     * so {@code fraudAssessmentId} is null.
+     */
+    public static GateDecision heldOnError(boolean reportingRequired, boolean enhancedDueDiligence) {
+        return new GateDecision(true, RiskDecision.REVIEW, null, reportingRequired, enhancedDueDiligence);
+    }
+}

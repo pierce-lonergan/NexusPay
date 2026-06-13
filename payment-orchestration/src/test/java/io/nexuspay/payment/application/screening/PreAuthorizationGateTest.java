@@ -142,4 +142,49 @@ class PreAuthorizationGateTest {
         verify(fraudAssessor).assess(ctx.capture());
         assertThat(ctx.getValue().paymentId()).startsWith("preauth-");
     }
+
+    // ---- B-024: server-rail screening modes ----
+
+    @Test
+    void block_onServerRecurringRail_downgradesToReview_doesNotThrow() {
+        when(fraudAssessor.assess(any())).thenReturn(fraud(RiskDecision.BLOCK));
+
+        GateDecision d = gate.evaluate("idem-1", req(5000, "USD"), "tenant_1",
+                GateSignals.none(), ScreeningMode.SERVER_RECURRING);
+
+        assertThat(d.holdCapture()).isTrue();                       // authorize + hold, never decline
+        assertThat(d.fraudDecision()).isEqualTo(RiskDecision.REVIEW);
+    }
+
+    @Test
+    void sanctioned_blocksEvenOnServerRail_fraudNotConsulted() {
+        when(compliance.validateOrThrow(any(), any(), any(), anyString()))
+                .thenThrow(new PaymentException("Transaction to sanctioned country: KP", "cross_border_blocked"));
+
+        var signals = new GateSignals("US", "KP", null, null, null, null, null, null);
+        assertThatThrownBy(() -> gate.evaluate("idem-1", req(5000, "USD"), "t", signals, ScreeningMode.SERVER_RECURRING))
+                .isInstanceOfSatisfying(PaymentException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo("cross_border_blocked"));
+        verifyNoInteractions(fraudAssessor);
+    }
+
+    @Test
+    void fraudEngineError_interactive_failsLoud() {
+        when(fraudAssessor.assess(any())).thenThrow(new RuntimeException("FRM down"));
+
+        assertThatThrownBy(() -> gate.evaluate("idem-1", req(5000, "USD"), "t",
+                GateSignals.none(), ScreeningMode.INTERACTIVE))
+                .isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
+    void fraudEngineError_serverRail_heldForReview_notThrown() {
+        when(fraudAssessor.assess(any())).thenThrow(new RuntimeException("FRM down"));
+
+        GateDecision d = gate.evaluate("idem-1", req(5000, "USD"), "t",
+                GateSignals.none(), ScreeningMode.SERVER_RECURRING);
+
+        assertThat(d.holdCapture()).isTrue();                       // FRM blip → hold, not decline-all
+        assertThat(d.fraudDecision()).isEqualTo(RiskDecision.REVIEW);
+    }
 }

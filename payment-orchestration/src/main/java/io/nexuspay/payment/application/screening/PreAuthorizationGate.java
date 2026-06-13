@@ -3,6 +3,7 @@ package io.nexuspay.payment.application.screening;
 import io.nexuspay.fraud.application.dto.PaymentContext;
 import io.nexuspay.fraud.application.port.in.AssessFraudRiskUseCase;
 import io.nexuspay.fraud.domain.model.FraudAssessmentResult;
+import io.nexuspay.fraud.domain.model.RiskDecision;
 import io.nexuspay.payment.application.fx.CrossBorderComplianceService;
 import io.nexuspay.payment.application.fx.CrossBorderComplianceService.ComplianceResult;
 import io.nexuspay.payment.domain.PaymentRequest;
@@ -81,8 +82,20 @@ public class PreAuthorizationGate {
      * @param tenantId   the caller's tenant (from the authenticated principal)
      * @param signals    geography/card/device signals derived from the request
      */
+    /** Backward-compatible entry point: screens as an INTERACTIVE flow. */
     public GateDecision evaluate(String paymentRef, PaymentRequest req, String tenantId, GateSignals signals) {
+        return evaluate(paymentRef, req, tenantId, signals, ScreeningMode.INTERACTIVE);
+    }
+
+    /**
+     * Evaluates a payment with an explicit {@link ScreeningMode}. Sanctions are a hard block
+     * in every mode; a fraud BLOCK rejects on INTERACTIVE but DOWNGRADES to a capture-held
+     * REVIEW on server-initiated rails (so a recurring mandate is flagged, not silently declined).
+     */
+    public GateDecision evaluate(String paymentRef, PaymentRequest req, String tenantId,
+                                 GateSignals signals, ScreeningMode mode) {
         GateSignals s = signals != null ? signals : GateSignals.none();
+        ScreeningMode m = mode != null ? mode : ScreeningMode.INTERACTIVE;
         String ref = (paymentRef != null && !paymentRef.isBlank())
                 ? paymentRef
                 : "preauth-" + UUID.randomUUID();
@@ -109,10 +122,28 @@ public class PreAuthorizationGate {
                 Map.of(),
                 req.metadata() == null ? Map.of() : req.metadata());
 
-        FraudAssessmentResult fraud = fraudAssessor.assess(ctx);
+        FraudAssessmentResult fraud;
+        try {
+            fraud = fraudAssessor.assess(ctx);
+        } catch (RuntimeException e) {
+            // Fail by rail: INTERACTIVE fails loud (propagates → 5xx, no PSP call); server rails
+            // (recurring billing / workflow) must not let an FRM outage decline every charge —
+            // hold capture for review so money authorizes and waits for an analyst.
+            if (m == ScreeningMode.INTERACTIVE) {
+                throw e;
+            }
+            log.warn("Fraud engine error on {} flow {} — holding capture for review", m, ref, e);
+            return GateDecision.heldOnError(cb.requiresReporting(), cb.requiresEnhancedDueDiligence());
+        }
 
         switch (fraud.decision()) {
             case BLOCK -> {
+                if (m.downgradesBlockToReview()) {
+                    log.warn("Payment {} fraud BLOCK downgraded to REVIEW on {} rail (score={}, rules={})",
+                            ref, m, fraud.aggregatedScore(), fraud.triggeredRuleIds());
+                    return new GateDecision(true, RiskDecision.REVIEW, fraud.assessmentId(),
+                            cb.requiresReporting(), cb.requiresEnhancedDueDiligence());
+                }
                 log.warn("Payment {} BLOCKED by fraud assessment (score={}, rules={})",
                         ref, fraud.aggregatedScore(), fraud.triggeredRuleIds());
                 // PaymentException is (message, errorCode).
