@@ -104,6 +104,21 @@ class GatedPaymentGatewayTest {
     }
 
     @Test
+    void createPayment_serverRecurringReview_capturesNotHeld() {
+        // Server-rail (billing) fraud REVIEW: the pre-authorized charge captures + is recorded,
+        // but is NOT held — holding it would surface as requires_capture and trip dunning (M1).
+        when(gate.evaluate(any(), any(), any(), any(), any())).thenReturn(review());
+        when(delegate.createPayment(any())).thenReturn(resp("pay_b", "automatic"));
+
+        gateway.createPayment(req(Map.of("tenant_id", "t1", "source", "billing_subscription")));
+
+        ArgumentCaptor<PaymentRequest> sent = ArgumentCaptor.forClass(PaymentRequest.class);
+        verify(delegate).createPayment(sent.capture());
+        assertThat(sent.getValue().captureMethod()).isEqualTo("automatic"); // NOT forced to manual
+        verify(holds, never()).hold(any(), any(), any());                   // no hold on a server rail
+    }
+
+    @Test
     void createPayment_interactiveByDefault() {
         when(gate.evaluate(any(), any(), any(), any(), any())).thenReturn(allow());
         when(delegate.createPayment(any())).thenReturn(resp("pay_1", "automatic"));
@@ -150,14 +165,55 @@ class GatedPaymentGatewayTest {
     }
 
     @Test
-    void confirmPayment_withoutNewPaymentMethod_passesThrough_noReScreen() {
+    void confirmPayment_alwaysScreens_evenWithoutNewPaymentMethod() {
+        // B2: sanctions must run on every confirm, so the gate is always consulted.
+        when(delegate.getPayment("pay_1")).thenReturn(resp("pay_1", "automatic"));
+        when(gate.evaluate(any(), any(), any(), any(), any())).thenReturn(allow());
         when(delegate.confirmPayment(any(), any())).thenReturn(resp("pay_1", "automatic"));
 
         gateway.confirmPayment("pay_1", new ConfirmRequest(null, null, null, "k"));
 
-        verifyNoInteractions(gate);
+        verify(delegate).getPayment("pay_1");
+        verify(gate).evaluate(any(), any(), any(), any(), any()); // screened even with no new PM
         verify(delegate).confirmPayment(eq("pay_1"), any());
-        verify(delegate, never()).getPayment(any());
+    }
+
+    @Test
+    void confirmPayment_interactiveReview_onAutoCaptureIntent_isRejected_beforeConfirm() {
+        // B1: cannot retroactively hold capture at confirm on an auto-capture intent → reject.
+        when(delegate.getPayment("pay_auto")).thenReturn(resp("pay_auto", "automatic"));
+        when(gate.evaluate(any(), any(), any(), any(), any())).thenReturn(review());
+
+        assertThatThrownBy(() -> gateway.confirmPayment("pay_auto", new ConfirmRequest("card", "5555555555554444", null, "k")))
+                .isInstanceOfSatisfying(PaymentException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo("fraud_review_hold"));
+
+        verify(holds).hold(eq("pay_auto"), any(), any());
+        verify(delegate, never()).confirmPayment(any(), any()); // PSP never confirmed/captured
+    }
+
+    @Test
+    void confirmPayment_interactiveReview_onManualIntent_proceeds_withHold() {
+        // A manual-capture intent confirms safely: authorizes only, capture stays HELD.
+        when(delegate.getPayment("pay_manual")).thenReturn(resp("pay_manual", "manual"));
+        when(gate.evaluate(any(), any(), any(), any(), any())).thenReturn(review());
+        when(delegate.confirmPayment(any(), any())).thenReturn(resp("pay_manual", "manual"));
+
+        gateway.confirmPayment("pay_manual", new ConfirmRequest("card", "5555555555554444", null, "k"));
+
+        verify(holds).hold(eq("pay_manual"), any(), any());
+        verify(delegate).confirmPayment(eq("pay_manual"), any());
+    }
+
+    @Test
+    void confirmPayment_getPaymentError_remappedToPaymentException() {
+        // M3: getPayment is circuit-broken with no fallback — a raw runtime error must surface
+        // as a PaymentException, not an unmapped 500.
+        when(delegate.getPayment("pay_x")).thenThrow(new IllegalStateException("circuit open"));
+
+        assertThatThrownBy(() -> gateway.confirmPayment("pay_x", new ConfirmRequest("card", "4111111111111111", null, "k")))
+                .isInstanceOfSatisfying(PaymentException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo("payment_screen_unavailable"));
     }
 
     @Test

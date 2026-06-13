@@ -64,12 +64,20 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
 
         GateDecision decision = gate.evaluate(request.idempotencyKey(), request, tenantId, signals, mode);
 
-        PaymentRequest effective = decision.holdCapture()
-                ? request.withCaptureMethod("manual")
-                : request;
+        // Hold capture ONLY for interactive flows. A server-initiated recurring/workflow charge
+        // is a pre-authorized mandate: a fraud REVIEW records the assessment and is logged for
+        // analyst follow-up, but the charge still captures — holding it would surface as
+        // requires_capture and trip billing's dunning (the M1 regression).
+        boolean hold = decision.holdCapture() && mode == ScreeningMode.INTERACTIVE;
+        if (decision.holdCapture() && mode != ScreeningMode.INTERACTIVE) {
+            log.warn("Server-rail payment (ref={}, mode={}) flagged {} by fraud — capturing + recording for review",
+                    request.idempotencyKey(), mode, decision.fraudDecision());
+        }
+
+        PaymentRequest effective = hold ? request.withCaptureMethod("manual") : request;
         PaymentResponse response = delegate.createPayment(effective);
 
-        if (decision.holdCapture() && response != null && response.gatewayPaymentId() != null) {
+        if (hold && response != null && response.gatewayPaymentId() != null) {
             captureHolds.hold(response.gatewayPaymentId(), tenantId, decision.fraudAssessmentId());
         }
         return response;
@@ -77,28 +85,62 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
 
     @Override
     public PaymentResponse confirmPayment(String paymentId, ConfirmRequest request) {
-        // Re-screen only when confirm supplies a NEW payment method — the instrument the
-        // create-time screen never saw. Finalizing an already-screened intent just passes through.
-        if (request != null && request.paymentMethodData() != null && !request.paymentMethodData().isBlank()) {
-            PaymentResponse existing = delegate.getPayment(paymentId);
-            String tenantId = tenantFrom(existing.metadata());
-            ScreeningMode mode = ScreeningMode.fromMetadata(existing.metadata());
-            GateSignals signals = GateSignals.fromRequest(existing.metadata(), request.paymentMethodData());
-            // Reconstruct the gate context from the existing payment + the new method.
-            PaymentRequest ctx = new PaymentRequest(
-                    existing.amount(), existing.currency(), existing.customerId(),
-                    request.paymentMethodType(), request.paymentMethodData(), request.returnUrl(),
-                    null, existing.captureMethod() != null ? existing.captureMethod() : "automatic",
-                    request.idempotencyKey(), existing.metadata());
+        // ALWAYS screen on confirm (B2): sanctions is a hard block in every mode, and confirm is
+        // the first point a real instrument may appear (a server intent created with no PM/BIN).
+        // Load the intent defensively (M3): getPayment is circuit-broken with no fallback.
+        PaymentResponse existing;
+        try {
+            existing = delegate.getPayment(paymentId);
+        } catch (PaymentException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new PaymentException("Unable to load payment for screening: " + paymentId, "payment_screen_unavailable");
+        }
 
-            GateDecision decision = gate.evaluate(paymentId, ctx, tenantId, signals, mode);
-            PaymentResponse response = delegate.confirmPayment(paymentId, request);
-            if (decision.holdCapture() && response != null) {
-                captureHolds.hold(paymentId, tenantId, decision.fraudAssessmentId());
+        String tenantId = tenantFrom(existing.metadata());
+        ScreeningMode mode = ScreeningMode.fromMetadata(existing.metadata());
+        GateSignals signals = GateSignals.fromRequest(existing.metadata(),
+                request != null ? request.paymentMethodData() : null);
+        PaymentRequest ctx = reconstructForScreening(existing, request);
+
+        // Throws cross_border_blocked (sanctions, all modes) / fraud_blocked (interactive BLOCK)
+        // BEFORE the PSP confirm.
+        GateDecision decision = gate.evaluate(paymentId, ctx, tenantId, signals, mode);
+
+        if (decision.holdCapture() && mode == ScreeningMode.INTERACTIVE) {
+            captureHolds.hold(paymentId, tenantId, decision.fraudAssessmentId());
+            // Capture cannot be retroactively held on an auto-capture intent at confirm time, so
+            // refuse rather than let the PSP capture a flagged payment (B1). A manual-capture intent
+            // confirms safely (authorizes only; capture stays HELD, enforced at capturePayment).
+            if (!"manual".equalsIgnoreCase(existing.captureMethod())) {
+                throw new PaymentException(
+                        "Payment flagged for review; confirm of an auto-capture intent is not permitted",
+                        "fraud_review_hold");
             }
-            return response;
+        } else if (decision.holdCapture()) {
+            log.warn("Server-rail confirm (payment={}, mode={}) flagged {} by fraud — proceeding",
+                    paymentId, mode, decision.fraudDecision());
         }
         return delegate.confirmPayment(paymentId, request);
+    }
+
+    /**
+     * Build a screenable {@code PaymentRequest} from the existing intent + the confirm method.
+     * {@code PaymentRequest} requires amount &gt; 0 and a non-blank currency, but a
+     * requires_payment_method/requires_confirmation intent can legitimately carry 0/null (M3) —
+     * floor those for the screen (the sanctions decision is country-based, not amount-based).
+     */
+    private static PaymentRequest reconstructForScreening(PaymentResponse existing, ConfirmRequest request) {
+        long amount = existing.amount() > 0 ? existing.amount() : 1;
+        String currency = (existing.currency() != null && !existing.currency().isBlank())
+                ? existing.currency() : "XXX";
+        String capture = (existing.captureMethod() != null && !existing.captureMethod().isBlank())
+                ? existing.captureMethod() : "automatic";
+        return new PaymentRequest(amount, currency, existing.customerId(),
+                request != null ? request.paymentMethodType() : null,
+                request != null ? request.paymentMethodData() : null,
+                request != null ? request.returnUrl() : null, null,
+                capture, request != null ? request.idempotencyKey() : null, existing.metadata());
     }
 
     @Override

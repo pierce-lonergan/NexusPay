@@ -36,6 +36,12 @@ public class CaptureHoldService {
         if (paymentId == null || paymentId.isBlank()) {
             return;
         }
+        if (tenantId == null || tenantId.isBlank()) {
+            // tenant_id is NOT NULL; rather than throw (the payment already authorized with
+            // manual capture, so funds are not captured), skip the DB hold-row and warn.
+            log.warn("Capture-hold for {} skipped: no tenant resolved (payment stays manual-capture at the PSP)", paymentId);
+            return;
+        }
         if (repository.existsById(paymentId)) {
             return; // already held/released — do not clobber an analyst's release
         }

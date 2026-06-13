@@ -104,3 +104,43 @@ false assurance); re-architect to the port boundary + server-side geography + OF
 parser fix in one change (correct end state, but a multi-item epic — sequenced as
 B-024..B-026 instead, each its own T3 review). The fraud-only value is real today;
 the sanctions value is advisory until B-025/B-026 land.
+
+## ADR-010 | 2026-06-10 | B-002 RLS activation = Option B (physical role isolation), staged
+Context: making RLS enforce needs the app to connect as a non-owner role; the 16
+cross-tenant @Scheduled jobs (incl. OutboxRelay) then see zero rows. A judge panel
+weighed (A) an in-policy `OR current_tenant_id()='system'` escape hatch vs (B) a
+separate `BYPASSRLS` system role/pool for jobs. Decision: **Option B** — three roles
+(`nexuspay` owner/Flyway-only, `nexuspay_app` RLS-bound for all request traffic,
+`nexuspay_system` BYPASSRLS for cross-tenant jobs); NO in-policy bypass. GUC set by a
+`RlsAwareJpaTransactionManager.doBegin` running `set_config(...,true)` (auto-reverts
+on commit → no pool leak; fail-closed — unset tenant = zero rows, never resolved to
+'system'). Why B over A: a payments ledger must not have a fleet-wide escape hatch
+that any GUC-manipulation/injection bug flips into a full cross-tenant bypass;
+verified fact — `MaterializedViewRefreshService` needs OWNERSHIP to REFRESH, so a
+privileged pool is mandatory anyway, which sinks A's "simplicity" premise. Staged:
+Stage-0 ships dormant (owner unchanged, enforce=false → byte-identical); the
+owner→nexuspay_app cutover + FORCE RLS is human-gated (needs the nexuspay_system
+secret + staging canary). LANDED this session (dormant, CI-green): the proving
+RlsIsolationIntegrationTest, migration set 1 (system role, cross-schema grants, MV
+ownership, and the USING→WITH CHECK write-leak fix). REMAINING (C5-C7, coupled,
+co-land with cutover): the tx-manager + system datasource/EMF + 16-job re-routing +
+FORCE migration. Full plan in research/rfc-b002.
+
+## ADR-011 | 2026-06-10 | B-024 gate coverage = @Primary PaymentGatewayPort decorator
+Context: the B-003 fraud+sanctions gate ran on ONLY the gateway REST create path;
+confirm/capture and the sibling PSP callers (billing renewals/dunning, workflow, SDK
+checkout) bypassed it. A judge panel chose among (1) port-boundary decorator, (2) a
+payment-orchestration use case, (3) keep-in-gateway + duplicate to siblings. Decision:
+**(2/decorator hybrid) — a `@Primary GatedPaymentGateway implements PaymentGatewayPort`
+in payment-orchestration** wrapping the sole adapter, so every caller inherits the
+screen with zero caller edits + a single new `payment→fraud` edge (tenant from
+metadata, no `iam` edge). Flow-aware: sanctions hard-block in ALL modes (OFAC applies
+to standing mandates), but a fraud BLOCK DOWNGRADES to capture-held REVIEW on
+server-initiated rails (recurring billing must not be silently declined by a velocity
+rule). A `payment_capture_hold` table makes REVIEW enforceable at capture + links the
+payment to its assessment (closes B-027). The interactive REST path stamps the trusted
+tenant and strips client `source`/`workflow` markers so a caller can't claim the softer
+rail. Rejected (3) — duplicated screening logic is the maintainability failure B-024
+exists to fix. LANDED + CI-green this session (C1+C2). Note: this DOES start screening
+billing/workflow charges now (intended; downgrade ensures no hard decline). B-025
+(client-forgeable geography) remains a separate follow-up.
