@@ -1,5 +1,33 @@
 # DIGEST — human-facing summaries (newest first)
 
+## 2026-06-10 — B-024 gate coverage DONE + B-002 RLS hardened (ultracode, multi-agent)
+Ran this as a multi-agent (ultracode) effort: a design+mapping workflow (exhaustive
+payment-entrypoint + 16-@Scheduled-job inventory → judge panels → ordered plan), then
+implemented, then a 4-lens adversarial+security review workflow that **caught real
+bugs I'd shipped** and drove fixes.
+**B-024 (gate coverage) — DONE, CI-green, reviewed+fixed.** Moved the fraud+sanctions
+gate to a `@Primary PaymentGatewayPort` decorator in payment-orchestration, so EVERY
+PSP caller is screened (gateway REST, billing renewals/dunning, workflow — all inherit
+it; b2b is a different rail, correctly excluded) with one new `payment→fraud` edge.
+Flow-aware: sanctions hard-block in all modes; a fraud BLOCK rejects interactive but
+DOWNGRADES to capture-held REVIEW on server rails. A `payment_capture_hold` table makes
+REVIEW enforceable at capture + links the payment to its assessment (closes B-027). The
+review then found three live holes I fixed: a confirm-with-new-PM could auto-capture a
+flagged payment before the hold (B1); confirm skipped sanctions when no new PM (B2); and
+a held *billing* charge was misclassified as a failure and dunned (M1 — fixed by making
+hold INTERACTIVE-only: server mandates capture + flag for review, never held).
+**B-002 (RLS) — write-leak CLOSED + activation foundation laid (dormant, CI-green).**
+Decided (judge panel, ADR-010): Option B — a physically-isolated `nexuspay_system`
+BYPASSRLS role for cross-tenant jobs, NO in-policy escape hatch. Landed migration set 1
+(system role, cross-schema grants, MV ownership) + a **security fix**: 36 RLS policies
+were USING-only, so a mislabeled write could land in another tenant — a `pg_policies`
+loop now copies each policy's USING verbatim into WITH CHECK (no expression rewrite →
+child-table policies stay correct). Proven by the extended RlsIsolationIntegrationTest.
+**Remaining (staged):** the RLS runtime cutover (tx-manager + system EMF + 16-job
+re-routing + FORCE) is dormant, high-blast-radius, and human-gated (needs the system
+secret + a staging canary) — specified in rfc-b002 / B-002-activation, deliberately not
+rushed. 292 tests green; floor 250→285. ADR-010/011, L-031/032, B-029/B-030 opened.
+
 ## 2026-06-10 — B-011 + the whole integration-test bring-up: FIRST-EVER green CI
 The headline: the app now **boots end-to-end in CI against real Postgres, Kafka and
 Redis, and all 13 integration tests pass** (263 tests green) — something that had

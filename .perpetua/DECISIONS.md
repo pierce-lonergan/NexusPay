@@ -141,6 +141,15 @@ rule). A `payment_capture_hold` table makes REVIEW enforceable at capture + link
 payment to its assessment (closes B-027). The interactive REST path stamps the trusted
 tenant and strips client `source`/`workflow` markers so a caller can't claim the softer
 rail. Rejected (3) — duplicated screening logic is the maintainability failure B-024
-exists to fix. LANDED + CI-green this session (C1+C2). Note: this DOES start screening
-billing/workflow charges now (intended; downgrade ensures no hard decline). B-025
-(client-forgeable geography) remains a separate follow-up.
+exists to fix. LANDED + CI-green this session (C1+C2), then a T3 adversarial+security
+review (SHIP-WITH-FIXES, 0 refuted) drove fixes (C2b):
+- REFINEMENT (from review M1): capture-hold is INTERACTIVE-only. A server-initiated
+  pre-authorized mandate (billing/workflow) that's fraud-flagged now CAPTURES + is
+  recorded/logged for analyst review, NOT held — holding it surfaced as
+  requires_capture and tripped billing's dunning. Sanctions still hard-block all rails.
+  (Supersedes the panel's "server REVIEW → hold" for recurring rails; emitting a
+  proper review event/analyst queue is B-030.)
+- confirm now ALWAYS screens (sanctions on every confirm) and REJECTS a flagged
+  auto-capture confirm rather than capturing (B1/B2); getPayment errors remap to
+  PaymentException (M3). Latent mode/tenant-from-metadata trust → B-029. B-025
+  (client-forgeable geography) + B-026 (OFAC parser) remain separate follow-ups.
