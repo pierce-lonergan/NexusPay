@@ -6,11 +6,13 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
@@ -88,6 +90,85 @@ class RlsIsolationIntegrationTest extends IntegrationTestBase {
                 url, nexuspayPg.getUsername(), nexuspayPg.getPassword());
              Statement st = owner.createStatement()) {
             st.execute("DELETE FROM ledger_accounts WHERE tenant_id IN ('rls_tA','rls_tB')");
+        }
+    }
+
+    // ---- B-002 migration set 1 (V4020): roles, grants, WITH CHECK write-leak fix ----
+
+    @Test
+    void everyTenantPolicy_hasWithCheck_afterNormalization() throws Exception {
+        assumeTrue(DOCKER_AVAILABLE, "requires Docker (Testcontainers Postgres)");
+        try (Connection owner = DriverManager.getConnection(
+                nexuspayPg.getJdbcUrl(), nexuspayPg.getUsername(), nexuspayPg.getPassword());
+             Statement st = owner.createStatement();
+             ResultSet rs = st.executeQuery(
+                     "SELECT count(*) FROM pg_policies WHERE schemaname IN ('public','analytics') "
+                             + "AND qual IS NOT NULL AND with_check IS NULL")) {
+            rs.next();
+            assertThat(rs.getInt(1))
+                    .as("every tenant RLS policy must have a WITH CHECK — closes the write-side cross-tenant leak")
+                    .isZero();
+        }
+    }
+
+    @Test
+    void systemRole_bypassesRls_andSeesAllTenants() throws Exception {
+        assumeTrue(DOCKER_AVAILABLE, "requires Docker (Testcontainers Postgres)");
+        final String url = nexuspayPg.getJdbcUrl();
+
+        try (Connection owner = DriverManager.getConnection(
+                url, nexuspayPg.getUsername(), nexuspayPg.getPassword())) {
+            try (Statement st = owner.createStatement()) {
+                st.execute("DELETE FROM ledger_accounts WHERE tenant_id IN ('sys_tA','sys_tB')");
+            }
+            seedAccount(owner, "la_sys_a", "sys_tA");
+            seedAccount(owner, "la_sys_b", "sys_tB");
+        }
+
+        try (Connection sys = DriverManager.getConnection(url, "nexuspay_system", "nexuspay_system_local")) {
+            try (Statement st = sys.createStatement();
+                 ResultSet rs = st.executeQuery("SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user")) {
+                assertThat(rs.next() && rs.getBoolean(1))
+                        .as("nexuspay_system must be a BYPASSRLS role").isTrue();
+            }
+            // No GUC bound, yet a BYPASSRLS role sees EVERY tenant's rows (cross-tenant jobs work).
+            try (Statement st = sys.createStatement();
+                 ResultSet rs = st.executeQuery(
+                         "SELECT count(DISTINCT tenant_id) FROM ledger_accounts WHERE tenant_id IN ('sys_tA','sys_tB')")) {
+                rs.next();
+                assertThat(rs.getInt(1)).isEqualTo(2);
+            }
+        }
+
+        try (Connection owner = DriverManager.getConnection(
+                url, nexuspayPg.getUsername(), nexuspayPg.getPassword());
+             Statement st = owner.createStatement()) {
+            st.execute("DELETE FROM ledger_accounts WHERE tenant_id IN ('sys_tA','sys_tB')");
+        }
+    }
+
+    @Test
+    void withCheck_rejectsCrossTenantWrite_underNonOwnerRole() throws Exception {
+        assumeTrue(DOCKER_AVAILABLE, "requires Docker (Testcontainers Postgres)");
+        final String url = nexuspayPg.getJdbcUrl();
+
+        try (Connection app = DriverManager.getConnection(url, APP_ROLE, APP_PW)) {
+            bindTenant(app, "wc_tA");
+            // bound to tenant A, try to INSERT a row LABELED a different tenant → WITH CHECK rejects.
+            assertThatThrownBy(() -> {
+                try (PreparedStatement ps = app.prepareStatement(
+                        "INSERT INTO ledger_accounts (id, name, type, currency, tenant_id) "
+                                + "VALUES ('la_wc_leak', 'x', 'ASSET', 'USD', 'wc_OTHER')")) {
+                    ps.executeUpdate();
+                }
+            }).isInstanceOf(SQLException.class);
+        }
+
+        // belt-and-suspenders cleanup (the row must NOT have been written)
+        try (Connection owner = DriverManager.getConnection(
+                url, nexuspayPg.getUsername(), nexuspayPg.getPassword());
+             Statement st = owner.createStatement()) {
+            st.execute("DELETE FROM ledger_accounts WHERE id = 'la_wc_leak'");
         }
     }
 
