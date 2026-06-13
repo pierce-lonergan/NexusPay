@@ -4,6 +4,7 @@ plugins {
 
 dependencies {
     implementation(project(":common"))
+    implementation(project(":fraud"))   // B-024: pre-auth fraud gate relocated here (GatedPaymentGateway)
 
     implementation(rootProject.libs.spring.boot.starter.web)
     implementation(rootProject.libs.spring.boot.starter.data.jpa)

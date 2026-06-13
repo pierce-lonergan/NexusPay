@@ -1,9 +1,9 @@
 package io.nexuspay.gateway.adapter.in.rest;
 
 import io.nexuspay.gateway.adapter.in.rest.dto.*;
-import io.nexuspay.gateway.application.GateDecision;
-import io.nexuspay.gateway.application.GateSignals;
-import io.nexuspay.gateway.application.PreAuthorizationGate;
+import io.nexuspay.payment.application.screening.GateDecision;
+import io.nexuspay.payment.application.screening.GateSignals;
+import io.nexuspay.payment.application.screening.PreAuthorizationGate;
 import io.nexuspay.gateway.application.RefundOrchestrationService;
 import io.nexuspay.iam.domain.NexusPayPrincipal;
 import io.nexuspay.payment.application.port.PaymentGatewayPort;

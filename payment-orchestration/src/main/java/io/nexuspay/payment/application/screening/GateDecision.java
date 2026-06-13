@@ -1,4 +1,4 @@
-package io.nexuspay.gateway.application;
+package io.nexuspay.payment.application.screening;
 
 import io.nexuspay.fraud.domain.model.RiskDecision;
 

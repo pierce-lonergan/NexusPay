@@ -10,6 +10,8 @@
  */
 @org.springframework.modulith.ApplicationModule(
         type = org.springframework.modulith.ApplicationModule.Type.OPEN,
-        allowedDependencies = {"common"}
+        // "fraud" added (B-024): the GatedPaymentGateway pre-auth decorator calls the
+        // fraud inbound port (AssessFraudRiskUseCase) + its DTOs. Acyclic: fraud→common only.
+        allowedDependencies = {"common", "fraud"}
 )
 package io.nexuspay.payment;
