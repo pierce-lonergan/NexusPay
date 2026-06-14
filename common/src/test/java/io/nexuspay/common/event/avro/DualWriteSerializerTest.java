@@ -164,7 +164,7 @@ class DualWriteSerializerTest {
         deser.configure(new HashMap<>(), false);
         Headers headers = new RecordHeaders();
 
-        assertNull(deser.deserialize(TOPIC, headers, null));
+        assertNull(deser.deserialize(TOPIC, headers, (byte[]) null));
         assertNull(deser.deserialize(TOPIC, headers, new byte[0]));
     }
 
