@@ -12,10 +12,12 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
+import java.util.Base64;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -46,6 +48,16 @@ class RlsEnforceIntegrationTest extends IntegrationTestBase {
         r.add("spring.flyway.user", nexuspayPg::getUsername);
         r.add("spring.flyway.password", nexuspayPg::getPassword);
         r.add("spring.flyway.url", nexuspayPg::getJdbcUrl);
+        // B-004 StartupSecretsValidator treats 'rls-enforce' as a production-like profile
+        // (an unrecognized, non-dev profile fails safe → production). Supply NON-default
+        // managed secrets so the guard passes WITHOUT weakening it — these live only here,
+        // never in application-rls-enforce.yml (that profile is also the real prod cutover
+        // and must keep failing closed on the built-in dev defaults).
+        r.add("nexuspay.session.jwt-secret", () -> "rls-enforce-it-managed-jwt-secret-0123456789abcdef");
+        r.add("nexuspay.hyperswitch.webhook-secret", () -> "rls-enforce-it-managed-webhook-secret");
+        r.add("nexuspay.vault.encryption.master-key",
+                () -> Base64.getEncoder().encodeToString(
+                        "rls-enforce-it-managed-vault-key-32bytes!".getBytes(StandardCharsets.UTF_8)));
     }
 
     @Autowired
