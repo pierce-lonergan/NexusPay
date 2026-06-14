@@ -47,12 +47,14 @@ public class PaymentEventConsumer {
 
         log.debug("Received payment event: type={}, aggregateId={}", eventType, aggregateId);
 
-        // B-002: bind the tenant BEFORE the transaction begins. tenantWork opens a REQUIRES_NEW
-        // transaction bound to this tenant on the RLS APP role, so the idempotency read AND the
-        // use-case writes all run inside ONE tenant-scoped transaction. (Dormant when enforce=false.)
+        // B-002: bind the tenant on the APP role for the duration, but DO NOT open an enclosing
+        // transaction — bindTenant lets each inner use case open its OWN transaction at its OWN
+        // isolation (CreateJournalEntryUseCase is @Transactional(SERIALIZABLE); an enclosing
+        // default-isolation tx would silently downgrade it). This preserves the original per-use-case
+        // transaction structure and binds the tenant so RLS scopes each. (Dormant when enforce=false.)
         String tenant = tenantOf(event);
 
-        tenantWork.runInTenant(tenant, () -> {
+        tenantWork.bindTenant(tenant, () -> {
             try {
                 switch (eventType) {
                     case EventTypes.PAYMENT_CAPTURED -> handlePaymentCaptured(event);
@@ -62,7 +64,7 @@ public class PaymentEventConsumer {
             } catch (RuntimeException e) {
                 log.error("Failed to process payment event: type={}, aggregateId={}",
                         eventType, aggregateId, e);
-                throw e; // Propagates out of runInTenant; let DefaultErrorHandler retry, then DLT
+                throw e; // Propagates out of bindTenant; let DefaultErrorHandler retry, then DLT
             }
         });
     }

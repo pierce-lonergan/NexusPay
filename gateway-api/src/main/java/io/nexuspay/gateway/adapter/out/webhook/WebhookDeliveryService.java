@@ -9,6 +9,7 @@ import io.nexuspay.gateway.adapter.out.persistence.WebhookEndpointEntity;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
@@ -44,14 +45,17 @@ public class WebhookDeliveryService {
     private final JpaWebhookEndpointRepository endpointRepository;
     private final ObjectMapper objectMapper;
     private final TenantWorkRunner tenantWork;
+    private final boolean rlsEnforced;
     private final RestClient restClient;
 
     public WebhookDeliveryService(JpaWebhookEndpointRepository endpointRepository,
                                    ObjectMapper objectMapper,
-                                   TenantWorkRunner tenantWork) {
+                                   TenantWorkRunner tenantWork,
+                                   @Value("${nexuspay.multi-tenancy.rls.enforce:false}") boolean rlsEnforced) {
         this.endpointRepository = endpointRepository;
         this.objectMapper = objectMapper;
         this.tenantWork = tenantWork;
+        this.rlsEnforced = rlsEnforced;
         this.restClient = RestClient.builder()
                 .defaultHeader("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                 .defaultHeader("User-Agent", "NexusPay-Webhook/1.0")
@@ -70,13 +74,21 @@ public class WebhookDeliveryService {
             return;
         }
 
-        String tenant = extractTenant(record);
-
-        // Load the tenant's endpoints inside a tenant-bound REQUIRES_NEW tx (B-002): under
-        // RLS enforcement the read must run on the APP role with the tenant bound at tx begin.
-        // The blocking HTTP POSTs below stay OUTSIDE the tx so no DB connection is held across them.
-        List<WebhookEndpointEntity> endpoints =
-                tenantWork.callInTenant(tenant, () -> endpointRepository.findAllByTenantIdAndEnabledTrue(tenant));
+        // DORMANCY (B-002): the tenant-scoped finder adds an UNCONDITIONAL SQL `WHERE tenant_id = ?`,
+        // which is NOT gated by the RLS GUC — so it would change behavior even at enforce=false (events
+        // resolve to "default" until cutover Step 0 stamps the real tenant, and real endpoints are stored
+        // under real tenants → zero matches → deliveries silently stop). Gate it on the enforce flag:
+        // keep the pre-existing all-enabled read while dormant; switch to the tenant-scoped, RLS-bound
+        // read only under enforcement (which also closes the pre-existing cross-tenant fan-out, paired
+        // with Step 0 supplying the real per-event tenant). HTTP POSTs stay OUTSIDE any tx.
+        List<WebhookEndpointEntity> endpoints;
+        if (rlsEnforced) {
+            String tenant = extractTenant(record);
+            endpoints = tenantWork.callInTenant(tenant,
+                    () -> endpointRepository.findAllByTenantIdAndEnabledTrue(tenant));
+        } else {
+            endpoints = endpointRepository.findAllByEnabledTrue();
+        }
         if (endpoints.isEmpty()) return;
 
         String payload = record.value();

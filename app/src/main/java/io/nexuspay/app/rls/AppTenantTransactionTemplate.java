@@ -63,4 +63,28 @@ public class AppTenantTransactionTemplate implements TenantWorkRunner {
             DbRoleContext.set(previousRole);
         }
     }
+
+    @Override
+    public void bindTenant(String tenantId, Runnable work) {
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalArgumentException("tenantId is required for an APP-bound (RLS) context");
+        }
+        // No outer transaction: pin APP + tenant on the thread, then let the inner @Transactional work
+        // open its OWN transaction (reading these at its tx-begin) at its OWN declared isolation — so a
+        // SERIALIZABLE inner boundary is preserved, not downgraded by an enclosing default-isolation tx.
+        DbRole previousRole = DbRoleContext.get();
+        String previousTenant = TenantContext.get();
+        DbRoleContext.set(DbRole.APP);
+        TenantContext.set(tenantId);
+        try {
+            work.run();
+        } finally {
+            if (previousTenant == null) {
+                TenantContext.clear();
+            } else {
+                TenantContext.set(previousTenant);
+            }
+            DbRoleContext.set(previousRole);
+        }
+    }
 }

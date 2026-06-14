@@ -39,4 +39,11 @@ public class InlineTenantWorkRunner implements TenantWorkRunner {
     public <T> T callInTenant(String tenantId, Supplier<T> work) {
         return requiresNew.execute(status -> work.get());
     }
+
+    @Override
+    public void bindTenant(String tenantId, Runnable work) {
+        // Dormant: no role/tenant binding and (unlike runInTenant) no enclosing transaction either,
+        // so inner @Transactional methods open their own transactions exactly as before the feature.
+        work.run();
+    }
 }

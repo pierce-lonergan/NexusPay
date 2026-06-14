@@ -35,4 +35,15 @@ public interface TenantWorkRunner {
 
     /** Runs {@code work} in a new transaction bound to {@code tenantId} on the APP role, returning its result. */
     <T> T callInTenant(String tenantId, Supplier<T> work);
+
+    /**
+     * Binds {@code tenantId} on the APP role for the duration of {@code work} WITHOUT opening an outer
+     * transaction. Any {@code @Transactional} method called within then opens its OWN tenant-bound
+     * transaction at its OWN declared isolation — use this when the inner work already manages its
+     * transaction(s) and an enclosing default-isolation transaction would silently downgrade them (e.g.
+     * the ledger's {@code SERIALIZABLE} journal write). When YOU need the helper to own the transaction
+     * boundary (a consumer whose handlers are not themselves transactional, or a per-item sweep write),
+     * use {@link #runInTenant}/{@link #callInTenant} instead. Dormant impl: just runs {@code work}.
+     */
+    void bindTenant(String tenantId, Runnable work);
 }
