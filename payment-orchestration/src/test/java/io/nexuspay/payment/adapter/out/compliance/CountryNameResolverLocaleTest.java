@@ -35,8 +35,8 @@ class CountryNameResolverLocaleTest {
         assertThat(CountryNameResolver.toIso2("Sudan")).contains("SD");
         assertThat(CountryNameResolver.toIso2("South Sudan")).contains("SS");
         assertThat(CountryNameResolver.toIso2("Republic of South Sudan")).contains("SS");
-        // South Sudan must NOT collapse to Sudan.
-        assertThat(CountryNameResolver.toIso2("South Sudan")).doesNotContain("SD");
+        // South Sudan must NOT collapse to Sudan (OptionalAssert has no doesNotContain).
+        assertThat(CountryNameResolver.toIso2("South Sudan")).hasValueSatisfying(v -> assertThat(v).isNotEqualTo("SD"));
     }
 
     @Test
