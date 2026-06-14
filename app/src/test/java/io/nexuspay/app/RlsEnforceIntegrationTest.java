@@ -1,8 +1,11 @@
 package io.nexuspay.app;
 
+import io.nexuspay.analytics.adapter.in.event.PaymentEventAnalyticsConsumer;
 import io.nexuspay.common.rls.SystemTransactional;
 import io.nexuspay.common.rls.TenantWorkRunner;
 import io.nexuspay.iam.domain.TenantContext;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.common.header.internals.RecordHeader;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.Test;
@@ -67,6 +70,38 @@ class RlsEnforceIntegrationTest extends IntegrationTestBase {
     private RlsProbe probe;
     @Autowired
     private TenantWorkRunner tenantWork;
+    @Autowired
+    private PaymentEventAnalyticsConsumer analyticsConsumer;
+
+    @Test
+    void analyticsConsumer_bindsEventTenant_andWritesUnderWithCheck() throws Exception {
+        assumeTrue(DOCKER_AVAILABLE, "requires Docker (Testcontainers Postgres)");
+        // A PaymentCaptured event carrying metadata.tenant_id=en_tA: the consumer (now non-@Transactional,
+        // routing through TenantWorkRunner) must bind en_tA and upsert the revenue rollup on the APP role,
+        // where RLS WITH CHECK (V3022) requires the row's tenant_id == the bound tenant. If the binding
+        // were missing/wrong, the upsert would be rejected fail-closed. Proves the consumer path end-to-end.
+        String json = "{\"metadata\":{\"tenant_id\":\"en_tA\"},"
+                + "\"payload\":{\"psp_connector\":\"stripe\",\"amount\":42.50,\"currency\":\"USD\","
+                + "\"payment_method\":\"card\"}}";
+        ConsumerRecord<String, String> record = new ConsumerRecord<>("payments", 0, 0L, "k", json);
+        record.headers().add(new RecordHeader("event_type", "PaymentCaptured".getBytes(StandardCharsets.UTF_8)));
+        try {
+            analyticsConsumer.consume(record);
+
+            try (Connection c = DriverManager.getConnection(
+                    nexuspayPg.getJdbcUrl(), nexuspayPg.getUsername(), nexuspayPg.getPassword());
+                 Statement st = c.createStatement();
+                 ResultSet rs = st.executeQuery(
+                         "SELECT count(*) FROM analytics.revenue_hourly WHERE tenant_id = 'en_tA'")) {
+                rs.next();
+                assertThat(rs.getInt(1))
+                        .as("analytics consumer bound en_tA; the WITH CHECK-guarded revenue upsert landed under en_tA")
+                        .isGreaterThan(0);
+            }
+        } finally {
+            cleanupAnalyticsAsOwner();
+        }
+    }
 
     @Test
     void tenantWorkRunner_bindsAppTenant_enforcesWithCheck_andNestsUnderSystemPin() throws Exception {
@@ -208,6 +243,14 @@ class RlsEnforceIntegrationTest extends IntegrationTestBase {
                 nexuspayPg.getJdbcUrl(), nexuspayPg.getUsername(), nexuspayPg.getPassword());
              Statement st = c.createStatement()) {
             st.execute("DELETE FROM ledger_accounts WHERE tenant_id IN ('en_tA','en_tB')");
+        }
+    }
+
+    private void cleanupAnalyticsAsOwner() throws Exception {
+        try (Connection c = DriverManager.getConnection(
+                nexuspayPg.getJdbcUrl(), nexuspayPg.getUsername(), nexuspayPg.getPassword());
+             Statement st = c.createStatement()) {
+            st.execute("DELETE FROM analytics.revenue_hourly WHERE tenant_id IN ('en_tA','en_tB')");
         }
     }
 
