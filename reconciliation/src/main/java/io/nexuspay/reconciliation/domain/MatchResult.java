@@ -28,7 +28,12 @@ public record MatchResult(
         MISSING_LEDGER_ENTRY,
         FEE_DISCREPANCY,
         CURRENCY_MISMATCH,
-        DUPLICATE_SETTLEMENT
+        DUPLICATE_SETTLEMENT,
+        // B-015: a settlement row that could not be parsed or validated during
+        // ingestion (RFC-4180 corruption, non-numeric amount, bad date, ragged
+        // columns). Persisted as a durable exception so no row is silently
+        // dropped. 11 chars — fits the VARCHAR(32) exception_type column.
+        PARSE_ERROR
     }
 
     public static MatchResult matched(String settlementId, String paymentId, String journalEntryId) {

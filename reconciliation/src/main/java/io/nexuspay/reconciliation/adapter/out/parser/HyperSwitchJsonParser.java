@@ -50,7 +50,7 @@ public class HyperSwitchJsonParser implements SettlementParserPort {
     }
 
     @Override
-    public List<SettlementRecord> parse(InputStream input, String tenantId, String runId) {
+    public ParseResult parse(InputStream input, String tenantId, String runId) {
         List<SettlementRecord> records = new ArrayList<>();
 
         try {
@@ -85,7 +85,7 @@ public class HyperSwitchJsonParser implements SettlementParserPort {
             throw new RuntimeException("Failed to parse HyperSwitch settlement file", e);
         }
 
-        return records;
+        return ParseResult.ofRecords(records);
     }
 
     private String getTextOrThrow(JsonNode node, String field) {

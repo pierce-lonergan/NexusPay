@@ -3,8 +3,8 @@ package io.nexuspay.reconciliation.application.service;
 import io.nexuspay.reconciliation.application.port.out.ReconciliationRepository;
 import io.nexuspay.reconciliation.application.port.out.SettlementFilePort;
 import io.nexuspay.reconciliation.application.port.out.SettlementParserPort;
+import io.nexuspay.reconciliation.application.port.out.SettlementParserPort.ParseResult;
 import io.nexuspay.reconciliation.domain.ReconciliationRun;
-import io.nexuspay.reconciliation.domain.SettlementRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -29,13 +29,16 @@ public class SettlementIngestionService {
     private static final Logger log = LoggerFactory.getLogger(SettlementIngestionService.class);
 
     private final ReconciliationRepository repository;
+    private final ParseFailureRecorder parseFailureRecorder;
     private final Map<String, SettlementParserPort> parsers;
     private final Map<String, SettlementFilePort> fileSources;
 
     public SettlementIngestionService(ReconciliationRepository repository,
+                                      ParseFailureRecorder parseFailureRecorder,
                                       List<SettlementParserPort> parserList,
                                       List<SettlementFilePort> fileSourceList) {
         this.repository = repository;
+        this.parseFailureRecorder = parseFailureRecorder;
         this.parsers = parserList.stream()
                 .collect(Collectors.toMap(SettlementParserPort::provider, Function.identity()));
         this.fileSources = fileSourceList.stream()
@@ -73,12 +76,19 @@ public class SettlementIngestionService {
 
         // Fetch and parse
         InputStream fileContent = fileSource.fetch(path);
-        List<SettlementRecord> records = parser.parse(fileContent, tenantId, run.getId());
+        ParseResult result = parser.parse(fileContent, tenantId, run.getId());
 
         // Persist settlement records
-        repository.saveAllSettlementRecords(records);
+        repository.saveAllSettlementRecords(result.records());
 
-        log.info("Ingested {} settlement records for run: {}", records.size(), run.getId());
+        // B-015: every row that could not be parsed/validated becomes a durable
+        // reconciliation exception — never a silent drop. FIX 2: committed in a
+        // SEPARATE (REQUIRES_NEW) transaction so a downstream rollback can never
+        // erase it.
+        parseFailureRecorder.record(run, result.failures());
+
+        log.info("Ingested {} settlement records ({} parse failures) for run: {}",
+                result.records().size(), result.failures().size(), run.getId());
 
         return run;
     }
@@ -97,10 +107,16 @@ public class SettlementIngestionService {
         ReconciliationRun run = ReconciliationRun.create(tenantId, provider, fileName);
         repository.saveRun(run);
 
-        List<SettlementRecord> records = parser.parse(input, tenantId, run.getId());
-        repository.saveAllSettlementRecords(records);
+        ParseResult result = parser.parse(input, tenantId, run.getId());
+        repository.saveAllSettlementRecords(result.records());
 
-        log.info("Ingested {} settlement records from upload for run: {}", records.size(), run.getId());
+        // B-015: persist a durable exception for each unparseable row. FIX 2:
+        // committed in a SEPARATE (REQUIRES_NEW) transaction so a downstream
+        // rollback can never erase it.
+        parseFailureRecorder.record(run, result.failures());
+
+        log.info("Ingested {} settlement records ({} parse failures) from upload for run: {}",
+                result.records().size(), result.failures().size(), run.getId());
 
         return run;
     }

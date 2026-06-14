@@ -50,6 +50,10 @@ postgresql = { module = "org.postgresql:postgresql" }
 # Use Boot's managed flyway-core; the postgresql module is dropped.
 flyway-core = { module = "org.flywaydb:flyway-core" }
 
+# Jackson — version managed by the Spring Boot BOM (no version.ref), matching
+# the version-less jackson-databind usage in common/billing/fraud/dispute.
+jackson-dataformat-csv = { module = "com.fasterxml.jackson.dataformat:jackson-dataformat-csv" }
+
 # Resilience
 resilience4j-spring-boot3 = { module = "io.github.resilience4j:resilience4j-spring-boot3", version.ref = "resilience4j" }
 resilience4j-circuitbreaker = { module = "io.github.resilience4j:resilience4j-circuitbreaker", version.ref = "resilience4j" }
