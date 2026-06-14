@@ -38,6 +38,15 @@ public class FraudAssessmentRepositoryAdapter implements FraudAssessmentReposito
     }
 
     @Override
+    public RiskAssessment saveAndFlush(RiskAssessment assessment) {
+        // B-027b: flush synchronously so the uq_fraud_assessments_tenant_idem violation is raised
+        // HERE (inside assess()'s try/catch) instead of being deferred to commit/outbox flush.
+        FraudAssessmentEntity entity = toEntity(assessment);
+        FraudAssessmentEntity saved = jpaRepo.saveAndFlush(entity);
+        return toDomain(saved);
+    }
+
+    @Override
     public Optional<RiskAssessment> findById(UUID id) {
         return jpaRepo.findById(id).map(this::toDomain);
     }
@@ -45,6 +54,11 @@ public class FraudAssessmentRepositoryAdapter implements FraudAssessmentReposito
     @Override
     public Optional<RiskAssessment> findByPaymentId(String paymentId) {
         return jpaRepo.findByPaymentId(paymentId).map(this::toDomain);
+    }
+
+    @Override
+    public Optional<RiskAssessment> findByTenantIdAndPaymentId(String tenantId, String paymentId) {
+        return jpaRepo.findByTenantIdAndPaymentId(tenantId, paymentId).map(this::toDomain);
     }
 
     @Override

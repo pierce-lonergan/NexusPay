@@ -19,6 +19,7 @@ public class FraudProperties {
     private Scoring scoring = new Scoring();
     private Frm frm = new Frm();
     private DeviceFingerprint deviceFingerprint = new DeviceFingerprint();
+    private Idempotency idempotency = new Idempotency();
 
     // --- Getters & Setters ---
 
@@ -27,6 +28,9 @@ public class FraudProperties {
 
     public NativeRules getNativeRules() { return nativeRules; }
     public void setNativeRules(NativeRules nativeRules) { this.nativeRules = nativeRules; }
+
+    public Idempotency getIdempotency() { return idempotency; }
+    public void setIdempotency(Idempotency idempotency) { this.idempotency = idempotency; }
 
     public Scoring getScoring() { return scoring; }
     public void setScoring(Scoring scoring) { this.scoring = scoring; }
@@ -129,6 +133,21 @@ public class FraudProperties {
             public String getTeamId() { return teamId; }
             public void setTeamId(String teamId) { this.teamId = teamId; }
         }
+    }
+
+    /**
+     * B-027b idempotent-assess settings. The {@code ttl} is the window of the Valkey first-seen
+     * marker that gates the velocity INCR (so two truly-concurrent retries cannot both increment).
+     * Default 24h: {@code >=} the max velocity window AND {@code >=} the billing/Temporal retry
+     * horizon, but short enough not to swallow a legitimately-distinct re-charge (billing
+     * idempotency keys already differ per dunning attempt, so a distinct attempt carries a distinct
+     * key and is never deduped by this marker).
+     */
+    public static class Idempotency {
+        private Duration ttl = Duration.ofHours(24);
+
+        public Duration getTtl() { return ttl; }
+        public void setTtl(Duration ttl) { this.ttl = ttl; }
     }
 
     public static class DeviceFingerprint {

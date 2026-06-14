@@ -97,7 +97,13 @@ public class CheckoutController {
             @AuthenticationPrincipal NexusPayPrincipal principal) {
 
         try {
-            // TODO: Integrate with PaymentGatewayPort to create payment intent
+            // TODO: Integrate with PaymentGatewayPort to create payment intent.
+            // B-029 GUARD: when this is wired, it MUST call
+            //   paymentGateway.createPayment(request, CallContext.interactive(principal.tenantId()))
+            // deriving the rail + tenant from the TRUSTED session principal — NEVER forwarding the
+            // client request body's metadata as the screening mode/tenant. This is the SDK-facing
+            // ingress B-029 specifically warns about: forwarding client metadata here would let a
+            // client claim the soft SERVER_* rail or fabricate a tenant to fragment fraud velocity.
             // For now, mark session as complete
             sessionService.completeSession(principal.sessionId(), null);
 

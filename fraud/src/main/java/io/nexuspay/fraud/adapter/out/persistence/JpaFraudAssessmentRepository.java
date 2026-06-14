@@ -16,5 +16,7 @@ public interface JpaFraudAssessmentRepository extends JpaRepository<FraudAssessm
 
     Optional<FraudAssessmentEntity> findByPaymentId(String paymentId);
 
+    Optional<FraudAssessmentEntity> findByTenantIdAndPaymentId(String tenantId, String paymentId);
+
     List<FraudAssessmentEntity> findByTenantIdAndReviewStatus(String tenantId, String reviewStatus, Pageable pageable);
 }

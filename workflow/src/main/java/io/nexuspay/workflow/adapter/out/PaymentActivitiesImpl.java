@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nexuspay.payment.adapter.out.outbox.OutboxEvent;
 import io.nexuspay.payment.adapter.out.outbox.OutboxEventRepository;
 import io.nexuspay.payment.application.port.PaymentGatewayPort;
+import io.nexuspay.payment.application.screening.CallContext;
 import io.nexuspay.payment.domain.PaymentRequest;
 import io.nexuspay.payment.domain.PaymentResponse;
 import io.nexuspay.payment.domain.VoidRequest;
@@ -62,11 +63,15 @@ public class PaymentActivitiesImpl implements PaymentActivities {
                 "Workflow payment " + request.paymentId(),
                 "automatic",                    // captureMethod
                 request.idempotencyKey(),
-                Map.of("nexuspay_payment_id", request.paymentId(),
-                       "workflow", "payment_with_retry")
+                Map.of("nexuspay_payment_id", request.paymentId())
         );
 
-        PaymentResponse response = paymentGateway.createPayment(gatewayRequest);
+        // B-029: the screening rail (SERVER_OTHER) + the TRUSTED tenant come from a CallContext, not
+        // from a client-shaped "workflow" metadata marker. The tenant is threaded from the workflow
+        // request (it already flows tenantId into publishPaymentEvent) so the gate has a real tenant
+        // and the geography resolver no longer fails closed on every workflow charge.
+        PaymentResponse response = paymentGateway.createPayment(
+                gatewayRequest, CallContext.serverOther(request.tenantId()));
 
         log.info("Activity: Payment created in HyperSwitch: paymentId={}, externalId={}, status={}",
                 request.paymentId(), response.gatewayPaymentId(), response.status());

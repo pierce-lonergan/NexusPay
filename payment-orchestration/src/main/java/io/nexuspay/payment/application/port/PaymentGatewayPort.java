@@ -1,5 +1,6 @@
 package io.nexuspay.payment.application.port;
 
+import io.nexuspay.payment.application.screening.CallContext;
 import io.nexuspay.payment.domain.PaymentRequest;
 import io.nexuspay.payment.domain.PaymentResponse;
 import io.nexuspay.payment.domain.RefundRequest;
@@ -7,8 +8,6 @@ import io.nexuspay.payment.domain.RefundResponse;
 import io.nexuspay.payment.domain.CaptureRequest;
 import io.nexuspay.payment.domain.ConfirmRequest;
 import io.nexuspay.payment.domain.VoidRequest;
-
-import java.util.List;
 
 /**
  * Primary port for payment gateway operations.
@@ -24,14 +23,44 @@ public interface PaymentGatewayPort {
     /**
      * Creates a new payment at the gateway.
      * Maps to HyperSwitch POST /payments.
+     *
+     * <p>This 1-arg form sources the screening mode + tenant from request metadata (the
+     * pre-B-029 behavior, kept only as a transitional fallback). New callers MUST use the
+     * {@link #createPayment(PaymentRequest, CallContext)} overload to supply a TRUSTED
+     * call-site identity, so the screening gate ignores any client-supplied
+     * {@code source}/{@code workflow}/{@code tenant_id} markers.</p>
      */
     PaymentResponse createPayment(PaymentRequest request);
 
     /**
+     * Creates a new payment, screening it with a TRUSTED server-set {@link CallContext}
+     * (B-029). The {@code GatedPaymentGateway} takes the screening mode + tenant from
+     * {@code ctx} and treats any client-supplied mode/tenant marker in the request metadata
+     * as advisory (ignored). The default delegates to the 1-arg form for non-screening
+     * implementations (e.g. the raw {@code HyperSwitchPaymentAdapter}, which has no gate).
+     */
+    default PaymentResponse createPayment(PaymentRequest request, CallContext ctx) {
+        return createPayment(request);
+    }
+
+    /**
      * Confirms/authorizes a payment that requires confirmation.
      * Maps to HyperSwitch POST /payments/{id}/confirm.
+     *
+     * <p>This 2-arg form sources the screening mode + tenant from the persisted intent's
+     * server-owned origin record (B-029). New callers SHOULD use the
+     * {@link #confirmPayment(String, ConfirmRequest, CallContext)} overload to assert the
+     * trusted ingress identity explicitly.</p>
      */
     PaymentResponse confirmPayment(String paymentId, ConfirmRequest request);
+
+    /**
+     * Confirms a payment, asserting the TRUSTED server-set {@link CallContext} (B-029).
+     * The default delegates to the 2-arg form for non-screening implementations.
+     */
+    default PaymentResponse confirmPayment(String paymentId, ConfirmRequest request, CallContext ctx) {
+        return confirmPayment(paymentId, request);
+    }
 
     /**
      * Captures a previously authorized payment.

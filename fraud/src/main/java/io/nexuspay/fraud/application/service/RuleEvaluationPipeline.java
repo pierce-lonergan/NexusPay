@@ -94,10 +94,43 @@ public class RuleEvaluationPipeline {
             preDecision = RiskDecision.ALLOW;
         }
 
-        // Increment velocity counters for this payment (sliding window)
-        incrementVelocityCounters(context, activeRules);
+        // Increment velocity counters for this payment (sliding window) — but ONLY the first time we
+        // see this (tenant, idempotency-key). The FraudAssessmentService read-through + unique index
+        // dedup the ROW/event, but the velocity INCR happens here BEFORE the save, so two truly-
+        // concurrent retries could both INCR before either saves. A Valkey SET-NX first-seen marker
+        // closes that window (B-027b). On a Valkey error → fail-OPEN (INCR), matching the existing
+        // fail-open posture in evaluateVelocityWithState — an outage must not silently drop accounting.
+        if (markFirstSeen(context)) {
+            incrementVelocityCounters(context, activeRules);
+        } else {
+            log.info("Velocity INCR skipped (idempotent retry): tenant={}, key={}",
+                    context.tenantId(), context.dedupKey());
+        }
 
         return new NativeEvaluation(nativeScore, preDecision, signals, triggeredRuleIds);
+    }
+
+    /**
+     * SET-NX first-seen marker for a (tenant, idempotency-key). Returns true when THIS call is the
+     * first to see the key (→ proceed with velocity INCR), false when a prior call already marked it
+     * (→ a retry; skip the INCR). Fails OPEN (returns true) on a Valkey error so an outage cannot
+     * silently drop fraud velocity accounting.
+     */
+    private boolean markFirstSeen(PaymentContext context) {
+        String dedupKey = context.dedupKey();
+        if (dedupKey == null || dedupKey.isBlank()) {
+            return true; // no key to dedup on → always count
+        }
+        String markerKey = String.format("fraud:assessed:%s:%s", context.tenantId(), dedupKey);
+        try {
+            Boolean first = redisTemplate.opsForValue()
+                    .setIfAbsent(markerKey, "1", fraudProperties.getIdempotency().getTtl());
+            return !Boolean.FALSE.equals(first); // null (unexpected) → fail open
+        } catch (Exception e) {
+            log.warn("First-seen marker SET-NX failed for {} — failing OPEN (will INCR velocity): {}",
+                    markerKey, e.getMessage());
+            return true;
+        }
     }
 
     /**

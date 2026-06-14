@@ -2,6 +2,7 @@ package io.nexuspay.billing.adapter.out.payment;
 
 import io.nexuspay.billing.application.port.out.PaymentPort;
 import io.nexuspay.payment.application.port.PaymentGatewayPort;
+import io.nexuspay.payment.application.screening.CallContext;
 import io.nexuspay.payment.domain.PaymentRequest;
 import io.nexuspay.payment.domain.PaymentResponse;
 import org.slf4j.Logger;
@@ -51,6 +52,10 @@ public class PaymentOrchestrationAdapter implements PaymentPort {
             // defeat retry de-duplication entirely → double charges.
             String idempotencyKey = "billing_" + invoiceId + "_" + shortHash(description);
 
+            // B-029: the screening rail (SERVER_RECURRING) + tenant are now declared via a TRUSTED
+            // CallContext from server-side args, NOT via client-shaped metadata. We keep invoice_id
+            // for downstream linkage; tenant_id/source are dropped (the gate would strip them anyway
+            // and they no longer carry authority).
             PaymentRequest request = new PaymentRequest(
                     amount,
                     currency,
@@ -61,14 +66,11 @@ public class PaymentOrchestrationAdapter implements PaymentPort {
                     description,
                     "automatic",              // Auto-capture for subscriptions
                     idempotencyKey,
-                    Map.of(
-                            "invoice_id", invoiceId,
-                            "tenant_id", tenantId,
-                            "source", "billing_subscription"
-                    )
+                    Map.of("invoice_id", invoiceId)
             );
 
-            PaymentResponse response = paymentGatewayPort.createPayment(request);
+            PaymentResponse response = paymentGatewayPort.createPayment(
+                    request, CallContext.serverRecurring(tenantId));
 
             if (response.isSuccessful()) {
                 log.info("Payment collected successfully: paymentId={}, invoice={}",

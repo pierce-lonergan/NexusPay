@@ -4,6 +4,7 @@ import io.nexuspay.gateway.adapter.in.rest.dto.*;
 import io.nexuspay.gateway.application.RefundOrchestrationService;
 import io.nexuspay.iam.domain.NexusPayPrincipal;
 import io.nexuspay.payment.application.port.PaymentGatewayPort;
+import io.nexuspay.payment.application.screening.CallContext;
 import io.nexuspay.payment.domain.*;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -81,7 +82,11 @@ public class PaymentController {
                 request.return_url(), request.description(), request.capture_method(),
                 idempotencyKey, metadata);
 
-        var response = paymentGateway.createPayment(paymentRequest);
+        // B-029: derive the screening rail + tenant from the TRUSTED authenticated principal, not
+        // from client metadata. The strip/stamp above stays as belt-and-suspenders; the gate no
+        // longer depends on it for authority.
+        String tenantId = principal != null ? principal.tenantId() : null;
+        var response = paymentGateway.createPayment(paymentRequest, CallContext.interactive(tenantId));
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ResponseMapper.toPaymentResponse(response));
     }
@@ -92,10 +97,15 @@ public class PaymentController {
     public ResponseEntity<PaymentApiResponse> confirmPayment(
             @PathVariable String id,
             @RequestBody(required = false) ConfirmPaymentRequest request,
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @AuthenticationPrincipal NexusPayPrincipal principal) {
         var req = request != null ? request : new ConfirmPaymentRequest(null, null, null);
+        // B-029: assert the trusted interactive ingress identity (the server-owned origin store
+        // remains the authority for the persisted intent's (tenant, mode)).
+        String tenantId = principal != null ? principal.tenantId() : null;
         var response = paymentGateway.confirmPayment(id, new ConfirmRequest(
-                req.payment_method_type(), req.payment_method_data(), req.return_url(), idempotencyKey));
+                req.payment_method_type(), req.payment_method_data(), req.return_url(), idempotencyKey),
+                CallContext.interactive(tenantId));
         return ResponseEntity.ok(ResponseMapper.toPaymentResponse(response));
     }
 

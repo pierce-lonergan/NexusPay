@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -44,22 +45,66 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
 
     private static final Logger log = LoggerFactory.getLogger(GatedPaymentGateway.class);
 
+    /** Authority markers the gate now OWNS — never sourced from client metadata (B-029). */
+    private static final String META_SOURCE = "source";
+    private static final String META_WORKFLOW = "workflow";
+    private static final String META_TENANT_ID = "tenant_id";
+
     private final PaymentGatewayPort delegate;
     private final PreAuthorizationGate gate;
     private final CaptureHoldService captureHolds;
+    private final ScreeningOriginService screeningOrigins;
 
     public GatedPaymentGateway(HyperSwitchPaymentAdapter delegate,
                                PreAuthorizationGate gate,
-                               CaptureHoldService captureHolds) {
+                               CaptureHoldService captureHolds,
+                               ScreeningOriginService screeningOrigins) {
         this.delegate = delegate;
         this.gate = gate;
         this.captureHolds = captureHolds;
+        this.screeningOrigins = screeningOrigins;
     }
 
+    /**
+     * Transitional 1-arg path: NO trusted {@link CallContext} was supplied. SHOULD_FIX B: this path
+     * must NEVER let client metadata pick a softer rail or a tenant. It used to derive the mode via
+     * {@code ScreeningMode.fromMetadata(metadata)} and the tenant via {@code tenantFrom(metadata)} —
+     * a forged-authority footgun (a client-shaped {@code source}/{@code tenant_id} could dodge the
+     * INTERACTIVE capture-hold or fragment fraud velocity). It now delegates to the trusted create
+     * path with {@link CallContext#strictDefault} (INTERACTIVE + null tenant), so the gate takes the
+     * STRICTEST rail and no metadata tenant; the {@link #createPayment(PaymentRequest, CallContext)}
+     * overload then scrubs the authority markers from the metadata too. Loud, not silent — any
+     * un-migrated caller is warned. New callers MUST use the CallContext overload.
+     */
     @Override
     public PaymentResponse createPayment(PaymentRequest request) {
-        ScreeningMode mode = ScreeningMode.fromMetadata(request.metadata());
-        String tenantId = tenantFrom(request.metadata());
+        log.warn("createPayment called WITHOUT a trusted CallContext (ref={}) — using the STRICT "
+                + "fallback (INTERACTIVE rail + null tenant); client metadata can NOT pick the rail "
+                + "or tenant (B-029/SHOULD_FIX B: migrate caller to pass CallContext)",
+                request.idempotencyKey());
+        return createPayment(request, CallContext.strictDefault(null));
+    }
+
+    /**
+     * B-029 trusted path: the screening mode + tenant come from the server-set {@link CallContext},
+     * never from client-shaped request metadata. Any client-supplied
+     * {@code source}/{@code workflow}/{@code tenant_id} marker is advisory and is stripped before
+     * the request is forwarded to the PSP, so it can neither pick the rail nor be persisted as
+     * authority.
+     */
+    @Override
+    public PaymentResponse createPayment(PaymentRequest request, CallContext ctx) {
+        CallContext c = ctx != null ? ctx : CallContext.strictDefault(null);
+        assertNoClientAuthority(request.metadata());
+        PaymentRequest scrubbed = scrubAuthorityMarkers(request);
+        return doCreate(scrubbed, c.tenantId(), c.mode());
+    }
+
+    private PaymentResponse doCreate(PaymentRequest request, String tenantId, ScreeningMode mode) {
+        if (tenantId == null || tenantId.isBlank()) {
+            log.warn("createPayment (ref={}, mode={}) has no trusted tenant — geography resolver "
+                    + "will fail closed to a mandatory review", request.idempotencyKey(), mode);
+        }
         GateSignals signals = GateSignals.fromRequest(request.metadata(), request.paymentMethodData());
 
         GateDecision decision = gate.evaluate(request.idempotencyKey(), request, tenantId, signals, mode);
@@ -87,14 +132,38 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
         PaymentRequest effective = hold ? request.withCaptureMethod("manual") : request;
         PaymentResponse response = delegate.createPayment(effective);
 
-        if (hold && response != null && response.gatewayPaymentId() != null) {
-            captureHolds.hold(response.gatewayPaymentId(), tenantId, decision.fraudAssessmentId());
+        if (response != null && response.gatewayPaymentId() != null) {
+            // B-029: persist the TRUSTED originating (tenant, mode) so confirm re-screens with the
+            // same authority instead of re-deriving it from the (tamperable) intent metadata blob.
+            screeningOrigins.record(response.gatewayPaymentId(), new CallContext(tenantId, mode));
+            if (hold) {
+                captureHolds.hold(response.gatewayPaymentId(), tenantId, decision.fraudAssessmentId());
+            }
         }
         return response;
     }
 
+    /**
+     * Transitional 2-arg confirm: no trusted {@link CallContext} asserted by the caller. Authority
+     * still comes from the server-owned origin store (B-029), NOT the intent metadata; the origin
+     * store is the source of truth regardless of which overload is used.
+     */
     @Override
     public PaymentResponse confirmPayment(String paymentId, ConfirmRequest request) {
+        return doConfirm(paymentId, request);
+    }
+
+    /**
+     * B-029 confirm: the trusted {@link CallContext} is asserted by the caller (e.g. REST passes the
+     * principal's tenant). The server-owned origin store remains the authority for {@code (tenant,
+     * mode)}; the supplied ctx is accepted but does not let a client re-classify the rail.
+     */
+    @Override
+    public PaymentResponse confirmPayment(String paymentId, ConfirmRequest request, CallContext ctx) {
+        return doConfirm(paymentId, request);
+    }
+
+    private PaymentResponse doConfirm(String paymentId, ConfirmRequest request) {
         // ALWAYS screen on confirm (B2): sanctions is a hard block in every mode, and confirm is
         // the first point a real instrument may appear (a server intent created with no PM/BIN).
         // Load the intent defensively (M3): getPayment is circuit-broken with no fallback.
@@ -107,8 +176,22 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
             throw new PaymentException("Unable to load payment for screening: " + paymentId, "payment_screen_unavailable");
         }
 
-        String tenantId = tenantFrom(existing.metadata());
-        ScreeningMode mode = ScreeningMode.fromMetadata(existing.metadata());
+        // B-029: authority comes from the SERVER-OWNED origin store, never from existing.metadata()
+        // (a free-form blob that could be re-classified). A legacy intent with no origin row falls
+        // back to the strictest rail (INTERACTIVE) + no tenant — never to the client metadata.
+        ScreeningOriginService.Origin origin = screeningOrigins.find(paymentId)
+                .orElse(null);
+        String tenantId;
+        ScreeningMode mode;
+        if (origin != null) {
+            tenantId = origin.tenantId();
+            mode = origin.mode();
+        } else {
+            tenantId = null;
+            mode = ScreeningMode.INTERACTIVE;
+            log.warn("confirmPayment {} has no server-owned screening origin — falling back to strict "
+                    + "INTERACTIVE rail + null tenant (NOT re-deriving from intent metadata)", paymentId);
+        }
         GateSignals signals = GateSignals.fromRequest(existing.metadata(),
                 request != null ? request.paymentMethodData() : null);
         PaymentRequest ctx = reconstructForScreening(existing, request);
@@ -189,11 +272,42 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
         return delegate.getRefund(refundId);
     }
 
-    private static String tenantFrom(Map<String, Object> metadata) {
+    /**
+     * Defense-in-depth (B-029): when a TRUSTED {@link CallContext} was supplied, any client-supplied
+     * authority marker in the metadata is a forged-authority attempt — it cannot take effect (the
+     * gate already took mode+tenant from the ctx), but we log it so the attempt is visible.
+     */
+    private static void assertNoClientAuthority(Map<String, Object> metadata) {
         if (metadata == null) {
-            return null;
+            return;
         }
-        Object t = metadata.get("tenant_id");
-        return t != null ? t.toString() : null;
+        if (metadata.containsKey(META_SOURCE) || metadata.containsKey(META_WORKFLOW)
+                || metadata.containsKey(META_TENANT_ID)) {
+            log.warn("Client-supplied authority marker(s) present in request metadata "
+                    + "(source/workflow/tenant_id) while a trusted CallContext was supplied — "
+                    + "IGNORED (advisory only, B-029)");
+        }
+    }
+
+    /**
+     * Returns a copy of the request with the authority markers the gate now OWNS stripped from the
+     * metadata, so a client-supplied {@code source}/{@code workflow}/{@code tenant_id} can neither
+     * leak downstream to the PSP nor be persisted as authority. {@code ip_country_trusted} is left
+     * untouched (B-025 owns the server-stamped geography key).
+     */
+    private static PaymentRequest scrubAuthorityMarkers(PaymentRequest request) {
+        Map<String, Object> metadata = request.metadata();
+        if (metadata == null
+                || !(metadata.containsKey(META_SOURCE) || metadata.containsKey(META_WORKFLOW)
+                        || metadata.containsKey(META_TENANT_ID))) {
+            return request;
+        }
+        Map<String, Object> scrubbed = new HashMap<>(metadata);
+        scrubbed.remove(META_SOURCE);
+        scrubbed.remove(META_WORKFLOW);
+        scrubbed.remove(META_TENANT_ID);
+        return new PaymentRequest(request.amount(), request.currency(), request.customerId(),
+                request.paymentMethodType(), request.paymentMethodData(), request.returnUrl(),
+                request.description(), request.captureMethod(), request.idempotencyKey(), scrubbed);
     }
 }

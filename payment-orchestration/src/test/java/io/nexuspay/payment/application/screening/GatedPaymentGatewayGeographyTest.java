@@ -46,6 +46,7 @@ class GatedPaymentGatewayGeographyTest {
     private CrossBorderCompliancePort sanctionsPort;
     private MerchantCurrencyPrefsRepository merchantPrefs;
     private CaptureHoldService holds;
+    private ScreeningOriginService origins;
     private GatedPaymentGateway gateway;
 
     @BeforeEach
@@ -55,6 +56,8 @@ class GatedPaymentGatewayGeographyTest {
         sanctionsPort = mock(CrossBorderCompliancePort.class);
         merchantPrefs = mock(MerchantCurrencyPrefsRepository.class);
         holds = mock(CaptureHoldService.class);
+        origins = mock(ScreeningOriginService.class);
+        lenient().when(origins.find(any())).thenReturn(Optional.empty()); // overridden per confirm test
 
         // screen is healthy/available; nothing restricted unless a test says so
         lenient().when(sanctionsPort.isScreeningAvailable()).thenReturn(true);
@@ -69,7 +72,7 @@ class GatedPaymentGatewayGeographyTest {
         CrossBorderComplianceService compliance = new CrossBorderComplianceService(sanctionsPort, true);
         ServerGeographyResolver resolver = new ServerGeographyResolver(merchantPrefs);
         PreAuthorizationGate gate = new PreAuthorizationGate(compliance, fraud, resolver);
-        gateway = new GatedPaymentGateway(delegate, gate, holds);
+        gateway = new GatedPaymentGateway(delegate, gate, holds, origins);
     }
 
     private void merchantCountry(String tenantId, String country) {
@@ -96,7 +99,8 @@ class GatedPaymentGatewayGeographyTest {
         merchantCountry("t1", "US");
         when(delegate.createPayment(any())).thenReturn(resp("pay_1", "manual"));
 
-        gateway.createPayment(req(Map.of("tenant_id", "t1"))); // no source/destination metadata
+        // B-029/SHOULD_FIX B: the trusted tenant comes from the CallContext, not metadata.
+        gateway.createPayment(req(Map.of()), CallContext.interactive("t1")); // no source/destination
 
         ArgumentCaptor<PaymentRequest> sent = ArgumentCaptor.forClass(PaymentRequest.class);
         verify(delegate).createPayment(sent.capture());
@@ -115,7 +119,7 @@ class GatedPaymentGatewayGeographyTest {
                 "IR", CountryRestriction.RestrictionType.SANCTIONED, "sanctioned")));
 
         assertThatThrownBy(() -> gateway.createPayment(
-                req(Map.of("tenant_id", "t1", "destination_country", "US"))))
+                req(Map.of("destination_country", "US")), CallContext.interactive("t1")))
                 .isInstanceOfSatisfying(PaymentException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo("cross_border_blocked"));
 
@@ -130,7 +134,7 @@ class GatedPaymentGatewayGeographyTest {
         merchantCountry("t1", "US");
         when(delegate.createPayment(any())).thenReturn(resp("pay_2", "manual"));
 
-        gateway.createPayment(req(Map.of("tenant_id", "t1", "destination_country", "IR")));
+        gateway.createPayment(req(Map.of("destination_country", "IR")), CallContext.interactive("t1"));
 
         ArgumentCaptor<PaymentRequest> sent = ArgumentCaptor.forClass(PaymentRequest.class);
         verify(delegate).createPayment(sent.capture());
@@ -142,7 +146,7 @@ class GatedPaymentGatewayGeographyTest {
         merchantCountry("t1", "US");
         when(sanctionsPort.isScreeningAvailable()).thenReturn(false);
 
-        assertThatThrownBy(() -> gateway.createPayment(req(Map.of("tenant_id", "t1"))))
+        assertThatThrownBy(() -> gateway.createPayment(req(Map.of()), CallContext.interactive("t1")))
                 .isInstanceOfSatisfying(PaymentException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo("cross_border_blocked"));
 
@@ -156,8 +160,8 @@ class GatedPaymentGatewayGeographyTest {
         merchantCountry("t1", "US");
         when(delegate.createPayment(any())).thenReturn(resp("pay_ok", "automatic"));
 
-        gateway.createPayment(req(Map.of("tenant_id", "t1",
-                ServerGeographyResolver.TRUSTED_IP_COUNTRY_KEY, "US")));
+        gateway.createPayment(req(Map.of(
+                ServerGeographyResolver.TRUSTED_IP_COUNTRY_KEY, "US")), CallContext.interactive("t1"));
 
         ArgumentCaptor<PaymentRequest> sent = ArgumentCaptor.forClass(PaymentRequest.class);
         verify(delegate).createPayment(sent.capture());
@@ -168,14 +172,15 @@ class GatedPaymentGatewayGeographyTest {
 
     @Test
     void omitAttack_onServerRecurringRail_unknownGeo_isHeld_notCapturedClean() {
-        // FIX 3 (OFAC blind spot): source=billing_subscription → SERVER_RECURRING. merchant_country=US
-        // (dest known) but NO trusted edge source → cross-border-capable + unknown source → MANDATORY
-        // COMPLIANCE REVIEW. Before the fix, the server rail discarded the unknown-geo hold and the
-        // charge captured clean. Now it MUST be held (manual capture) + a hold written on EVERY rail.
+        // FIX 3 (OFAC blind spot): SERVER_RECURRING comes from the TRUSTED CallContext (B-029/
+        // SHOULD_FIX B — no longer from a client source=billing_subscription marker). merchant_country
+        // =US (dest known) but NO trusted edge source → cross-border-capable + unknown source →
+        // MANDATORY COMPLIANCE REVIEW. The server rail must NOT discard the unknown-geo hold: the
+        // charge MUST be held (manual capture) + a hold written on EVERY rail.
         merchantCountry("t1", "US");
         when(delegate.createPayment(any())).thenReturn(resp("pay_srv", "manual"));
 
-        gateway.createPayment(req(Map.of("tenant_id", "t1", "source", "billing_subscription")));
+        gateway.createPayment(req(Map.of()), CallContext.serverRecurring("t1"));
 
         ArgumentCaptor<PaymentRequest> sent = ArgumentCaptor.forClass(PaymentRequest.class);
         verify(delegate).createPayment(sent.capture());
@@ -185,11 +190,12 @@ class GatedPaymentGatewayGeographyTest {
 
     @Test
     void omitAttack_onServerWorkflowRail_unknownGeo_isHeld_notCapturedClean() {
-        // FIX 3: the SERVER_OTHER (workflow) rail must also hold the unknown-geo compliance review.
+        // FIX 3: the SERVER_OTHER (workflow) rail — supplied via the TRUSTED CallContext — must also
+        // hold the unknown-geo compliance review.
         merchantCountry("t1", "US");
         when(delegate.createPayment(any())).thenReturn(resp("pay_wf", "manual"));
 
-        gateway.createPayment(req(Map.of("tenant_id", "t1", "workflow", "vendor_payout")));
+        gateway.createPayment(req(Map.of()), CallContext.serverOther("t1"));
 
         ArgumentCaptor<PaymentRequest> sent = ArgumentCaptor.forClass(PaymentRequest.class);
         verify(delegate).createPayment(sent.capture());
@@ -207,8 +213,9 @@ class GatedPaymentGatewayGeographyTest {
                 UUID.randomUUID(), "idem-1", 60, RiskDecision.REVIEW, "internal", List.of(), List.of(), 0));
         when(delegate.createPayment(any())).thenReturn(resp("pay_fr", "automatic"));
 
-        gateway.createPayment(req(Map.of("tenant_id", "t1", "source", "billing_subscription",
-                ServerGeographyResolver.TRUSTED_IP_COUNTRY_KEY, "US"))); // domestic known → fraud review only
+        // SERVER_RECURRING via the trusted CallContext; domestic known geography → fraud review only.
+        gateway.createPayment(req(Map.of(
+                ServerGeographyResolver.TRUSTED_IP_COUNTRY_KEY, "US")), CallContext.serverRecurring("t1"));
 
         ArgumentCaptor<PaymentRequest> sent = ArgumentCaptor.forClass(PaymentRequest.class);
         verify(delegate).createPayment(sent.capture());
@@ -220,7 +227,11 @@ class GatedPaymentGatewayGeographyTest {
     void confirmPath_serverRail_unknownGeo_onAutoCaptureIntent_isRefused() {
         // FIX 3 at confirm: a server-rail confirm of an AUTO-capture intent with unknown geography
         // must be REFUSED (compliance_review_hold), not allowed to confirm+capture clean.
+        // B-029: the server rail + tenant come from the SERVER-OWNED origin store (recorded at
+        // create), not the intent metadata blob.
         merchantCountry("t1", "US"); // dest known, no trusted source → unknown geo → mandatory review
+        when(origins.find("pay_c")).thenReturn(
+                Optional.of(new ScreeningOriginService.Origin("t1", ScreeningMode.SERVER_RECURRING)));
         when(delegate.getPayment("pay_c")).thenReturn(new PaymentResponse(
                 "pay_c", "requires_confirmation", 5000, "USD", "automatic",
                 "cust_1", "stripe", "txn_1", null, null, Instant.EPOCH,
@@ -243,6 +254,9 @@ class GatedPaymentGatewayGeographyTest {
         merchantCountry("t1", "IR");
         when(sanctionsPort.checkCountryRestriction("IR")).thenReturn(Optional.of(new CountryRestriction(
                 "IR", CountryRestriction.RestrictionType.SANCTIONED, "sanctioned")));
+        // B-029: the trusted tenant for the geography recompute comes from the origin store.
+        when(origins.find("pay_x")).thenReturn(
+                Optional.of(new ScreeningOriginService.Origin("t1", ScreeningMode.INTERACTIVE)));
         when(delegate.getPayment("pay_x")).thenReturn(new PaymentResponse(
                 "pay_x", "requires_confirmation", 5000, "USD", "automatic",
                 "cust_1", "stripe", "txn_1", null, null, Instant.EPOCH,

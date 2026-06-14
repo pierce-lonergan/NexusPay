@@ -32,7 +32,14 @@ public enum ScreeningMode {
      * Classify from request metadata. Billing stamps {@code source=billing_*}; the workflow
      * rail stamps {@code workflow=*}. Everything else (the interactive create/checkout path)
      * is INTERACTIVE.
+     *
+     * @deprecated CLIENT-DERIVED — do not use for new callers (B-029). The screening rail is now
+     *     taken from a TRUSTED {@link CallContext} at every ingress, not from client-shaped request
+     *     metadata (which a forwarding caller could set to claim the softer SERVER_* rail and dodge
+     *     the interactive hold-capture). Retained ONLY for the transitional 1-arg
+     *     {@code GatedPaymentGateway.createPayment(PaymentRequest)} fallback, which logs loudly.
      */
+    @Deprecated
     public static ScreeningMode fromMetadata(Map<String, Object> metadata) {
         if (metadata == null || metadata.isEmpty()) {
             return INTERACTIVE;

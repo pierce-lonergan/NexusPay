@@ -147,7 +147,10 @@ public class PreAuthorizationGate {
                 s.ipCountry(),
                 s.deviceFingerprintHash(),
                 Map.of(),
-                req.metadata() == null ? Map.of() : req.metadata());
+                req.metadata() == null ? Map.of() : req.metadata(),
+                // B-027b: ref IS the idempotency key on the gate path (paymentRef = idempotency key
+                // when present). Pass it explicitly so assess() dedups a retry of the SAME request.
+                ref);
 
         FraudAssessmentResult fraud;
         try {
