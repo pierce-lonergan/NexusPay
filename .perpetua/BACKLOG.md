@@ -23,11 +23,7 @@ claims: (none — single instance)
 - **B-012 | CI hardening: pin actions by SHA, add OSV + secret scan** | build-health
   Existing `.github/workflows/ci.yml` + new perpetua-gates. Score (3×4)/2 = **6**.
 
-- **B-015 | StripeCsvParser uses naive split(",") — RFC-4180 violation** | T2 correctness
-  Discovered during B-010. A quoted `description` containing a comma shifts every
-  later column; the row then fails numeric parse and is silently dropped (money
-  exits reconciliation with no exception record). Score (3×4)/2 +2 = **8**. AC:
-  quote-aware CSV parse; dropped rows become persisted exceptions, not warnings.
+- ~~**B-015 | StripeCsvParser RFC-4180 violation**~~ | DONE 2026-06-14 (a36d10f..e1ecbeb, CI-green; ultracode workflow + adversarial review). Jackson CsvMapper RFC-4180 parse (quoted commas, "" escapes, embedded newlines, BOM); SettlementParserPort.parse() → ParseResult(records, failures); every unparseable/invalid row → a PERSISTED PARSE_ERROR ReconciliationException (no silent drop). Review caught + fixed: lone-quote no longer aborts the whole file (tokenizer error → recorded ParseFailure, records preserved); parse-failures persist in a REQUIRES_NEW tx (ParseFailureRecorder) so a downstream rollback can't erase them (L-039); column-count validation; logical-record-index lineNumber. ~33 aggressive tests. See L-039.
 
 - **B-016 | Testcontainers jsonb round-trip test for settlement ingest** | test-strength
   Discovered during B-010 review. The jsonb INSERT (the bug's actual failure
