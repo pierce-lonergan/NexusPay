@@ -101,7 +101,10 @@ class RateLimitFilterTest {
     @SuppressWarnings("unchecked")
     void allowed_setsRateLimitHeaders_andProceeds() throws Exception {
         authenticate("key_abc");
-        when(redis.execute(any(RedisScript.class), anyList(), any()))
+        // RateLimitFilter calls execute(script, keys, maxRequests, windowSeconds, now) — THREE varargs.
+        // A single any() only matches a one-element varargs call, so it would never match and execute()
+        // would return null (filter falls through, no headers set). Match all three vararg elements.
+        when(redis.execute(any(RedisScript.class), anyList(), any(), any(), any()))
                 .thenReturn(List.of(1L, 42L, 0L));
         MockFilterChain chain = new MockFilterChain();
         MockHttpServletResponse resp = new MockHttpServletResponse();
@@ -120,7 +123,8 @@ class RateLimitFilterTest {
     @SuppressWarnings("unchecked")
     void blocked_returns429_withRetryAfter_andJsonBody_andDoesNotProceed() throws Exception {
         authenticate("key_abc");
-        when(redis.execute(any(RedisScript.class), anyList(), any()))
+        // Match all three vararg elements (maxRequests, windowSeconds, now) — see allowed_ test.
+        when(redis.execute(any(RedisScript.class), anyList(), any(), any(), any()))
                 .thenReturn(List.of(0L, 0L, 30L));
         FilterChain chain = mock(FilterChain.class);
         MockHttpServletResponse resp = new MockHttpServletResponse();
@@ -144,7 +148,8 @@ class RateLimitFilterTest {
     @SuppressWarnings("unchecked")
     void redisThrows_failsOpen_proceedsWithout429() throws Exception {
         authenticate("key_abc");
-        when(redis.execute(any(RedisScript.class), anyList(), any()))
+        // Match all three vararg elements so the throw actually fires on the real call shape.
+        when(redis.execute(any(RedisScript.class), anyList(), any(), any(), any()))
                 .thenThrow(new RuntimeException("valkey unreachable"));
         MockFilterChain chain = new MockFilterChain();
         MockHttpServletResponse resp = new MockHttpServletResponse();

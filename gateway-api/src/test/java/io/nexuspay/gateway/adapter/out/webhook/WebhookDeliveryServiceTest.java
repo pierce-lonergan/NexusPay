@@ -121,10 +121,14 @@ class WebhookDeliveryServiceTest {
         Capture c = captures.get(0);
         assertThat(c.path()).isEqualTo("/hook");
         assertThat(c.body()).isEqualTo(payload);
-        assertThat(c.headers().get("X-Nexuspay-Signature"))
+        // com.sun.net.httpserver.Headers normalizes header names by uppercasing ONLY the first
+        // character and lowercasing the rest, so production's "X-NexusPay-Signature" is captured as
+        // "X-nexuspay-signature". The test copies these normalized keys into a plain map, so the
+        // lookup key must match that exact casing.
+        assertThat(c.headers().get("X-nexuspay-signature"))
                 .as("signature must be HMAC-SHA256(payload, secret) hex")
                 .isEqualTo(expectedHmac(payload, secret));
-        assertThat(c.headers().get("X-Nexuspay-Event")).isEqualTo("payment.succeeded");
+        assertThat(c.headers().get("X-nexuspay-event")).isEqualTo("payment.succeeded");
     }
 
     // ---- subscription filtering ----
@@ -195,7 +199,8 @@ class WebhookDeliveryServiceTest {
         service.onPaymentEvent(rec);
 
         assertThat(captures).hasSize(1);
-        assertThat(captures.get(0).headers().get("X-Nexuspay-Event")).isEqualTo("payment.captured");
+        // Sun Headers lowercases everything after the first char: "X-NexusPay-Event" -> "X-nexuspay-event".
+        assertThat(captures.get(0).headers().get("X-nexuspay-event")).isEqualTo("payment.captured");
     }
 
     @Test
