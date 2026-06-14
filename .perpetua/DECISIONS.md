@@ -257,3 +257,20 @@ shape. Decision:
   IT under the rls-enforce profile); the producer fix and the heavy per-site ITs are deferred to cutover.
 Proof CI-green via PR #2 (build+test). Review: SHIP-WITH-FIXES → both fixes applied. Full plan in
 research/rfc-b002-activation-tenant.md; lessons L-036/037/038 (the last is the ci.yml trigger-gap guardrail).
+
+## ADR-014 | 2026-06-14 | B-025/B-026: server-authoritative sanctions geography + fail-closed OFAC
+Context: the sanctions/cross-border screen read geography from client request metadata (forgeable) and
+the OFAC list parser was broken + failed OPEN. Decision (ultracode design + security review):
+- GEOGRAPHY IS SERVER-AUTHORITATIVE: destination from the trusted merchant_country (new V4011 column),
+  source from a trusted edge signal; client metadata is advisory only. Unknown country on a
+  cross-border-capable flow → REVIEW/EDD, never silent ALLOW. The compliance REVIEW is
+  NON-DOWNGRADEABLE on server rails (GateDecision.mandatoryReview, honored in create+confirm regardless
+  of ScreeningMode) — distinct from fraud-REVIEW so the M1 server-rail dunning policy is preserved.
+- OFAC SCREEN FAILS CLOSED: the parser reads the REAL CSL feed (ISO-2 from addresses/nationalities,
+  scoped by comprehensive-embargo programs, unioned with a curated KP/IR/SY/CU baseline so a parse miss
+  never empties the set); the compliance check BLOCKS when screening is unavailable (empty/stale/failed)
+  instead of ALLOWING; a `sanctions` readiness HealthIndicator pulls a degraded screen from rotation
+  (boot-on-baseline stays healthy). Feed URL is injectable (no live-network in tests).
+The original parser was BUILT AGAINST A NON-EXISTENT FEED COLUMN and passed its own fabricated-fixture
+tests — the live feed (29 cols, ISO-2 in addresses) was verified during review (L-040). Residual
+robustness items tracked as B-026-hardening; RU/BY EO-program treatment flagged in-code for legal review.
