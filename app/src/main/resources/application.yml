@@ -110,7 +110,14 @@ management:
 nexuspay:
   multi-tenancy:
     rls:
-      enabled: ${NEXUSPAY_RLS_ENABLED:true}
+      # B-002 runtime enforcement. DEFAULT OFF (dormant): the app connects as the owner and
+      # RLS is bypassed exactly as today. The human-gated cutover flips `enforce` true (after
+      # provisioning the nexuspay_app/nexuspay_system role passwords) — see rfc-b002.
+      enforce: ${NEXUSPAY_RLS_ENFORCE:false}
+      app-username: ${NEXUSPAY_APP_DB_USER:nexuspay_app}
+      app-password: ${NEXUSPAY_APP_DB_PASSWORD:nexuspay_app_local}
+      system-username: ${NEXUSPAY_SYSTEM_DB_USER:nexuspay_system}
+      system-password: ${NEXUSPAY_SYSTEM_DB_PASSWORD:nexuspay_system_local}
   hyperswitch:
     base-url: ${HYPERSWITCH_BASE_URL:http://localhost:8080}
     api-key: ${HYPERSWITCH_API_KEY:dev_api_key_for_local}

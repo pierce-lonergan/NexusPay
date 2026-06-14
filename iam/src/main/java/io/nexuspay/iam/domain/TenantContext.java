@@ -4,9 +4,9 @@ package io.nexuspay.iam.domain;
  * ThreadLocal holder for the current tenant ID.
  *
  * Set by {@link io.nexuspay.iam.adapter.in.filter.TenantContextFilter} at request entry.
- * Read by {@link io.nexuspay.iam.config.TenantAwareDataSourceConfig} to inject
- * {@code SET LOCAL app.current_tenant_id = ?} into every database transaction,
- * enabling PostgreSQL Row-Level Security (RLS).
+ * When RLS enforcement is on (B-002), {@code RlsRoutingTransactionManager} reads this and runs
+ * {@code SELECT set_config('app.current_tenant_id', ?, true)} on each app transaction to drive
+ * PostgreSQL Row-Level Security (the old getConnection-time decorator was removed).
  *
  * <p>Also used by Kafka producers to propagate tenant context in event headers,
  * and by MDC logging for structured log correlation.</p>

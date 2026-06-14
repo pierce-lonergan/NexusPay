@@ -1,0 +1,16 @@
+# B-002 RLS ENFORCEMENT profile — active ONLY under the 'rls-enforce' Spring profile (the
+# RlsEnforceIntegrationTest and the human-gated prod cutover). NOT loaded by default, so the
+# normal/test profiles remain dormant (app connects as owner, RLS bypassed).
+#
+# Flips enforcement on AND points Flyway at the OWNER role via spring.flyway.* — Boot then
+# builds a dedicated Flyway datasource (decoupled from the app RoleRoutingDataSource), so
+# migrations always run with full privileges regardless of the per-thread routing role.
+spring:
+  flyway:
+    user: ${NEXUSPAY_DB_USER:nexuspay}
+    password: ${NEXUSPAY_DB_PASSWORD:nexuspay_local}
+    url: ${NEXUSPAY_DB_URL:jdbc:postgresql://localhost:5432/nexuspay}
+nexuspay:
+  multi-tenancy:
+    rls:
+      enforce: true

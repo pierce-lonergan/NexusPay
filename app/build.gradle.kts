@@ -24,6 +24,7 @@ dependencies {
     implementation(rootProject.libs.spring.boot.starter.actuator)
     implementation(rootProject.libs.spring.boot.starter.security)
     implementation(rootProject.libs.spring.boot.starter.data.jpa)
+    implementation("org.springframework.boot:spring-boot-starter-aop")     // B-002: @SystemTransactional role aspect
     implementation("org.springframework.boot:spring-boot-starter-data-redis")
     implementation(rootProject.libs.spring.kafka)
     implementation(rootProject.libs.kafka.clients)
