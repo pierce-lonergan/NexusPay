@@ -14,30 +14,11 @@ claims: (none — single instance)
   first CI run's OSV findings triaged (needs push, Q-001) or local tools (Q-003).
   Score (4×5)/2 = **10**.
 
-- ~~**B-011 | Flyway version collisions across modules (V1/V2)**~~ | DONE 2026-06-10 (e6c2392). Far bigger than a version bump: it was the single blocker hiding the entire never-run integration suite. Fixed collisions + leaf-locations + fail-on-missing, then the whole schema↔entity drift + wiring cascade it exposed. CI now boots the full app on real infra and all 13 ITs pass (263 green). See DIGEST + L-023–L-030. Residual: B-002 RLS effectiveness still open.
-  RFC READY → research/rfc-b011-flyway-collisions.md (confirmed: 1 Flyway/1 history,
-  4×V1/2×V2 collide + suspected base-recursion×explicit-location double-scan). Fix:
-  de-dup locations + renumber to unique band + FlywayMigrationIT. APPLY+VERIFY needs
-  Postgres (Q-004/CI). Score (5×4)/3 +2 = **8.7**.
-
 - **B-014 | Raise coverage on the lowest money/security modules** | test-strength
   IN PROGRESS. Done so far: fraud + payment-orchestration now have money-math
   tests; FX exponent bug fixed (see Done). Still thin: gateway-api 2%, billing
   4%, common 7%, ledger 10%, iam now ~? (rose w/ ApprovalServiceTest). Continue
   on those; ratchet coverage_floor_pct up as it rises. Score (4×4)/3 = **5.3**.
-
-- **B-002 | RLS enforced at runtime** | T3 security
-  RFC READY → research/rfc-b002-rls-runtime.md (confirmed two-part bug: SET LOCAL
-  pre-tx no-op + owner role bypasses RLS). Fix: set_config(...,true) in-tx +
-  non-owner nexuspay_app role + RlsIsolationIT. APPLY+VERIFY needs Postgres
-  (Q-004/CI) — wrong RLS leaks or blocks all rows, so must not ship blind.
-  Score (5×4)/4 +2 = **7**.
-
-- **B-003 | Wire fraud + cross-border compliance into the payment path** | T3 security
-  RFC READY → research/rfc-b003-gate-fraud-sanctions.md (synchronous pre-auth gate
-  before PaymentGatewayPort; BLOCK→reject, REVIEW→hold capture, sanctioned→403;
-  modulith boundary: add fraud to gateway OR gate in payment-orchestration).
-  Implementable here (no DB) — own branch, dual T3 review. Score (5×4)/4 +2 = **7**.
 
 - **B-012 | CI hardening: pin actions by SHA, add OSV + secret scan** | build-health
   Existing `.github/workflows/ci.yml` + new perpetua-gates. Score (3×4)/2 = **6**.
@@ -82,6 +63,17 @@ claims: (none — single instance)
   idempotency key (fold into B-002/outbox work). Score (4×4)/4 +2 = **6**.
 
 ## Done
+- **B-002 | RLS enforced at runtime** (machinery 2026-06-13) — the two-part bug (pre-tx SET LOCAL
+  no-op + owner bypasses RLS) is fixed: non-owner nexuspay_app role + in-tx set_config GUC, all
+  dormant behind rls.enforce=false and proven by RlsDormancyIT/RlsEnforceIT. RUNTIME enforcement
+  (the actual flip) remains: B-002-activation-tenant (pre-flip) → B-002-cutover (human-gated). See
+  ADR-010/012, the "B-002 RLS runtime activation" section below.
+- **B-003 | Fraud + cross-border compliance in the payment path** — DONE via B-024 (2026-06-10):
+  @Primary GatedPaymentGateway at the PaymentGatewayPort screens all callers; sanctions hard-block,
+  fraud BLOCK→REVIEW flow-aware. ADR-009/011. Residual hardening: B-025/B-026/B-028/B-029/B-030.
+- **B-011 | Flyway version collisions across modules** — DONE 2026-06-10 (e6c2392). Was the single
+  blocker hiding the never-run integration suite; fixed collisions + leaf-locations + fail-on-missing,
+  then the schema↔entity drift cascade it exposed. CI now boots the full app on real infra. L-023–L-030.
 - **B-007** (2026-06-10, Q-007 approved) DELETED the dead routing A/B framework
   (controller + service + test; ~250 LOC) — subtraction §7; re-add when routing is
   live (B-003). ADR-008. Inert abTest fields left in place.
