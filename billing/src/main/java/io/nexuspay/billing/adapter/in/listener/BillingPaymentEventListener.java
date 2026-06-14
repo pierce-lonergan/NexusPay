@@ -10,12 +10,12 @@ import io.nexuspay.billing.domain.InvoiceStatus;
 import io.nexuspay.billing.domain.Subscription;
 import io.nexuspay.billing.domain.SubscriptionState;
 import io.nexuspay.common.event.Topics;
+import io.nexuspay.common.rls.TenantWorkRunner;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
@@ -45,15 +45,18 @@ public class BillingPaymentEventListener {
     private final SubscriptionRepository subscriptionRepository;
     private final DunningService dunningService;
     private final ObjectMapper objectMapper;
+    private final TenantWorkRunner tenantWork;
 
     public BillingPaymentEventListener(InvoiceRepository invoiceRepository,
                                         SubscriptionRepository subscriptionRepository,
                                         DunningService dunningService,
-                                        ObjectMapper objectMapper) {
+                                        ObjectMapper objectMapper,
+                                        TenantWorkRunner tenantWork) {
         this.invoiceRepository = invoiceRepository;
         this.subscriptionRepository = subscriptionRepository;
         this.dunningService = dunningService;
         this.objectMapper = objectMapper;
+        this.tenantWork = tenantWork;
     }
 
     @KafkaListener(
@@ -61,7 +64,6 @@ public class BillingPaymentEventListener {
             groupId = Topics.BILLING_CONSUMER_GROUP,
             containerFactory = "kafkaListenerContainerFactory"
     )
-    @Transactional
     public void onPaymentEvent(ConsumerRecord<String, String> record) {
         String eventType = extractHeader(record, "event_type");
         if (eventType == null) {
@@ -69,11 +71,19 @@ public class BillingPaymentEventListener {
             return;
         }
 
-        switch (eventType) {
-            case "PaymentCaptured" -> handlePaymentCaptured(record);
-            case "PaymentFailed" -> handlePaymentFailed(record);
-            default -> log.debug("Ignoring payment event type: {}", eventType);
-        }
+        // B-002: bind the tenant BEFORE the transaction begins. tenantWork opens a REQUIRES_NEW
+        // transaction bound to this tenant on the RLS APP role, so the invoice/subscription reads
+        // AND writes (incl. dunningService.initiateDunning, which JOINs this tx) all run inside ONE
+        // tenant-scoped transaction. (Dormant when enforce=false: plain REQUIRES_NEW, tenant ignored.)
+        String tenant = extractTenant(record.value());
+
+        tenantWork.runInTenant(tenant, () -> {
+            switch (eventType) {
+                case "PaymentCaptured" -> handlePaymentCaptured(record);
+                case "PaymentFailed" -> handlePaymentFailed(record);
+                default -> log.debug("Ignoring payment event type: {}", eventType);
+            }
+        });
     }
 
     private void handlePaymentCaptured(ConsumerRecord<String, String> record) {
@@ -162,6 +172,29 @@ public class BillingPaymentEventListener {
         var header = record.headers().lastHeader(key);
         if (header == null) return null;
         return new String(header.value(), StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Resolves the tenant from the event envelope's {@code metadata.tenant_id} (the same envelope
+     * field the analytics consumers read), falling back to {@code "default"} for legacy events that
+     * carry none. Used to bind the tenant before the RLS transaction begins (B-002).
+     */
+    private String extractTenant(String json) {
+        Map<String, Object> envelope = parsePayload(json);
+        String tenantId = extractString(envelope, "metadata", "tenant_id");
+        return tenantId != null ? tenantId : "default";
+    }
+
+    private String extractString(Map<String, Object> map, String... path) {
+        Object current = map;
+        for (String key : path) {
+            if (current instanceof Map) {
+                current = ((Map<?, ?>) current).get(key);
+            } else {
+                return null;
+            }
+        }
+        return current != null ? current.toString() : null;
     }
 
     @SuppressWarnings("unchecked")

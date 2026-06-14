@@ -10,12 +10,12 @@ import io.nexuspay.analytics.domain.model.AuthRateMetric;
 import io.nexuspay.analytics.domain.model.DeclineAnalysis;
 import io.nexuspay.analytics.domain.model.RevenueMetric;
 import io.nexuspay.common.event.Topics;
+import io.nexuspay.common.rls.TenantWorkRunner;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -40,19 +40,21 @@ public class PaymentEventAnalyticsConsumer {
     private final RevenueRollupRepository revenueRepository;
     private final DeclineRollupRepository declineRepository;
     private final ObjectMapper objectMapper;
+    private final TenantWorkRunner tenantWork;
 
     public PaymentEventAnalyticsConsumer(AuthRateRollupRepository authRateRepository,
                                           RevenueRollupRepository revenueRepository,
                                           DeclineRollupRepository declineRepository,
-                                          ObjectMapper objectMapper) {
+                                          ObjectMapper objectMapper,
+                                          TenantWorkRunner tenantWork) {
         this.authRateRepository = authRateRepository;
         this.revenueRepository = revenueRepository;
         this.declineRepository = declineRepository;
         this.objectMapper = objectMapper;
+        this.tenantWork = tenantWork;
     }
 
     @KafkaListener(topics = Topics.PAYMENTS, groupId = Topics.ANALYTICS_CONSUMER_GROUP)
-    @Transactional
     public void consume(ConsumerRecord<String, String> record) {
         try {
             String eventType = extractHeader(record, "event_type");
@@ -63,19 +65,27 @@ public class PaymentEventAnalyticsConsumer {
                     ? extractNestedMap(payload, "payload") : payload;
 
             String tenantId = extractString(payload, "metadata", "tenant_id");
-            if (tenantId == null) tenantId = "default";
+            if (tenantId == null || tenantId.isBlank()) tenantId = "default";
 
-            switch (eventType) {
-                case "PaymentCreated" -> handlePaymentCreated(data, tenantId);
-                case "PaymentSucceeded" -> handlePaymentSucceeded(data, tenantId);
-                case "PaymentFailed" -> handlePaymentFailed(data, tenantId);
-                case "PaymentCaptured" -> handlePaymentCaptured(data, tenantId);
-                case "RefundCompleted" -> handleRefundCompleted(data, tenantId);
-                default -> LOG.trace("Ignoring event type: {}", eventType);
-            }
+            // B-002: bind the tenant BEFORE the transaction begins. tenantWork opens a REQUIRES_NEW
+            // transaction bound to this tenant on the RLS APP role, so the rollup upserts run inside
+            // ONE tenant-scoped transaction (RLS WITH CHECK guards each write). Dormant at enforce=false.
+            final String tenant = tenantId;
+            tenantWork.runInTenant(tenant, () -> doConsume(eventType, data, tenant));
         } catch (Exception e) {
             LOG.error("Failed to process payment event for analytics: {}", e.getMessage(), e);
             throw new RuntimeException("Analytics consumer processing failed", e);
+        }
+    }
+
+    private void doConsume(String eventType, Map<String, Object> data, String tenantId) {
+        switch (eventType) {
+            case "PaymentCreated" -> handlePaymentCreated(data, tenantId);
+            case "PaymentSucceeded" -> handlePaymentSucceeded(data, tenantId);
+            case "PaymentFailed" -> handlePaymentFailed(data, tenantId);
+            case "PaymentCaptured" -> handlePaymentCaptured(data, tenantId);
+            case "RefundCompleted" -> handleRefundCompleted(data, tenantId);
+            default -> LOG.trace("Ignoring event type: {}", eventType);
         }
     }
 

@@ -7,6 +7,7 @@ import io.nexuspay.ledger.application.CreateJournalEntryUseCase.CreateJournalEnt
 import io.nexuspay.ledger.application.CreateJournalEntryUseCase.CreateJournalEntryCommand.PostingLine;
 import io.nexuspay.ledger.application.EnsureAccountsExistUseCase;
 import io.nexuspay.ledger.application.port.JournalEntryRepository;
+import io.nexuspay.common.rls.TenantWorkRunner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -27,13 +28,16 @@ public class PaymentEventConsumer {
     private final CreateJournalEntryUseCase createJournalEntryUseCase;
     private final EnsureAccountsExistUseCase ensureAccountsExistUseCase;
     private final JournalEntryRepository journalEntryRepository;
+    private final TenantWorkRunner tenantWork;
 
     public PaymentEventConsumer(CreateJournalEntryUseCase createJournalEntryUseCase,
                                  EnsureAccountsExistUseCase ensureAccountsExistUseCase,
-                                 JournalEntryRepository journalEntryRepository) {
+                                 JournalEntryRepository journalEntryRepository,
+                                 TenantWorkRunner tenantWork) {
         this.createJournalEntryUseCase = createJournalEntryUseCase;
         this.ensureAccountsExistUseCase = ensureAccountsExistUseCase;
         this.journalEntryRepository = journalEntryRepository;
+        this.tenantWork = tenantWork;
     }
 
     @KafkaListener(topics = Topics.PAYMENTS, groupId = Topics.LEDGER_CONSUMER_GROUP)
@@ -43,17 +47,24 @@ public class PaymentEventConsumer {
 
         log.debug("Received payment event: type={}, aggregateId={}", eventType, aggregateId);
 
-        try {
-            switch (eventType) {
-                case EventTypes.PAYMENT_CAPTURED -> handlePaymentCaptured(event);
-                case EventTypes.REFUND_COMPLETED -> handleRefundCompleted(event);
-                default -> log.debug("Ignoring event type: {}", eventType);
+        // B-002: bind the tenant BEFORE the transaction begins. tenantWork opens a REQUIRES_NEW
+        // transaction bound to this tenant on the RLS APP role, so the idempotency read AND the
+        // use-case writes all run inside ONE tenant-scoped transaction. (Dormant when enforce=false.)
+        String tenant = tenantOf(event);
+
+        tenantWork.runInTenant(tenant, () -> {
+            try {
+                switch (eventType) {
+                    case EventTypes.PAYMENT_CAPTURED -> handlePaymentCaptured(event);
+                    case EventTypes.REFUND_COMPLETED -> handleRefundCompleted(event);
+                    default -> log.debug("Ignoring event type: {}", eventType);
+                }
+            } catch (RuntimeException e) {
+                log.error("Failed to process payment event: type={}, aggregateId={}",
+                        eventType, aggregateId, e);
+                throw e; // Propagates out of runInTenant; let DefaultErrorHandler retry, then DLT
             }
-        } catch (Exception e) {
-            log.error("Failed to process payment event: type={}, aggregateId={}",
-                    eventType, aggregateId, e);
-            throw e; // Let DefaultErrorHandler retry, then DLT
-        }
+        });
     }
 
     @SuppressWarnings("unchecked")

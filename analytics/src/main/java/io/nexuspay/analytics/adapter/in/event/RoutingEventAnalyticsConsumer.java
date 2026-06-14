@@ -5,12 +5,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nexuspay.analytics.application.port.out.AuthRateRollupRepository;
 import io.nexuspay.analytics.domain.model.AuthRateMetric;
 import io.nexuspay.common.event.Topics;
+import io.nexuspay.common.rls.TenantWorkRunner;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -32,15 +32,17 @@ public class RoutingEventAnalyticsConsumer {
 
     private final AuthRateRollupRepository authRateRepository;
     private final ObjectMapper objectMapper;
+    private final TenantWorkRunner tenantWork;
 
     public RoutingEventAnalyticsConsumer(AuthRateRollupRepository authRateRepository,
-                                          ObjectMapper objectMapper) {
+                                          ObjectMapper objectMapper,
+                                          TenantWorkRunner tenantWork) {
         this.authRateRepository = authRateRepository;
         this.objectMapper = objectMapper;
+        this.tenantWork = tenantWork;
     }
 
     @KafkaListener(topics = Topics.ROUTING_DECISIONS, groupId = Topics.ANALYTICS_CONSUMER_GROUP)
-    @Transactional
     public void consume(ConsumerRecord<String, String> record) {
         try {
             Map<String, Object> payload = objectMapper.readValue(record.value(), MAP_TYPE);
@@ -48,31 +50,39 @@ public class RoutingEventAnalyticsConsumer {
                     ? extractNestedMap(payload, "payload") : payload;
 
             String tenantId = extractString(payload, "metadata", "tenant_id");
-            if (tenantId == null) tenantId = "default";
+            if (tenantId == null || tenantId.isBlank()) tenantId = "default";
 
-            String psp = getString(data, "selected_psp");
-            if (psp == null) psp = getString(data, "psp_connector");
-            if (psp == null) return;
-
-            Integer latency = getInteger(data, "decision_latency_ms");
-            if (latency == null) return;
-
-            Instant bucketHour = Instant.now().atZone(ZoneOffset.UTC)
-                    .withMinute(0).withSecond(0).withNano(0).toInstant();
-
-            // Enrich auth rate with routing latency data
-            authRateRepository.upsertHourly(new AuthRateMetric(
-                    tenantId, bucketHour, psp,
-                    null, null, null, getString(data, "currency"), null,
-                    0, 0, 0, 0, BigDecimal.ZERO,
-                    latency, null, latency, null
-            ));
-
-            LOG.debug("Routing decision processed for PSP {} with latency {}ms", psp, latency);
+            // B-002: bind the tenant BEFORE the transaction begins. tenantWork opens a REQUIRES_NEW
+            // transaction bound to this tenant on the RLS APP role, so the auth-rate upsert runs inside
+            // ONE tenant-scoped transaction (RLS WITH CHECK guards the write). Dormant at enforce=false.
+            final String tenant = tenantId;
+            tenantWork.runInTenant(tenant, () -> doConsume(data, tenant));
         } catch (Exception e) {
             LOG.error("Failed to process routing event for analytics: {}", e.getMessage(), e);
             throw new RuntimeException("Analytics routing consumer processing failed", e);
         }
+    }
+
+    private void doConsume(Map<String, Object> data, String tenantId) {
+        String psp = getString(data, "selected_psp");
+        if (psp == null) psp = getString(data, "psp_connector");
+        if (psp == null) return;
+
+        Integer latency = getInteger(data, "decision_latency_ms");
+        if (latency == null) return;
+
+        Instant bucketHour = Instant.now().atZone(ZoneOffset.UTC)
+                .withMinute(0).withSecond(0).withNano(0).toInstant();
+
+        // Enrich auth rate with routing latency data
+        authRateRepository.upsertHourly(new AuthRateMetric(
+                tenantId, bucketHour, psp,
+                null, null, null, getString(data, "currency"), null,
+                0, 0, 0, 0, BigDecimal.ZERO,
+                latency, null, latency, null
+        ));
+
+        LOG.debug("Routing decision processed for PSP {} with latency {}ms", psp, latency);
     }
 
     @SuppressWarnings("unchecked")

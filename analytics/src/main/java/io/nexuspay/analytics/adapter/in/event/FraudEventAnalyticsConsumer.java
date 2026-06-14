@@ -31,6 +31,7 @@ public class FraudEventAnalyticsConsumer {
     }
 
     @KafkaListener(topics = Topics.FRAUD_ASSESSMENTS, groupId = Topics.ANALYTICS_CONSUMER_GROUP)
+    // B-002: no DB today; when persistence is added, wrap the write in tenantWork.runInTenant(metadata.tenant_id, ...) (bind BEFORE the tx) — APP role, never @SystemTransactional.
     public void consume(ConsumerRecord<String, String> record) {
         try {
             String eventType = extractHeader(record, "event_type");
