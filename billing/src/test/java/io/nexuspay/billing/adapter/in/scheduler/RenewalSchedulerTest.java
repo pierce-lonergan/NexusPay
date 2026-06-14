@@ -5,6 +5,7 @@ import io.nexuspay.billing.application.port.out.ProductRepository;
 import io.nexuspay.billing.application.port.out.SubscriptionRepository;
 import io.nexuspay.billing.application.service.DunningService;
 import io.nexuspay.billing.application.service.InvoiceGenerationService;
+import io.nexuspay.common.rls.TenantWorkRunner;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -35,7 +36,7 @@ class RenewalSchedulerTest {
         lock = mock(SchedulerLock.class);
         scheduler = new RenewalScheduler(subs, mock(ProductRepository.class),
                 mock(InvoiceGenerationService.class), mock(DunningService.class),
-                mock(BillingOutboxPort.class), lock);
+                mock(BillingOutboxPort.class), lock, mock(TenantWorkRunner.class));
     }
 
     private void lockGrants(String name) {

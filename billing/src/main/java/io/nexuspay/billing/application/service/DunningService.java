@@ -6,6 +6,7 @@ import io.nexuspay.billing.application.port.out.PaymentPort;
 import io.nexuspay.billing.application.port.out.SubscriptionRepository;
 import io.nexuspay.billing.config.BillingConfig;
 import io.nexuspay.billing.domain.*;
+import io.nexuspay.common.rls.TenantWorkRunner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -45,19 +46,22 @@ public class DunningService {
     private final BillingConfig.BillingProperties properties;
     private final SmartRetryOptimizer smartRetryOptimizer;
     private final BillingOutboxPort outboxPort;
+    private final TenantWorkRunner tenantWork;
 
     public DunningService(InvoiceRepository invoiceRepository,
                            SubscriptionRepository subscriptionRepository,
                            PaymentPort paymentPort,
                            BillingConfig.BillingProperties properties,
                            SmartRetryOptimizer smartRetryOptimizer,
-                           BillingOutboxPort outboxPort) {
+                           BillingOutboxPort outboxPort,
+                           TenantWorkRunner tenantWork) {
         this.invoiceRepository = invoiceRepository;
         this.subscriptionRepository = subscriptionRepository;
         this.paymentPort = paymentPort;
         this.properties = properties;
         this.smartRetryOptimizer = smartRetryOptimizer;
         this.outboxPort = outboxPort;
+        this.tenantWork = tenantWork;
     }
 
     /**
@@ -87,14 +91,18 @@ public class DunningService {
      *
      * @return number of attempts processed
      */
-    @Transactional
     public int processPendingAttempts() {
+        // Cross-tenant DISCOVERY runs under the scheduler's SYSTEM pin (BYPASSRLS) so it sees every
+        // tenant's due attempts. Each attempt's reads/charge/writes then run in their OWN transaction
+        // bound to that attempt's tenant on the APP role (B-002), so RLS WITH CHECK guards the writes.
+        // Not @Transactional here: the per-item TenantWorkRunner tx is the boundary, so one tenant's
+        // failure no longer rolls back the whole batch.
         List<DunningAttempt> pending = invoiceRepository.findPendingDunning(Instant.now(), 50);
 
         int processed = 0;
         for (DunningAttempt attempt : pending) {
             try {
-                processAttempt(attempt);
+                tenantWork.runInTenant(attempt.getTenantId(), () -> processAttempt(attempt));
                 processed++;
             } catch (Exception e) {
                 log.error("Failed to process dunning attempt {}: {}",
