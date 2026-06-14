@@ -90,7 +90,7 @@ class BalanceReconciliationJobTest {
 
     @Test
     void drift_flaggedWhenPostedBalanceDiffersFromComputed() {
-        when(accountRepository.computeBalancesFromPostings()).thenReturn(List.of(
+        when(accountRepository.computeBalancesFromPostings()).thenReturn(List.<Object[]>of(
                 new Object[]{"la_a", 5000L}
         ));
         when(accountRepository.findAll()).thenReturn(List.of(
@@ -180,7 +180,7 @@ class BalanceReconciliationJobTest {
 
     @Test
     void reconcilesNegativeBalancesExactly_noDrift() {
-        when(accountRepository.computeBalancesFromPostings()).thenReturn(List.of(
+        when(accountRepository.computeBalancesFromPostings()).thenReturn(List.<Object[]>of(
                 new Object[]{"la_liab", -99999L}
         ));
         when(accountRepository.findAll()).thenReturn(List.of(
