@@ -142,8 +142,10 @@ class DunningServiceTest {
         Invoice inv = openInvoice();
         when(subscriptionRepository.findById("sub_1")).thenReturn(Optional.of(sub));
         when(invoiceRepository.findById("inv_1")).thenReturn(Optional.of(inv));
+        // production charges with invoice.getId() (a generated prefixed id), NOT the attempt's
+        // "inv_1" reference; match the real id so the stub returns success (else null -> NPE).
         when(paymentPort.collectPayment(eq("t1"), eq("cust_1"), eq("pm_1"), eq(5000L),
-                eq("USD"), anyString(), eq("inv_1")))
+                eq("USD"), anyString(), eq(inv.getId())))
                 .thenReturn(PaymentPort.PaymentResult.success("pay_ok"));
         wirePending(attempt(1));
 
