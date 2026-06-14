@@ -8,6 +8,7 @@ import io.nexuspay.billing.application.service.InvoiceGenerationService;
 import io.nexuspay.billing.domain.Invoice;
 import io.nexuspay.billing.domain.Price;
 import io.nexuspay.billing.domain.Subscription;
+import io.nexuspay.common.rls.SystemTransactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -54,6 +55,7 @@ public class RenewalScheduler {
      * Runs daily at 2:00 AM — processes subscription renewals.
      * Guarded by a cross-instance lock so only one replica charges per cycle (B-001).
      */
+    @SystemTransactional
     @Scheduled(cron = "0 0 2 * * *")
     public void processRenewals() {
         schedulerLock.runExclusively("renewals", Duration.ofHours(1), this::doProcessRenewals);
@@ -112,6 +114,7 @@ public class RenewalScheduler {
      * Runs every 4 hours — processes pending dunning retries.
      * Guarded by a cross-instance lock so only one replica retries per cycle (B-001).
      */
+    @SystemTransactional
     @Scheduled(cron = "0 0 */4 * * *")
     public void processDunning() {
         schedulerLock.runExclusively("dunning", Duration.ofHours(1), () -> {

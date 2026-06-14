@@ -3,6 +3,7 @@ package io.nexuspay.payment.adapter.out.outbox;
 import io.nexuspay.common.event.EventTypes;
 import io.nexuspay.common.event.Topics;
 import io.nexuspay.common.event.avro.DualWritePublisher;
+import io.nexuspay.common.rls.SystemTransactional;
 import jakarta.annotation.PreDestroy;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.internals.RecordHeader;
@@ -116,6 +117,7 @@ public class OutboxRelay {
         this.postPublishCallback = postPublishCallbackProvider.getIfAvailable();
     }
 
+    @SystemTransactional
     @Scheduled(fixedDelay = 1000)
     @Transactional
     public void relayEvents() {

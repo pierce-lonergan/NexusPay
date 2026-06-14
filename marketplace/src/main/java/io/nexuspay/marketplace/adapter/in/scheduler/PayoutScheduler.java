@@ -1,5 +1,6 @@
 package io.nexuspay.marketplace.adapter.in.scheduler;
 
+import io.nexuspay.common.rls.SystemTransactional;
 import io.nexuspay.marketplace.application.service.PayoutService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,6 +28,7 @@ public class PayoutScheduler {
         this.payoutService = payoutService;
     }
 
+    @SystemTransactional
     @Scheduled(fixedDelayString = "${nexuspay.marketplace.payout-scheduler.interval-ms:60000}")
     public void processPayouts() {
         log.debug("Payout scheduler tick");

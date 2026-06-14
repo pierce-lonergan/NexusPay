@@ -1,5 +1,6 @@
 package io.nexuspay.analytics.application.service;
 
+import io.nexuspay.common.rls.SystemTransactional;
 import jakarta.persistence.EntityManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,6 +29,7 @@ public class RollupJobService {
      * Roll up hourly auth rate data into daily aggregates.
      * Runs daily at 00:05 UTC.
      */
+    @SystemTransactional
     @Scheduled(cron = "${nexuspay.analytics.rollup.daily-rollup-cron:0 5 0 * * *}")
     @Transactional
     public void rollupAuthRateHourlyToDaily() {
@@ -66,6 +68,7 @@ public class RollupJobService {
      * Roll up daily auth rate data into monthly aggregates.
      * Runs on the 1st of each month at 00:10 UTC.
      */
+    @SystemTransactional
     @Scheduled(cron = "${nexuspay.analytics.rollup.monthly-rollup-cron:0 10 0 1 * *}")
     @Transactional
     public void rollupAuthRateDailyToMonthly() {
@@ -103,6 +106,7 @@ public class RollupJobService {
      * Roll up hourly revenue data into daily aggregates.
      * Runs daily at 00:05 UTC (same schedule as auth rate rollup).
      */
+    @SystemTransactional
     @Scheduled(cron = "${nexuspay.analytics.rollup.daily-rollup-cron:0 5 0 * * *}")
     @Transactional
     public void rollupRevenueHourlyToDaily() {

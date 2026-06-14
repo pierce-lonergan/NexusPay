@@ -1,5 +1,6 @@
 package io.nexuspay.payment.adapter.out.maintenance;
 
+import io.nexuspay.common.rls.SystemTransactional;
 import io.nexuspay.payment.adapter.in.webhook.InboundWebhookRepository;
 import io.nexuspay.payment.adapter.out.outbox.OutboxEventRepository;
 import org.slf4j.Logger;
@@ -42,6 +43,7 @@ public class DataRetentionJob {
         this.webhookRetention = Duration.ofDays(webhookRetentionDays);
     }
 
+    @SystemTransactional
     @Scheduled(cron = "0 0 3 * * *")
     @Transactional
     public void cleanupOutboxEvents() {
@@ -52,6 +54,7 @@ public class DataRetentionJob {
         }
     }
 
+    @SystemTransactional
     @Scheduled(cron = "0 30 3 * * *")
     @Transactional
     public void cleanupWebhookPayloads() {

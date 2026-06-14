@@ -1,5 +1,6 @@
 package io.nexuspay.app.rls;
 
+import io.nexuspay.common.rls.SystemTransactional;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
@@ -23,7 +24,7 @@ import org.springframework.stereotype.Component;
 @ConditionalOnProperty(name = "nexuspay.multi-tenancy.rls.enforce", havingValue = "true")
 public class SystemRoleAspect {
 
-    @Around("@annotation(io.nexuspay.app.rls.SystemTransactional)")
+    @Around("@annotation(io.nexuspay.common.rls.SystemTransactional)")
     public Object pinSystemRole(ProceedingJoinPoint pjp) throws Throwable {
         Object[] result = new Object[1];
         DbRoleContext.runAs(DbRole.SYSTEM, () -> result[0] = pjp.proceed());

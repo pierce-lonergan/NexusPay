@@ -1,5 +1,6 @@
 package io.nexuspay.payment.application.fx;
 
+import io.nexuspay.common.rls.SystemTransactional;
 import io.nexuspay.payment.application.port.fx.FxRateLockRepository;
 import io.nexuspay.payment.application.port.fx.MerchantCurrencyPrefsRepository;
 import io.nexuspay.payment.application.port.fx.MerchantCurrencyPrefsRepository.MerchantCurrencyPrefs;
@@ -130,6 +131,7 @@ public class FxRateLockService {
      * Scheduled cleanup of expired, unconsumed rate locks.
      * Runs every 30 minutes.
      */
+    @SystemTransactional
     @Scheduled(cron = "0 0/30 * * * *")
     public void cleanupExpiredLocks() {
         int cleaned = lockRepository.cleanupExpiredLocks();

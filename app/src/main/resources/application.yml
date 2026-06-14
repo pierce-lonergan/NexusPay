@@ -46,6 +46,13 @@ spring:
       - classpath:db/migration/b2b
       - classpath:db/migration/workflow
     baseline-on-migrate: true
+    # C7 (B-002): gates R__rls_force_owner.sql. Default false = DORMANT — the repeatable
+    # ensures NO table is FORCE'd, so the app (still connecting as owner until cutover) is
+    # never locked out. The rls-enforce profile flips this to true at the human-gated
+    # cutover. Defining it here also stops Flyway failing on the unresolved ${rlsforce}
+    # placeholder in the dormant build.
+    placeholders:
+      rlsforce: "false"
 
   # Kafka (producer/consumer config in Java: KafkaProducerConfig, KafkaConsumerConfig)
   kafka:

@@ -1,5 +1,6 @@
 package io.nexuspay.observability.metrics;
 
+import io.nexuspay.common.rls.SystemTransactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -32,6 +33,7 @@ public class OutboxLagMonitor {
     /**
      * Runs every 10 seconds — queries the oldest unpublished outbox event age.
      */
+    @SystemTransactional
     @Scheduled(fixedDelay = 10_000)
     public void measureOutboxLag() {
         try {

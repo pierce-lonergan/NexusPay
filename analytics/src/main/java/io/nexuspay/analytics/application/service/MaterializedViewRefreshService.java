@@ -1,5 +1,6 @@
 package io.nexuspay.analytics.application.service;
 
+import io.nexuspay.common.rls.SystemTransactional;
 import jakarta.persistence.EntityManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,6 +28,7 @@ public class MaterializedViewRefreshService {
      * Refreshes materialized views every hour.
      * Uses CONCURRENTLY to avoid locking reads during refresh.
      */
+    @SystemTransactional
     @Scheduled(cron = "${nexuspay.analytics.rollup.materialized-view-refresh-cron:0 0 * * * *}")
     @Transactional
     public void refreshMaterializedViews() {

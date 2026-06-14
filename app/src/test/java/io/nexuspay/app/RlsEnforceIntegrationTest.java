@@ -1,6 +1,6 @@
 package io.nexuspay.app;
 
-import io.nexuspay.app.rls.SystemTransactional;
+import io.nexuspay.common.rls.SystemTransactional;
 import io.nexuspay.iam.domain.TenantContext;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.Base64;
 import java.util.List;
@@ -89,6 +90,34 @@ class RlsEnforceIntegrationTest extends IntegrationTestBase {
         } finally {
             TenantContext.clear();
             cleanupAsOwner();
+        }
+    }
+
+    @Test
+    void forceRowLevelSecurity_appliedToEveryRlsTable() throws Exception {
+        assumeTrue(DOCKER_AVAILABLE, "requires Docker (Testcontainers Postgres)");
+        // C7: under the rls-enforce profile, application-rls-enforce.yml sets the rlsforce
+        // placeholder to true, so R__rls_force_owner.sql FORCEs every RLS-enabled table —
+        // binding even the owner to RLS (defense-in-depth on top of the non-owner app role).
+        try (Connection c = DriverManager.getConnection(
+                nexuspayPg.getJdbcUrl(), nexuspayPg.getUsername(), nexuspayPg.getPassword());
+             Statement st = c.createStatement()) {
+            try (ResultSet rs = st.executeQuery(
+                    "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                            + "WHERE c.relkind = 'r' AND c.relrowsecurity AND NOT c.relforcerowsecurity "
+                            + "AND n.nspname IN ('public','analytics')")) {
+                rs.next();
+                assertThat(rs.getInt(1))
+                        .as("every RLS-enabled public/analytics table is FORCE'd under rls-enforce")
+                        .isZero();
+            }
+            // Guard against a vacuous 0-of-0 pass: a known RLS table must actually be forced.
+            try (ResultSet rs = st.executeQuery(
+                    "SELECT relforcerowsecurity FROM pg_class WHERE relname = 'ledger_accounts'")) {
+                assertThat(rs.next()).as("ledger_accounts row exists in pg_class").isTrue();
+                assertThat(rs.getBoolean(1))
+                        .as("ledger_accounts has FORCE ROW LEVEL SECURITY").isTrue();
+            }
         }
     }
 

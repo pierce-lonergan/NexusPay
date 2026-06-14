@@ -24,7 +24,7 @@ import java.util.Map;
  * TenantAwareDataSource decorator).
  *
  * <p>When on: a {@link RoleRoutingDataSource} (@Primary) fronts two pools — {@code nexuspay_app}
- * (RLS-bound, default) and {@code nexuspay_system} (BYPASSRLS, for {@link SystemTransactional}
+ * (RLS-bound, default) and {@code nexuspay_system} (BYPASSRLS, for {@link io.nexuspay.common.rls.SystemTransactional}
  * jobs) — and {@link RlsRoutingTransactionManager} (@Primary) sets the tenant GUC per app
  * transaction. Flyway keeps running as the owner via {@code spring.flyway.user} (set in
  * {@code application-rls-enforce.yml}).</p>

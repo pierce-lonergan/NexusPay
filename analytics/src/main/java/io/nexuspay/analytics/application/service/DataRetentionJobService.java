@@ -1,5 +1,6 @@
 package io.nexuspay.analytics.application.service;
 
+import io.nexuspay.common.rls.SystemTransactional;
 import jakarta.persistence.EntityManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,6 +37,7 @@ public class DataRetentionJobService {
     /**
      * Runs daily at 04:00 UTC to clean up expired analytics data.
      */
+    @SystemTransactional
     @Scheduled(cron = "0 0 4 * * *")
     @Transactional
     public void cleanupExpiredData() {

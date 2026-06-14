@@ -1,5 +1,6 @@
 package io.nexuspay.ledger.application;
 
+import io.nexuspay.common.rls.SystemTransactional;
 import io.nexuspay.ledger.adapter.out.persistence.JpaLedgerAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,6 +27,7 @@ public class BalanceReconciliationJob {
         this.accountRepository = accountRepository;
     }
 
+    @SystemTransactional
     @Scheduled(cron = "${nexuspay.ledger.reconciliation-cron:0 0 * * * *}")
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public void reconcileBalances() {

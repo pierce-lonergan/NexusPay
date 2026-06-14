@@ -9,6 +9,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 
 import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.Statement;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -40,5 +44,25 @@ class RlsDormancyIntegrationTest extends IntegrationTestBase {
                 .as("no SystemRoleAspect at enforce=false").isEmpty();
         assertThat(ctx.getBeansOfType(RlsEnforcementConfig.class))
                 .as("no RlsEnforcementConfig at enforce=false").isEmpty();
+    }
+
+    @Test
+    void enforcementDisabled_noTableIsForced() throws Exception {
+        assumeTrue(DOCKER_AVAILABLE, "requires Docker (Testcontainers Postgres)");
+        // C7 dormancy: at the default rlsforce=false, R__rls_force_owner.sql must leave NO table
+        // FORCE'd. Critical safety property — the app still connects as the owner here, so a forced
+        // table with no tenant GUC would lock the app out of every row (total outage).
+        try (Connection c = DriverManager.getConnection(
+                nexuspayPg.getJdbcUrl(), nexuspayPg.getUsername(), nexuspayPg.getPassword());
+             Statement st = c.createStatement();
+             ResultSet rs = st.executeQuery(
+                     "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                             + "WHERE c.relkind = 'r' AND c.relforcerowsecurity "
+                             + "AND n.nspname IN ('public','analytics')")) {
+            rs.next();
+            assertThat(rs.getInt(1))
+                    .as("no public/analytics table is FORCE'd while RLS enforcement is off")
+                    .isZero();
+        }
     }
 }

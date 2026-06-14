@@ -1,6 +1,7 @@
 package io.nexuspay.app.event;
 
 import io.nexuspay.common.event.dlq.DeadLetterStatus;
+import io.nexuspay.common.rls.SystemTransactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -48,6 +49,7 @@ public class DeadLetterReprocessor {
         this.maxRetries = maxRetries;
     }
 
+    @SystemTransactional
     @Scheduled(fixedDelayString = "${nexuspay.dlq.reprocessor.fixed-delay-ms:60000}")
     public void reprocess() {
         // Distributed lock: only one instance processes at a time

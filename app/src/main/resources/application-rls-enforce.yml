@@ -10,6 +10,12 @@ spring:
     user: ${NEXUSPAY_DB_USER:nexuspay}
     password: ${NEXUSPAY_DB_PASSWORD:nexuspay_local}
     url: ${NEXUSPAY_DB_URL:jdbc:postgresql://localhost:5432/nexuspay}
+    # C7: flip R__rls_force_owner.sql to FORCE the owner too. Safe ONLY together with the
+    # role cutover below (app on nexuspay_app), never while the app still connects as owner.
+    # Re-trigger rule: bumping this on a long-lived DB also requires bumping the R__ file so
+    # Flyway re-runs the repeatable (checksum change) — see that file's header.
+    placeholders:
+      rlsforce: "true"
 nexuspay:
   multi-tenancy:
     rls:
