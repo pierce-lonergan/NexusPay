@@ -274,3 +274,25 @@ the OFAC list parser was broken + failed OPEN. Decision (ultracode design + secu
 The original parser was BUILT AGAINST A NON-EXISTENT FEED COLUMN and passed its own fabricated-fixture
 tests — the live feed (29 cols, ISO-2 in addresses) was verified during review (L-040). Residual
 robustness items tracked as B-026-hardening; RU/BY EO-program treatment flagged in-code for legal review.
+
+## ADR-015 | 2026-06-14 | B-029: trusted gate MODE+TENANT (CallContext) + idempotent fraud (B-027b)
+Context: the gate read screening mode + tenant from client request metadata; a future client-metadata-
+forwarding caller could claim the softer SERVER rail (dodging hold-capture) or fragment fraud-velocity
+across fabricated tenants. And a retried Idempotency-Key re-ran fraud assess(), double-counting velocity.
+Decision (ultracode design + security review, security dimension PASSED):
+- A server-set CallContext(tenantId, mode) is threaded through PaymentGatewayPort as ADDITIVE overloads
+  (the raw delegate + non-screening callers keep compiling via defaults); GatedPaymentGateway sources
+  mode+tenant ONLY from CallContext (REST=interactive(principal.tenantId); billing=serverRecurring;
+  workflow=serverOther) and scrubs client source/workflow/tenant_id markers (advisory-only). Confirm-time
+  authority comes from a server-owned payment_screening_origin table (V4022), never the intent metadata
+  blob. The transitional 1-arg createPayment forces a STRICT default (INTERACTIVE + null tenant) so no
+  un-migrated caller can grant a soft rail or a metadata tenant. This strengthens B-025 (geography keys
+  off the now-trusted tenant).
+- Fraud assess() is idempotent: read-through dedup on (tenant, idempotency-key) for the common retry +
+  a unique index (V4023) as the truly-concurrent-race backstop. The backstop uses saveAndFlush so the
+  constraint violation throws SYNCHRONOUSLY inside assess()'s catch (plain save() merges a pre-assigned-@Id
+  entity and DEFERS the INSERT past the catch — L-041); V4023 collapses pre-existing duplicates BEFORE
+  creating the index (safe under baseline-on-migrate); the catch is narrowed to the specific
+  uq_fraud_assessments_tenant_idem violation so unrelated integrity errors propagate. Velocity is
+  separately protected by the SET-NX first-seen marker.
+Residual: B-029-hardening (request-fingerprint match on a dedup hit) deferred — needs a schema column.
