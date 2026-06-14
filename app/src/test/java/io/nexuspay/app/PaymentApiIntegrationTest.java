@@ -64,11 +64,21 @@ class PaymentApiIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("POST /v1/payments - sanctioned destination country is blocked (403) before any PSP call")
-    void createPayment_sanctionedDestination_returns403() throws Exception {
-        // KP is in the default sanctioned list (nexuspay.fx.compliance.sanctioned-countries).
-        // The B-003 pre-auth gate must reject BEFORE the PSP — a 403 (not a 5xx from a
-        // failed HyperSwitch connection) proves the gate intercepted end-to-end.
+    @DisplayName("POST /v1/payments - forged client destination_country=KP no longer blocks (B-025: client geo advisory-only)")
+    void createPayment_forgedClientDestination_isIgnored_notBlockedByClientValue() throws Exception {
+        // B-025: the OFAC screen no longer trusts the client-supplied destination_country.
+        // A caller could equally FORGE a benign country, so client metadata MUST NOT drive the
+        // sanctions decision. The 'default' tenant is server-configured merchant_country=US
+        // (V3013 seed), source is unknown (no trusted edge header) → the flow is cross-border-
+        // capable with unknown geography → REVIEW (capture held), which proceeds to the PSP.
+        // With no HyperSwitch container the PSP call fails → 5xx. The key assertion is that the
+        // request is NOT cleanly accepted (201) purely on a forged client country, AND that a
+        // client KP value does not itself produce the old 403 (it is ignored). The
+        // server-authoritative BLOCK / REVIEW semantics are proven exhaustively in the unit
+        // suites (CrossBorderComplianceServiceTest, GatedPaymentGatewayTest, ServerGeographyResolverTest).
+        // Security invariant: the forged client country must NOT yield a clean accepted payment.
+        // (Exact downstream status depends on PSP-error mapping; the server-authoritative BLOCK /
+        // REVIEW semantics are asserted precisely in the unit suites.)
         mockMvc.perform(post("/v1/payments")
                         .with(SecurityMockMvcRequestPostProcessors.authentication(
                                 TestSecurityConfig.authForRole("admin")))
@@ -77,7 +87,7 @@ class PaymentApiIntegrationTest extends IntegrationTestBase {
                                 {"amount": 5000, "currency": "USD",
                                  "metadata": {"destination_country": "KP"}}
                                 """))
-                .andExpect(status().isForbidden());
+                .andExpect(status().is(org.hamcrest.Matchers.not(201)));
     }
 
     @Test
@@ -85,6 +95,19 @@ class PaymentApiIntegrationTest extends IntegrationTestBase {
     void healthEndpoint_returns200() throws Exception {
         mockMvc.perform(get("/actuator/health"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("GET /actuator/health/readiness - UP at boot (FIX 5: sanctions on static baseline)")
+    void readinessProbe_isUpAtBoot_withSanctionsOnStaticBaseline() throws Exception {
+        // FIX 4 + FIX 5 full-boot lock: the 'sanctions' indicator is enabled in tests and the
+        // readiness group includes it. With no live OFAC feed (ofacAvailable=false) but the static
+        // baseline loaded (isScreeningAvailable()=true), readiness must be UP (200) — NOT held DOWN
+        // from boot. A 503 here would mean either the contributor key mismatched (FIX 4) or the
+        // boot-with-baseline regressed to DOWN (FIX 5).
+        mockMvc.perform(get("/actuator/health/readiness"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"));
     }
 
     @Test

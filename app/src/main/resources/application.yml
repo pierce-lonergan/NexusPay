@@ -86,10 +86,16 @@ management:
       show-details: when-authorized
       probes:
         enabled: true
+      # B-026: a degraded OFAC sanctions screen pulls the pod from the readiness rotation.
+      group:
+        readiness:
+          include: readinessState,db,sanctions
   health:
     db:
       enabled: true
     redis:
+      enabled: true
+    sanctions:
       enabled: true
   metrics:
     tags:
@@ -234,8 +240,11 @@ nexuspay:
       api-url: ${OER_API_URL:https://openexchangerates.org/api}
       app-id: ${OER_APP_ID:}                             # Set to enable OpenExchangeRates provider
     compliance:
-      sanctioned-countries: KP,IR,SY,CU                  # OFAC-aligned sanctions list
+      sanctioned-countries: KP,IR,SY,CU                  # OFAC-aligned static baseline (B-026: a valid minimal screen at boot)
+      high-risk-countries: AF,BY,MM,VE,ZW,LY,SO,YE,SD    # flagged (EDD), not blocked
       cross-border-amount-reporting-threshold: 10000     # USD equivalent, triggers reporting
+      sanctions-max-staleness: PT48H                     # B-026: list older than this → screening unavailable → fail closed
+      unknown-geo-review-enabled: true                   # B-025: unknown geography on cross-border-capable flow → REVIEW (not ALLOW)
   analytics:
     enabled: ${NEXUSPAY_ANALYTICS_ENABLED:true}
     pipeline:

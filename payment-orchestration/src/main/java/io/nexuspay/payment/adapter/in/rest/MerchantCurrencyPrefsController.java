@@ -57,7 +57,11 @@ public class MerchantCurrencyPrefsController {
                 request.autoConvert() != null ? request.autoConvert() : existing.autoConvert(),
                 request.fxMarkupBps() != null ? request.fxMarkupBps() : existing.fxMarkupBps(),
                 request.rateProvider() != null ? request.rateProvider() : existing.rateProvider(),
-                request.rateLockDurationMinutes() != null ? request.rateLockDurationMinutes() : existing.rateLockDurationMinutes()
+                request.rateLockDurationMinutes() != null ? request.rateLockDurationMinutes() : existing.rateLockDurationMinutes(),
+                // merchant_country is server-authoritative (B-025) and NOT settable via this
+                // self-service endpoint — preserve the existing value to avoid a merchant
+                // weakening their own sanctions geography.
+                existing.merchantCountry()
         );
 
         updated = prefsRepository.save(updated);

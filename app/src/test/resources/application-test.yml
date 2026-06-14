@@ -66,3 +66,9 @@ management:
       enabled: false
     keycloak:
       enabled: false
+    # FIX 5: the sanctions indicator is now ENABLED in tests. With no live OFAC feed,
+    # ofacAvailable=false, but the static baseline is loaded so isScreeningAvailable()=true →
+    # the indicator (and the readiness group) is UP at boot, so it no longer 503s the aggregate.
+    # This keeps the readiness-grouping wiring (FIX 4) exercised under the full integration boot.
+    sanctions:
+      enabled: true

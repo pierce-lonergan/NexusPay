@@ -33,4 +33,19 @@ public interface CrossBorderCompliancePort {
      * Checks if a transaction amount requires regulatory reporting.
      */
     boolean requiresReporting(String sourceCountry, String destinationCountry, BigDecimal amount, String currency);
+
+    /**
+     * Whether sanctions screening is currently usable (B-026 fail-closed).
+     *
+     * <p>Returns {@code false} when the screen has NO list to match against at all —
+     * the decision path MUST then block/REVIEW rather than ALLOW (a missing list is
+     * not a clean transaction). A healthy boot-time static baseline (KP/IR/SY/CU)
+     * counts as a valid minimal screen so the first scheduled refresh is not a
+     * self-inflicted outage; "OFAC feed unreachable" alone is surfaced via health,
+     * not by failing every transaction, as long as the static baseline is intact.</p>
+     *
+     * @return {@code true} when at least the static sanctions baseline is loaded and
+     *         the list is not stale beyond the configured tolerance; {@code false} otherwise
+     */
+    boolean isScreeningAvailable();
 }

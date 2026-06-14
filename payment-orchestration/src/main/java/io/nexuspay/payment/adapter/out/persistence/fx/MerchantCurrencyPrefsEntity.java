@@ -36,6 +36,13 @@ public class MerchantCurrencyPrefsEntity {
     @Column(name = "rate_lock_duration_minutes", nullable = false)
     private int rateLockDurationMinutes = 15;
 
+    /**
+     * Server-authoritative ISO-2 destination country for the OFAC screen (B-025). Nullable:
+     * null = unknown → the sanctions gate fails closed to REVIEW on cross-border-capable flows.
+     */
+    @Column(name = "merchant_country", length = 2)
+    private String merchantCountry;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -71,6 +78,8 @@ public class MerchantCurrencyPrefsEntity {
     public void setRateProvider(String rateProvider) { this.rateProvider = rateProvider; }
     public int getRateLockDurationMinutes() { return rateLockDurationMinutes; }
     public void setRateLockDurationMinutes(int rateLockDurationMinutes) { this.rateLockDurationMinutes = rateLockDurationMinutes; }
+    public String getMerchantCountry() { return merchantCountry; }
+    public void setMerchantCountry(String merchantCountry) { this.merchantCountry = merchantCountry; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 }

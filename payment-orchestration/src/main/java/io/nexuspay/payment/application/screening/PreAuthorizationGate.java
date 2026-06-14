@@ -6,6 +6,8 @@ import io.nexuspay.fraud.domain.model.FraudAssessmentResult;
 import io.nexuspay.fraud.domain.model.RiskDecision;
 import io.nexuspay.payment.application.fx.CrossBorderComplianceService;
 import io.nexuspay.payment.application.fx.CrossBorderComplianceService.ComplianceResult;
+import io.nexuspay.payment.application.fx.CrossBorderComplianceService.GeographyTrust;
+import io.nexuspay.payment.application.screening.ServerGeographyResolver.ResolvedGeography;
 import io.nexuspay.payment.domain.PaymentRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -64,11 +66,14 @@ public class PreAuthorizationGate {
 
     private final CrossBorderComplianceService compliance;
     private final AssessFraudRiskUseCase fraudAssessor;
+    private final ServerGeographyResolver geographyResolver;
 
     public PreAuthorizationGate(CrossBorderComplianceService compliance,
-                                AssessFraudRiskUseCase fraudAssessor) {
+                                AssessFraudRiskUseCase fraudAssessor,
+                                ServerGeographyResolver geographyResolver) {
         this.compliance = compliance;
         this.fraudAssessor = fraudAssessor;
+        this.geographyResolver = geographyResolver;
     }
 
     /**
@@ -100,11 +105,33 @@ public class PreAuthorizationGate {
                 ? paymentRef
                 : "preauth-" + UUID.randomUUID();
 
-        // 1. Cross-border compliance / sanctions. Throws cross_border_blocked on a
-        //    sanctioned source or destination country (the PSP is never called).
+        // 1. Cross-border compliance / sanctions (B-025 + B-026). Geography is resolved
+        //    SERVER-AUTHORITATIVELY from the trusted tenant + trusted edge key — NOT from the
+        //    client-supplied source/destination in the signals (which a caller could omit/forge).
+        //    Throws cross_border_blocked on a sanctioned country OR when screening is unavailable
+        //    (fail-closed). An unknown-geography cross-border-capable flow returns a REVIEW result
+        //    (requiresReview()==true) → capture held, never a silent ALLOW.
+        ResolvedGeography geo = geographyResolver.resolve(
+                tenantId, s, req.metadata() == null ? Map.of() : req.metadata());
+        GeographyTrust trust = new GeographyTrust(
+                geo.destinationKnown(), geo.sourceKnown(), geo.crossBorderCapable());
         ComplianceResult cb = compliance.validateOrThrow(
-                s.sourceCountry(), s.destinationCountry(),
-                toMajorUnits(req.amount(), req.currency()), req.currency());
+                geo.sourceCountry(), geo.destinationCountry(),
+                toMajorUnits(req.amount(), req.currency()), req.currency(), trust);
+
+        // B-025 / FIX 3: unknown geography → MANDATORY COMPLIANCE REVIEW with capture held. This
+        // must NOT be downgraded or skipped on server rails (downgradesBlockToReview only applies
+        // to a fraud BLOCK), so we route it here BEFORE the fraud assessment, independently of the
+        // screening mode, and tag it mandatoryReview=true so GatedPaymentGateway holds capture even
+        // on SERVER_RECURRING/SERVER_OTHER — closing the OFAC blind spot where a server-rail charge
+        // discarded the unknown-geo hold and captured clean.
+        if (cb.requiresReview()) {
+            log.warn("Payment {} routed to MANDATORY COMPLIANCE REVIEW: geography not "
+                    + "server-authoritative (flags={}) — authorizing with capture held on ALL rails",
+                    ref, cb.flags());
+            return GateDecision.complianceReview(
+                    cb.requiresReporting(), cb.requiresEnhancedDueDiligence());
+        }
 
         // 2. Fraud risk assessment.
         PaymentContext ctx = new PaymentContext(

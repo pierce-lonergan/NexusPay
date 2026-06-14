@@ -8,10 +8,17 @@ import java.util.Map;
  * sanctions and fraud checks consult.
  *
  * <p>First cut (B-003) sources these from the request metadata (and the card
- * number prefix when a raw PAN is present). Richer derivation — BIN→issuer-country
- * lookup, X-Forwarded-For geo-IP — is a follow-up; absent signals degrade safely
- * (a null country is treated as not-sanctioned by the compliance service, and the
- * fraud rules tolerate missing fields).</p>
+ * number prefix when a raw PAN is present).</p>
+ *
+ * <p><b>B-025 — geography here is ADVISORY ONLY for the SANCTIONS decision.</b> The
+ * {@code sourceCountry}/{@code destinationCountry}/{@code ipCountry} fields are
+ * client-supplied and therefore forgeable/omittable; the OFAC/cross-border screen does
+ * NOT consume them for its decision. Server-authoritative geography is resolved
+ * separately by {@link ServerGeographyResolver} (destination = trusted merchant config,
+ * source = trusted edge-stamped key). These advisory client values are retained for the
+ * FRAUD engine (which tolerates missing/untrusted fields) and for mismatch detection
+ * (a client value disagreeing with the server value raises an advisory flag — it never
+ * widens or narrows the sanctions outcome).</p>
  */
 public record GateSignals(
         String sourceCountry,

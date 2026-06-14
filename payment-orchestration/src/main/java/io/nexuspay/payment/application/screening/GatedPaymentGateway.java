@@ -64,12 +64,22 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
 
         GateDecision decision = gate.evaluate(request.idempotencyKey(), request, tenantId, signals, mode);
 
-        // Hold capture ONLY for interactive flows. A server-initiated recurring/workflow charge
-        // is a pre-authorized mandate: a fraud REVIEW records the assessment and is logged for
+        // Hold capture for an interactive fraud REVIEW. A server-initiated recurring/workflow charge
+        // is a pre-authorized mandate: a FRAUD REVIEW records the assessment and is logged for
         // analyst follow-up, but the charge still captures — holding it would surface as
         // requires_capture and trip billing's dunning (the M1 regression).
-        boolean hold = decision.holdCapture() && mode == ScreeningMode.INTERACTIVE;
-        if (decision.holdCapture() && mode != ScreeningMode.INTERACTIVE) {
+        //
+        // FIX 3 (OFAC blind spot): a MANDATORY COMPLIANCE REVIEW (unknown server-authoritative
+        // geography on a cross-border-capable flow) MUST hold capture on EVERY rail, including
+        // server rails — otherwise the unknown-geo hold was silently discarded on
+        // SERVER_RECURRING/SERVER_OTHER and the charge captured clean. mandatoryReview is set ONLY
+        // for the compliance geo branch, so the M1 server-rail fraud-dunning policy is preserved.
+        boolean hold = (decision.holdCapture() && mode == ScreeningMode.INTERACTIVE)
+                || decision.mandatoryReview();
+        if (decision.mandatoryReview() && mode != ScreeningMode.INTERACTIVE) {
+            log.warn("Server-rail payment (ref={}, mode={}) held for MANDATORY COMPLIANCE REVIEW "
+                    + "(unknown geography) — not captured clean", request.idempotencyKey(), mode);
+        } else if (decision.holdCapture() && !decision.mandatoryReview() && mode != ScreeningMode.INTERACTIVE) {
             log.warn("Server-rail payment (ref={}, mode={}) flagged {} by fraud — capturing + recording for review",
                     request.idempotencyKey(), mode, decision.fraudDecision());
         }
@@ -107,15 +117,22 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
         // BEFORE the PSP confirm.
         GateDecision decision = gate.evaluate(paymentId, ctx, tenantId, signals, mode);
 
-        if (decision.holdCapture() && mode == ScreeningMode.INTERACTIVE) {
+        // FIX 3: a MANDATORY COMPLIANCE REVIEW (unknown geography) holds on ALL rails — including
+        // server rails — so the OFAC review cannot be skipped at confirm. An ordinary fraud REVIEW
+        // still holds only on the interactive rail (server-rail fraud REVIEW proceeds, M1 policy).
+        boolean hold = (decision.holdCapture() && mode == ScreeningMode.INTERACTIVE)
+                || decision.mandatoryReview();
+        if (hold) {
             captureHolds.hold(paymentId, tenantId, decision.fraudAssessmentId());
             // Capture cannot be retroactively held on an auto-capture intent at confirm time, so
             // refuse rather than let the PSP capture a flagged payment (B1). A manual-capture intent
             // confirms safely (authorizes only; capture stays HELD, enforced at capturePayment).
             if (!"manual".equalsIgnoreCase(existing.captureMethod())) {
-                throw new PaymentException(
-                        "Payment flagged for review; confirm of an auto-capture intent is not permitted",
-                        "fraud_review_hold");
+                String code = decision.mandatoryReview() ? "compliance_review_hold" : "fraud_review_hold";
+                String reason = decision.mandatoryReview()
+                        ? "Payment flagged for compliance review (geography); confirm of an auto-capture intent is not permitted"
+                        : "Payment flagged for review; confirm of an auto-capture intent is not permitted";
+                throw new PaymentException(reason, code);
             }
         } else if (decision.holdCapture()) {
             log.warn("Server-rail confirm (payment={}, mode={}) flagged {} by fraud — proceeding",

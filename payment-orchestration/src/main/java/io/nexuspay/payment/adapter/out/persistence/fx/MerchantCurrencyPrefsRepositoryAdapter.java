@@ -36,7 +36,7 @@ public class MerchantCurrencyPrefsRepositoryAdapter implements MerchantCurrencyP
         return new MerchantCurrencyPrefs(
                 e.getId(), e.getTenantId(), e.getSettlementCurrency(),
                 e.isAutoConvert(), e.getFxMarkupBps(), e.getRateProvider(),
-                e.getRateLockDurationMinutes()
+                e.getRateLockDurationMinutes(), e.getMerchantCountry()
         );
     }
 
@@ -49,6 +49,7 @@ public class MerchantCurrencyPrefsRepositoryAdapter implements MerchantCurrencyP
         e.setFxMarkupBps(p.fxMarkupBps());
         e.setRateProvider(p.rateProvider());
         e.setRateLockDurationMinutes(p.rateLockDurationMinutes());
+        e.setMerchantCountry(p.merchantCountry());
         return e;
     }
 }

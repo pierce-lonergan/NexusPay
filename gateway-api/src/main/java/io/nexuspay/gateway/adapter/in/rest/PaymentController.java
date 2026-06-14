@@ -31,12 +31,25 @@ public class PaymentController {
         this.refundOrchestration = refundOrchestration;
     }
 
+    /**
+     * Trusted edge-stamped source-country header. A reverse proxy / CDN at the trusted edge
+     * (e.g. Cloudflare {@code CF-IPCountry}) sets this; the application stamps it into a
+     * server-only metadata key that the sanctions geography resolver reads. If no such edge is
+     * provisioned the header is absent → source is treated as UNKNOWN (B-025 fail-closed), never
+     * inferred from the client-supplied {@code source_country}/{@code ip_country}.
+     */
+    private static final String EDGE_IP_COUNTRY_HEADER = "CF-IPCountry";
+
+    /** Server-only metadata key the geography resolver reads. Never client-settable. */
+    private static final String TRUSTED_IP_COUNTRY_KEY = "ip_country_trusted";
+
     @PostMapping
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     @Operation(summary = "Create a payment intent")
     public ResponseEntity<PaymentApiResponse> createPayment(
             @Valid @RequestBody CreatePaymentRequest request,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = EDGE_IP_COUNTRY_HEADER, required = false) String edgeIpCountry,
             @AuthenticationPrincipal NexusPayPrincipal principal) {
         // Interactive flow. Stamp the TRUSTED tenant from the authenticated principal and
         // strip any client-supplied server-rail markers ("source"/"workflow") so a caller
@@ -48,6 +61,16 @@ public class PaymentController {
         }
         metadata.remove("source");
         metadata.remove("workflow");
+        // B-025: NEVER let the client pre-seed the trusted source key. Strip it unconditionally,
+        // then stamp it ONLY from the trusted edge header (when the edge provisioned one).
+        metadata.remove(TRUSTED_IP_COUNTRY_KEY);
+        if (edgeIpCountry != null && !edgeIpCountry.isBlank() && !"XX".equalsIgnoreCase(edgeIpCountry.trim())) {
+            // "XX"/"T1" are Cloudflare's "unknown"/"Tor" sentinels — treat as unknown (leave unset).
+            String cc = edgeIpCountry.trim();
+            if (cc.length() == 2 && !"T1".equalsIgnoreCase(cc)) {
+                metadata.put(TRUSTED_IP_COUNTRY_KEY, cc.toUpperCase());
+            }
+        }
         if (principal != null && principal.tenantId() != null) {
             metadata.put("tenant_id", principal.tenantId());
         }
