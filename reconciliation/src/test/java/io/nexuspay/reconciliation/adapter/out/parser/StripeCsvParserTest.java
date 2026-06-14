@@ -127,7 +127,7 @@ class StripeCsvParserTest {
     void escapedDoubledQuote_insideQuotedField() {
         String csv = """
                 id,amount,currency,fee,net,created,description
-                txn_1,10000,usd,290,9710,2026-03-14,"She said ""hi"""
+                txn_1,10000,usd,290,9710,2026-03-14,"She said ""hi""\"
                 """;
 
         ParseResult result = parseAll(csv);
