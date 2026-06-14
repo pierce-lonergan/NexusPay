@@ -1,5 +1,36 @@
 # DIGEST — human-facing summaries (newest first)
 
+## 2026-06-13 — B-002 RLS runtime machinery C5-C7 DONE (dormant, CI-green; ultracode)
+**Shipped:** the full RLS *enforcement* machinery, landed DORMANT behind `rls.enforce=false`
+(prod flip stays human-gated), 296 tests green. Three parts:
+- **C5 — mechanism:** the app can now connect as the non-owner `nexuspay_app` role and set the
+  tenant GUC per transaction. One EntityManagerFactory over a role-routing datasource (app +
+  system Hikari pools) + a tx-manager that runs `set_config('app.current_tenant_id',…)` at
+  transaction begin. Contributed only when enforcement is on; the broken old decorator (which set
+  the GUC at the wrong moment, making RLS a no-op) is deleted.
+- **C6 — background jobs:** an ultracode workflow classified all 26 cross-tenant entry points
+  (tracing every table each touches, then adversarially trying to refute each verdict). The 15
+  genuinely all-tenant jobs (rollups, retention, outbox relay, reconciliation, payouts, dunning…)
+  are marked `@SystemTransactional` so they run on a BYPASSRLS role; the 6 single-tenant Kafka
+  consumers were deliberately left alone (marking them would open a cross-tenant hole) and are
+  documented as the mandatory pre-flip fix. Required relocating the marker to the shared `common`
+  module (the jobs live in modules that can't depend on `app`).
+- **C7 — owner hardening:** a repeatable migration that FORCEs RLS on the owner too, gated by a
+  placeholder defaulting OFF (so nothing is forced while the app still connects as owner — the
+  failure mode that would otherwise lock the app out of every row).
+**Proven:** a dormancy test (everything absent + nothing forced when off) and an enforcement test
+(boots on the locked-down role; tenant A sees only A, an unbound request sees zero rows, a system
+job sees all, every table forced). The CI log even shows a real scheduled payment job routing
+through the system role under enforcement.
+**Caught by self-critique / the workflow:** (a) the enforce test tripped the B-004 default-secret
+guard because its profile reads as production — fixed by supplying managed test secrets, NOT by
+weakening the guard (L-033); (b) the role pin is a thread-local that doesn't cross async callbacks
+(L-034); (c) a system job bypasses the write-side tenant check, so all-tenant sweeps still need
+per-row tenant binding on their writes (L-035). ADR-012 records the three deviations from the
+original sketch. **Remaining before any prod flip:** B-002-activation-tenant (bind tenant in the 6
+consumers + billing batch writes) then B-002-cutover (provision secrets, flip the flags
+staging→fleet). Both in BACKLOG + the HANDOFF checklist.
+
 ## 2026-06-10 — B-024 gate coverage DONE + B-002 RLS hardened (ultracode, multi-agent)
 Ran this as a multi-agent (ultracode) effort: a design+mapping workflow (exhaustive
 payment-entrypoint + 16-@Scheduled-job inventory → judge panels → ordered plan), then

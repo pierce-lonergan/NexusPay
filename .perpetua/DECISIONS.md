@@ -153,3 +153,55 @@ review (SHIP-WITH-FIXES, 0 refuted) drove fixes (C2b):
   auto-capture confirm rather than capturing (B1/B2); getPayment errors remap to
   PaymentException (M3). Latent mode/tenant-from-metadata trust → B-029. B-025
   (client-forgeable geography) + B-026 (OFAC parser) remain separate follow-ups.
+
+## ADR-012 | 2026-06-13 | B-002 C5-C7 activation machinery (dormant) — three deliberate deviations from ADR-010's sketch
+Context: implement the runtime machinery ADR-010 deferred (tx-manager GUC, system
+role pool, cross-tenant job routing, FORCE), landed DORMANT behind
+`nexuspay.multi-tenancy.rls.enforce=false` and proven by ITs in CI; the prod flip
+stays human-gated. An ultracode design-verification workflow + a 26-method
+classification workflow (per-method table-tracing + adversarial verification of every
+SYSTEM verdict) drove the decisions. Three deviations from ADR-010's wording, each to
+remove a risk or a wiring trap:
+
+1. **Single routing datasource, not a 2nd EMF/txManager.** ADR-010 said "second
+   systemDataSource/EMF/systemTxManager". Rejected: JPA repositories bind to ONE EMF,
+   so a second EMF would force every cross-tenant repo onto a parallel persistence
+   unit (or fragment the context). Instead: ONE EMF over a `RoleRoutingDataSource`
+   (extends AbstractRoutingDataSource) keyed by a ThreadLocal `DbRoleContext`
+   (default APP = fail-closed) fronting two Hikari pools (nexuspay_app / nexuspay_system).
+   `RlsRoutingTransactionManager extends JpaTransactionManager` sets the tenant GUC via
+   `set_config(...,true)` in `doBegin` for APP txns; SYSTEM txns skip it. The routing
+   DS reads DbRoleContext on every getConnection.
+
+2. **`@SystemTransactional` lives in `common`, annotates the JOB ENTRY method, and
+   pins the role via a thread-local — not the tx-interceptor.** The classification
+   found the 15 cross-tenant jobs live in 6 modules that CANNOT depend on `app` (the
+   composition root). So the marker moved to `io.nexuspay.common.rls` (7 modules already
+   depend on :common); the acting `SystemRoleAspect` stays in `app`, advises by
+   annotation type across the whole context, and wraps the call in
+   `DbRoleContext.runAs(SYSTEM, …)` — a CALL-SCOPED thread-local. Consequence: annotate
+   the `@Scheduled`/entry method and the pin covers the entire SYNCHRONOUS subtree
+   (nested `@Transactional` service calls, self-invocation, even a non-transactional
+   read). It does NOT cross thread boundaries (async callbacks/executors run on APP).
+   The 6 TENANT_SCOPED Kafka consumers are deliberately NOT annotated — they must bind
+   `TenantContext` from the event and stay RLS-armed; annotating them would bypass RLS
+   (a cross-tenant hole). 5 NO_DB jobs need nothing.
+
+3. **FORCE via a single repeatable `R__rls_force_owner.sql`, not versioned
+   V4021+V4022.** A versioned migration applied while dormant (rlsforce=false) can never
+   re-activate (Flyway runs a version once). The repeatable is idempotent in BOTH
+   directions, gated by the `${rlsforce}` placeholder (default false = ensures NO table
+   is FORCE'd, so the app-as-owner is never locked out — the catastrophic case), and
+   re-triggers at the human cutover by flipping the placeholder AND bumping the file
+   (checksum). It also subsumes the revert (set false → NO FORCE). FORCE is
+   defense-in-depth: runtime isolation already comes from the non-owner nexuspay_app role.
+   Also deleted the broken `TenantAwareDataSourceConfig` (set_config at getConnection in
+   autocommit = RLS-inert).
+
+Proof (CI-green): RlsDormancyIT (enforce=false → routing DS/aspect/config absent AND no
+table forced) + RlsEnforceIT (boots on nexuspay_app under the rls-enforce profile;
+tenant A sees only A, B only B, unbound = zero rows fail-closed, @SystemTransactional
+sees all; every RLS table FORCE'd). REMAINING before the flip: B-002-activation-tenant
+(bind TenantContext in the 6 consumers + per-item binding in the billing batch sweeps to
+keep WITH CHECK on writes) — see HANDOFF checklist. Full per-method map in the C6
+workflow result; rfc-b002.
