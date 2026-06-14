@@ -27,7 +27,14 @@ guard because its profile reads as production — fixed by supplying managed tes
 weakening the guard (L-033); (b) the role pin is a thread-local that doesn't cross async callbacks
 (L-034); (c) a system job bypasses the write-side tenant check, so all-tenant sweeps still need
 per-row tenant binding on their writes (L-035). ADR-012 records the three deviations from the
-original sketch. **Remaining before any prod flip:** B-002-activation-tenant (bind tenant in the 6
+original sketch.
+**Post-ship adversarial review (ultracode): SHIP-WITH-MINORS** — 0 blockers, 0 must-fix, 8 minors,
+all fixed/documented: a missed sibling job (TrialExpiration) annotated → 16 SYSTEM jobs; analytics
+RLS policies made fail-closed (migration V3022); the FORCE re-trigger runbook corrected (flipping
+the flag alone re-runs it — no file bump; the reviewer disassembled the actual Flyway to confirm);
+DLQ-async + superuser-FORCE caveats documented; the FORCE/enforce interlock and a cross-module
+routing assertion folded into the activation gate.
+**Remaining before any prod flip:** B-002-activation-tenant (bind tenant in the 6
 consumers + billing batch writes) then B-002-cutover (provision secrets, flip the flags
 staging→fleet). Both in BACKLOG + the HANDOFF checklist.
 

@@ -93,6 +93,13 @@ class RlsEnforceIntegrationTest extends IntegrationTestBase {
         }
     }
 
+    /**
+     * STRUCTURAL proof only: asserts the migration set relforcerowsecurity on every RLS table.
+     * It CANNOT prove FORCE behaviorally binds the owner here, because the Testcontainer owner is a
+     * SUPERUSER and superusers bypass even FORCE ROW LEVEL SECURITY. The residual owner-bypass that
+     * FORCE closes is realised only against a NON-superuser prod owner; the runtime isolation that
+     * actually matters is already proven behaviorally above via the non-owner nexuspay_app role.
+     */
     @Test
     void forceRowLevelSecurity_appliedToEveryRlsTable() throws Exception {
         assumeTrue(DOCKER_AVAILABLE, "requires Docker (Testcontainers Postgres)");
@@ -117,6 +124,35 @@ class RlsEnforceIntegrationTest extends IntegrationTestBase {
                 assertThat(rs.next()).as("ledger_accounts row exists in pg_class").isTrue();
                 assertThat(rs.getBoolean(1))
                         .as("ledger_accounts has FORCE ROW LEVEL SECURITY").isTrue();
+            }
+        }
+    }
+
+    @Test
+    void analyticsRlsPolicies_areFailClosed() throws Exception {
+        assumeTrue(DOCKER_AVAILABLE, "requires Docker (Testcontainers Postgres)");
+        // Review finding #3 / V3022: analytics policies must use the current_tenant_id() helper
+        // (= current_setting(...,true), missing_ok) so an unbound APP txn fail-closes to ZERO ROWS
+        // rather than raising 'unrecognized configuration parameter'. Bare current_setting (no
+        // missing_ok) would render in pg_policies.qual WITHOUT the helper call.
+        try (Connection c = DriverManager.getConnection(
+                nexuspayPg.getJdbcUrl(), nexuspayPg.getUsername(), nexuspayPg.getPassword());
+             Statement st = c.createStatement()) {
+            // Non-vacuous: there ARE analytics tenant policies.
+            try (ResultSet rs = st.executeQuery(
+                    "SELECT count(*) FROM pg_policies WHERE schemaname = 'analytics'")) {
+                rs.next();
+                assertThat(rs.getInt(1)).as("analytics has RLS policies to check").isGreaterThan(0);
+            }
+            // Every analytics policy's USING (and WITH CHECK) must go through the missing_ok helper.
+            try (ResultSet rs = st.executeQuery(
+                    "SELECT count(*) FROM pg_policies WHERE schemaname = 'analytics' "
+                            + "AND (qual NOT LIKE '%current_tenant_id()%' "
+                            + "     OR (with_check IS NOT NULL AND with_check NOT LIKE '%current_tenant_id()%'))")) {
+                rs.next();
+                assertThat(rs.getInt(1))
+                        .as("no analytics policy uses bare current_setting (all fail-closed via current_tenant_id())")
+                        .isZero();
             }
         }
     }

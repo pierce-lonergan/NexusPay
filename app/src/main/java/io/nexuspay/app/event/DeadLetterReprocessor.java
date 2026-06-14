@@ -85,7 +85,13 @@ public class DeadLetterReprocessor {
             entry.setRetryCount(entry.getRetryCount() + 1);
             repository.save(entry);
 
-            // Republish to original topic
+            // Republish to original topic.
+            // B-002 INVARIANT: this whenComplete callback runs on the Kafka producer I/O thread, NOT
+            // the @SystemTransactional scheduler thread, so the SYSTEM role pin does NOT propagate —
+            // these repository.save calls run on the default APP role. Harmless TODAY only because
+            // dead_letter_queue has NO RLS (V3014: "access controlled via RBAC (admin-only)"). If RLS
+            // is ever added to that table, these saves would fail-closed — move the status mutation
+            // back onto the scheduler thread (block on the send ack, as OutboxRelay does) first.
             stringKafkaTemplate.send(entry.getOriginalTopic(), entry.getEventKey(), entry.getEventValue())
                     .whenComplete((result, ex) -> {
                         if (ex != null) {

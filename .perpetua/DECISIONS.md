@@ -192,8 +192,11 @@ remove a risk or a wiring trap:
    re-activate (Flyway runs a version once). The repeatable is idempotent in BOTH
    directions, gated by the `${rlsforce}` placeholder (default false = ensures NO table
    is FORCE'd, so the app-as-owner is never locked out — the catastrophic case), and
-   re-triggers at the human cutover by flipping the placeholder AND bumping the file
-   (checksum). It also subsumes the revert (set false → NO FORCE). FORCE is
+   re-triggers at the human cutover by flipping the placeholder alone (with
+   placeholderReplacement=true, Flyway computes the repeatable's checksum over the
+   placeholder-REPLACED text, so flipping `${rlsforce}` changes the checksum and re-runs it
+   at the next migrate — no file edit needed; corrected per review finding #1). It also
+   subsumes the revert (set false → NO FORCE). FORCE is
    defense-in-depth: runtime isolation already comes from the non-owner nexuspay_app role.
    Also deleted the broken `TenantAwareDataSourceConfig` (set_config at getConnection in
    autocommit = RLS-inert).
@@ -205,3 +208,24 @@ sees all; every RLS table FORCE'd). REMAINING before the flip: B-002-activation-
 (bind TenantContext in the 6 consumers + per-item binding in the billing batch sweeps to
 keep WITH CHECK on writes) — see HANDOFF checklist. Full per-method map in the C6
 workflow result; rfc-b002.
+
+ADDENDUM (2026-06-13, post-ship adversarial review — SHIP-WITH-MINORS, 0 blockers/0 must-fix,
+8 confirmed minors, each independently verified). Fixes applied (commit follows):
+- #1 (runbook inverted): corrected above — the rlsforce placeholder value IS in the repeatable's
+  checksum, so a placeholder-only flip re-runs R__; no file bump needed. (Reviewer also noted the
+  effective Flyway is BOM-managed 9.22.3, not the dangling 10.15.0 in libs.versions.toml.)
+- #2/#5 (missed entry point): `TrialExpirationScheduler.convertExpiredTrials` — structural twin of
+  RenewalScheduler — was left unannotated; now @SystemTransactional too, so the SYSTEM job count is
+  **16**, not 15. Its per-item write binding joins RenewalScheduler in B-002-activation-tenant.
+- #3 (analytics not fail-closed): V3017-3020 policies used bare current_setting (ERROR when GUC
+  unset, not zero rows). New migration `analytics/V3022__analytics_rls_failclosed.sql` normalizes
+  all 7 to the current_tenant_id() helper (missing_ok); enforce IT now asserts it structurally.
+- #4 (FORCE/enforce interlock): no clean DB-side interlock exists (a migration can't see the app's
+  runtime role); the practical interlock is profile co-location — rlsforce=true lives ONLY in the
+  rls-enforce profile, which also sets enforce=true, so they cannot diverge unless an operator
+  force-overrides rlsforce alone (documented footgun). Documented in application-rls-enforce.yml.
+- #6 (cross-module routing only incidentally proven): RlsProbe (a context bean) + the live CI log of
+  OutboxRelay.relayEvents routing through SystemRoleAspect under enforce are adequate; a dedicated
+  cross-module-job assertion is folded into B-002-activation-tenant's per-consumer ITs.
+- #7/#8 (NITs): documented the DLQ async-callback-off-the-pin invariant in code; documented the
+  superuser-bypasses-FORCE caveat (structural-only proof) in the enforce IT javadoc.

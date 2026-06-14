@@ -21,10 +21,14 @@
 --   non-owner nexuspay_app role, proven by RlsEnforceIntegrationTest); it closes the
 --   residual owner-bypass hole.
 --
--- IMPORTANT — re-trigger rule: Flyway re-runs a repeatable ONLY when the file
---   checksum changes. To (de)activate you MUST set the rlsforce placeholder AND bump
---   this file (e.g. the marker below) in the same cutover change, so Flyway re-applies
---   it. Bump marker: rev 1.
+-- Re-trigger: Flyway re-runs a repeatable when its checksum changes — and with
+--   placeholderReplacement=true (the default; nothing disables it here) the checksum is computed
+--   over the PLACEHOLDER-REPLACED text. So flipping ${rlsforce} false↔true ALONE changes the
+--   checksum and re-runs this migration at the next migrate; NO separate file edit is required.
+--   (The 'rev N' marker below is redundant belt-and-suspenders, not a required step.) To make
+--   re-execution depend on an explicit file edit instead, you would have to set
+--   spring.flyway.placeholder-replacement=false — but that breaks the dormancy/enforce ITs which
+--   rely on the placeholder taking effect, so don't. Marker: rev 1.
 --
 -- Owner-run, cross-schema (public + analytics), consistent with V4020. Superusers and
 -- BYPASSRLS roles still bypass FORCE by design (that is what nexuspay_system relies on).

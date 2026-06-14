@@ -1,6 +1,7 @@
 package io.nexuspay.billing.adapter.in.scheduler;
 
 import io.nexuspay.billing.application.service.TrialManagementService;
+import io.nexuspay.common.rls.SystemTransactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -29,7 +30,14 @@ public class TrialExpirationScheduler {
     /**
      * Runs daily at 1:00 AM — converts expired trials.
      * Guarded by a cross-instance lock so only one replica runs per cycle (B-001).
+     *
+     * <p>B-002: cross-tenant discovery sweep — {@code findExpiredTrials} scans ALL tenants, so it
+     * runs on the BYPASSRLS role like its twin {@code RenewalScheduler}. The lock callback executes
+     * synchronously on this thread, so the SYSTEM pin propagates into the inner @Transactional
+     * {@code TrialManagementService.convertExpiredTrials}. The per-subscription WRITES still need
+     * per-tenant TenantContext binding to keep WITH CHECK armed — tracked in B-002-activation-tenant.</p>
      */
+    @SystemTransactional
     @Scheduled(cron = "0 0 1 * * *")
     public void convertExpiredTrials() {
         schedulerLock.runExclusively("trial-expiration", Duration.ofHours(1), () -> {

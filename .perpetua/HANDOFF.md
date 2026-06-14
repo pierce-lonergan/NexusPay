@@ -16,7 +16,8 @@ the prod flip stays human-gated. See ADR-012, L-033/34/35.
 - **C6 (job routing):** `@SystemTransactional` relocated to `io.nexuspay.common.rls` (so all 7 modules
   can declare it; the `SystemRoleAspect` stays in `app` and advises by annotation type across the
   context, pinning SYSTEM via a call-scoped thread-local that covers the whole synchronous subtree).
-  Applied to the **15 genuinely cross-tenant @Scheduled jobs** (analytics rollups/retention/MV ×5,
+  Applied to the **16 genuinely cross-tenant @Scheduled jobs** (15 + TrialExpirationScheduler added
+  per review finding #2) (analytics rollups/retention/MV ×5,
   app DLQ reprocessor, billing renewal+dunning ×2, ledger reconcile, marketplace payouts, obs
   outbox-lag, payment retention ×2 + outbox relay + fx-lock). 6 single-tenant Kafka consumers were
   deliberately NOT annotated; 5 NO_DB jobs need nothing.
@@ -27,7 +28,13 @@ the prod flip stays human-gated. See ADR-012, L-033/34/35.
   + RlsEnforceIT (boots on nexuspay_app under the `rls-enforce` profile: tenant A↔A / B↔B isolation,
   unbound=zero rows fail-closed, @SystemTransactional sees all, every RLS table FORCE'd).
 
-STATE: CI green; 296 tests (floor 289); coverage floor 16. PR #1 mergeable.
+STATE: CI green; 296→297 tests (floor 289); coverage floor 16. PR #1 mergeable. A post-ship
+adversarial review (ultracode, 5 dimensions + per-finding verification) returned SHIP-WITH-MINORS
+(0 blockers/0 must-fix, 8 confirmed minors) — all fixed or documented: TrialExpiration annotated
+(→16 jobs), analytics policies made fail-closed (V3022), the R__ re-trigger runbook corrected
+(placeholder flip alone re-runs; no file bump), DLQ async-pin + superuser-FORCE caveats documented.
+See ADR-012 addendum. Findings #4 (FORCE/enforce interlock = profile coupling) and #6 (cross-module
+routing assertion) are documented residuals folded into B-002-activation-tenant.
 
 ### ⚠ B-002 CUTOVER CHECKLIST (human-gated; do in order — see BACKLOG B-002-activation-tenant / B-002-cutover)
 The machinery is dormant. Before flipping enforcement in prod, these MUST be green first:
