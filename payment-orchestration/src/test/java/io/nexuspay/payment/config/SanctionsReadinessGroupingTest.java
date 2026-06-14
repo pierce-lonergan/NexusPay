@@ -52,6 +52,7 @@ class SanctionsReadinessGroupingTest {
         SanctionsListAdapter sanctionsListAdapter() {
             return new SanctionsListAdapter(
                     RestClient.builder(),
+                    "http://localhost:1/ofac.csv", // never fetched (no refresh in this test)
                     List.of("KP", "IR", "SY", "CU"),
                     List.of("VE"),
                     new BigDecimal("10000"),
@@ -96,6 +97,7 @@ class SanctionsReadinessGroupingTest {
         SanctionsListAdapter sanctionsListAdapter() {
             return new SanctionsListAdapter(
                     RestClient.builder(),
+                    "http://localhost:1/ofac.csv", // never fetched (no refresh in this test)
                     List.of(),            // empty baseline → empty live list → screening unavailable
                     List.of("VE"),
                     new BigDecimal("10000"),

@@ -88,6 +88,7 @@ class SanctionsReadinessHealthIndicatorTest {
         // FIX 5 end-to-end without mocking isScreeningAvailable.
         SanctionsListAdapter real = new SanctionsListAdapter(
                 RestClient.builder(),
+                "http://localhost:1/ofac.csv", // never fetched (no refresh in this test)
                 List.of("KP", "IR", "SY", "CU"),
                 List.of("VE"),
                 new BigDecimal("10000"),
@@ -103,7 +104,8 @@ class SanctionsReadinessHealthIndicatorTest {
         // screening still available → readiness stays UP (we do NOT shed traffic just because the
         // feed was briefly unreachable but the baseline screen is intact and fresh).
         SanctionsListAdapter real = new SanctionsListAdapter(
-                RestClient.builder().baseUrl("http://localhost:1"),
+                RestClient.builder(),
+                "http://localhost:1/ofac.csv", // unreachable: fails fast OFFLINE (connection refused)
                 List.of("KP", "IR", "SY", "CU"),
                 List.of("VE"),
                 new BigDecimal("10000"),

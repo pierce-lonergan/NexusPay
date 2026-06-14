@@ -17,8 +17,10 @@ class SanctionsListAdapterTest {
 
     private SanctionsListAdapter adapter() {
         // RestClient.builder() is never exercised here (no refresh() call), so a real builder is fine.
+        // The URL is a never-fetched placeholder (no refresh in these tests).
         return new SanctionsListAdapter(
                 RestClient.builder(),
+                "http://localhost:1/ofac.csv",
                 List.of("KP", "IR", "SY", "CU"),
                 List.of("VE", "AF"),
                 new BigDecimal("10000"),
@@ -45,10 +47,12 @@ class SanctionsListAdapterTest {
 
     @Test
     void refreshWithUnreachableFeed_marksOfacUnavailable_butRetainsBaseline() {
-        // Point at an unroutable host so the fetch fails fast; the catch must flip ofacAvailable
-        // false and retain the static baseline (screening still minimally available).
+        // Point at an unroutable host so the fetch fails fast OFFLINE (connection refused); the
+        // catch must flip ofacAvailable false and retain the static baseline (screening still
+        // minimally available). The absolute URL is what drives the fetch (overrides any baseUrl).
         SanctionsListAdapter a = new SanctionsListAdapter(
-                RestClient.builder().baseUrl("http://localhost:1"),
+                RestClient.builder(),
+                "http://localhost:1/ofac.csv",
                 List.of("KP", "IR", "SY", "CU"),
                 List.of("VE"),
                 new BigDecimal("10000"),

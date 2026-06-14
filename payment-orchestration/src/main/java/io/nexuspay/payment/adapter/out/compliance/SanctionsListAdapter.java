@@ -40,18 +40,20 @@ public class SanctionsListAdapter implements CrossBorderCompliancePort {
 
     private static final Logger LOG = LoggerFactory.getLogger(SanctionsListAdapter.class);
 
-    /**
-     * OFAC Consolidated Screening List (CSL) CSV. The real feed is a 29-column entity export with
-     * NO {@code countries}/{@code country} column — country is encoded as the trailing ISO-2 token
-     * of each {@code ;}-separated {@code addresses} entry (plus {@code nationalities}/
-     * {@code citizenships}/{@code vessel_flag}), and the embargo regime is named in {@code programs}.
-     * {@link #parseOfacCsv(String)} derives the comprehensive-embargo ISO-2 set from those REAL
-     * columns (BLOCKER FIX 1). In production, parse the full SDN XML for entity-level screening.
-     */
-    private static final String OFAC_CSL_URL =
-            "https://data.trade.gov/downloadable_consolidated_screening_list/v1/consolidated.csv";
-
     private final RestClient restClient;
+
+    /**
+     * OFAC Consolidated Screening List (CSL) CSV feed URL (configurable via
+     * {@code nexuspay.fx.compliance.ofac-csl-url}; default is the live US Treasury feed). The real
+     * feed is a 29-column entity export with NO {@code countries}/{@code country} column — country
+     * is encoded as the trailing ISO-2 token of each {@code ;}-separated {@code addresses} entry
+     * (plus {@code nationalities}/{@code citizenships}/{@code vessel_flag}), and the embargo regime
+     * is named in {@code programs}. {@link #parseOfacCsv(String)} derives the comprehensive-embargo
+     * ISO-2 set from those REAL columns (BLOCKER FIX 1). In production, parse the full SDN XML for
+     * entity-level screening. Made configurable so unit tests can point at an unreachable host and
+     * never hit the live feed (an absolute URI overrides any RestClient baseUrl).
+     */
+    private final String ofacCslUrl;
     private final Set<String> staticSanctionedCountries;
     private final Set<String> highRiskCountries;
     private final BigDecimal reportingThreshold;
@@ -72,11 +74,13 @@ public class SanctionsListAdapter implements CrossBorderCompliancePort {
 
     public SanctionsListAdapter(
             RestClient.Builder restClientBuilder,
+            @Value("${nexuspay.fx.compliance.ofac-csl-url:https://data.trade.gov/downloadable_consolidated_screening_list/v1/consolidated.csv}") String ofacCslUrl,
             @Value("${nexuspay.fx.compliance.sanctioned-countries:KP,IR,SY,CU}") List<String> sanctionedCountries,
             @Value("${nexuspay.fx.compliance.high-risk-countries:AF,BY,MM,VE,ZW,LY,SO,YE,SD}") List<String> highRiskCountries,
             @Value("${nexuspay.fx.compliance.cross-border-amount-reporting-threshold:10000}") BigDecimal reportingThreshold,
             @Value("${nexuspay.fx.compliance.sanctions-max-staleness:PT48H}") Duration maxStaleness) {
         this.restClient = restClientBuilder.build();
+        this.ofacCslUrl = ofacCslUrl;
         this.reportingThreshold = reportingThreshold;
         this.maxStaleness = maxStaleness;
 
@@ -200,7 +204,7 @@ public class SanctionsListAdapter implements CrossBorderCompliancePort {
      */
     OfacParseResult fetchOfacSanctionedCountries() {
         String csv = restClient.get()
-                .uri(OFAC_CSL_URL)
+                .uri(ofacCslUrl)
                 .retrieve()
                 .body(String.class);
 
