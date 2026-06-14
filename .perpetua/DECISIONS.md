@@ -229,3 +229,31 @@ ADDENDUM (2026-06-13, post-ship adversarial review — SHIP-WITH-MINORS, 0 block
   cross-module-job assertion is folded into B-002-activation-tenant's per-consumer ITs.
 - #7/#8 (NITs): documented the DLQ async-callback-off-the-pin invariant in code; documented the
   superuser-bypasses-FORCE caveat (structural-only proof) in the enforce IT javadoc.
+
+## ADR-013 | 2026-06-14 | B-002-activation-tenant: TenantWorkRunner + the bind-vs-run distinction
+Context: with the C5-C7 machinery dormant, the remaining step before RLS can be flipped is making the
+single-tenant consumers and the per-item billing writes run on the APP role WITH a tenant bound (so
+RLS USING + WITH CHECK guard them). A grounded ultracode design + an adversarial review settled the
+shape. Decision:
+- **One shared primitive, `TenantWorkRunner` (interface in `common`, impls in `app`).** The enforcing
+  impl (`AppTenantTransactionTemplate`, @ConditionalOnProperty enforce=true) sets DbRole.APP +
+  TenantContext BEFORE the transaction begins (RlsRoutingTransactionManager.doBegin reads them at
+  tx-begin); the dormant impl (`InlineTenantWorkRunner`, enforce=false/matchIfMissing) ignores the
+  tenant so call sites are structurally identical when off. Mirrors @SystemTransactional's module split.
+- **Two methods, deliberately distinct (the review's key correction, L-036):** `runInTenant`/
+  `callInTenant` OPEN a REQUIRES_NEW tenant-bound tx — for handlers that aren't themselves
+  transactional and for per-item sweep writes. `bindTenant` binds APP+tenant WITHOUT an enclosing tx —
+  for work whose inner @Transactional manages its own boundary/isolation. The ledger consumer uses
+  `bindTenant` because wrapping its @Transactional(SERIALIZABLE) journal write in a default-isolation
+  helper tx silently downgraded it to READ_COMMITTED (and broke dormancy).
+- **Consumers bind BEFORE the @Transactional boundary** (drop @Transactional, route through the helper);
+  tenant from `metadata.tenant_id` (fallback "default"). **Sweeps** discover under the SYSTEM pin then
+  write each item via the helper on APP+tenant (per-item commit; one tenant's failure no longer rolls
+  back others). The gateway tenant-scoped finder is **gated on the enforce flag** (L-037) — an app-level
+  WHERE is not gated by the GUC, so an ungated swap would break webhook delivery at enforce=false.
+- **Step 0 is out of scope, human-gated:** the `nexuspay.payments` topic carries no tenant yet, so the
+  4 payments-topic consumers bind "default" under enforcement until B-002-cutover Step 0 stamps the real
+  tenant at HyperSwitch ingest. This task builds + PROVES the mechanism (helper IT + analytics-consumer
+  IT under the rls-enforce profile); the producer fix and the heavy per-site ITs are deferred to cutover.
+Proof CI-green via PR #2 (build+test). Review: SHIP-WITH-FIXES → both fixes applied. Full plan in
+research/rfc-b002-activation-tenant.md; lessons L-036/037/038 (the last is the ci.yml trigger-gap guardrail).

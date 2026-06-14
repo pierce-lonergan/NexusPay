@@ -1,5 +1,25 @@
 # DIGEST — human-facing summaries (newest first)
 
+## 2026-06-14 — B-002 RLS tenant-binding DONE; pushed to main; ultracode build-out
+**Pushed everything to `main`** (fast-forward, PR #1 merged) and **pruned** the backlog, then built out
+the highest-value remaining item **in its entirety**: the per-tenant binding that lets RLS actually be
+turned on. All dormant behind `rls.enforce=false`.
+- A shared helper (`TenantWorkRunner`) runs a unit of work in a transaction bound to one tenant on the
+  locked-down app role — with a deliberate split: `runInTenant` opens the transaction (for work that
+  isn't already transactional), `bindTenant` only binds the tenant and lets inner code keep its own
+  transaction (so the ledger's SERIALIZABLE journal write isn't silently weakened).
+- The 6 single-tenant Kafka consumers now bind their event's tenant before their transaction; the 3
+  billing sweeps discover across all tenants (system role) but write each item under its own tenant.
+- Two adversarial-review workflows ran. The second caught two real issues I'd missed and fixed: the
+  gateway webhook change wasn't actually dormant (an always-on tenant filter would have silently
+  stopped webhook delivery in the default config), and the ledger's SERIALIZABLE isolation was being
+  downgraded. Both fixed; proven by an enforce-profile helper IT + an analytics-consumer IT.
+- **Process honesty:** I initially mis-reported "CI green" when only the lighter gate workflow had run
+  — merging PR #1 had silently stopped the build+test workflow on branch pushes. Caught it, re-ran real
+  CI via PR #2, and added a guardrail so branch pushes always compile+test from now on (L-038).
+**Remaining before RLS can be turned on (human-gated):** stamp the real tenant onto payment events at
+HyperSwitch ingest (Step 0), then the staged flip. Both tracked under B-002-cutover. ADR-013, L-036/037/038.
+
 ## 2026-06-13 — B-002 RLS runtime machinery C5-C7 DONE (dormant, CI-green; ultracode)
 **Shipped:** the full RLS *enforcement* machinery, landed DORMANT behind `rls.enforce=false`
 (prod flip stays human-gated), 296 tests green. Three parts:

@@ -1,8 +1,13 @@
 name: CI
 
 on:
+  # Run build+test on main, on PRs to main, AND on perpetua/** branch pushes. The last one is a
+  # guardrail (L-038): before this, branch pushes only ran build+test while a PR to main was OPEN
+  # (the pull_request trigger). Merging that PR silently stopped branch build+test, so dormant work
+  # pushed afterward was verified only by perpetua-gates (changelog/secrets/ratchet), never compiled
+  # or IT-run. Building on perpetua/** pushes too closes that gap.
   push:
-    branches: [main]
+    branches: [main, 'perpetua/**']
   pull_request:
     branches: [main]
 

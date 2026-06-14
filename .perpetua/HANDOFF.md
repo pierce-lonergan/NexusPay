@@ -1,75 +1,46 @@
-# Handoff — 2026-06-13 — session 3 (B-002 RLS runtime machinery C5-C7 DONE, dormant)
-NOW: **CI green** (CI + perpetua-gates) on perpetua/bootstrap / PR #1. App boots end-to-end on
-real Postgres/Kafka/Redis; **296 tests** pass (floor 285→289). Ran ultracode (a design-verification
-workflow + a 26-method job-classification workflow with per-method adversarial verification).
-ACTIVE ITEM: none in-flight | branch perpetua/bootstrap | phase SELECT
-LATEST commits: 719ee55 (C5 enforce-IT secrets fix) · f06d483 (C6 job routing + C7 FORCE).
+# Handoff — 2026-06-14 — session 4 (B-002 RLS fully built: machinery + tenant-binding, dormant)
+NOW: `main` carries everything through the C5-C7 machinery (FF'd to a696742, PR #1 merged, CI-green).
+The B-002-activation-tenant work (helper + 6 consumers + 3 sweeps + fixes + IT) is on
+**perpetua/bootstrap via PR #2**, build+test verified — pending FF to `main` once the final CI run is
+green. Ran ultracode throughout (design + 2 adversarial-review workflows + agent fan-outs).
+ACTIVE ITEM: FF main to the PR #2 tip after CI green | branch perpetua/bootstrap | phase SELECT.
+LATEST commits: 79937ea (helper) → e5b9ea8 (consumers) → f91a8ab (sweeps) → 98e102a (review fixes) →
+6cfebc3 (analytics IT) → bookkeeping.
 
-DONE (this session): **B-002 RLS runtime activation machinery C5-C7 — LANDED DORMANT, CI-green.**
-The feature is fully built and proven, gated behind `nexuspay.multi-tenancy.rls.enforce=false`;
-the prod flip stays human-gated. See ADR-012, L-033/34/35.
-- **C5 (mechanism):** single EMF over a `RoleRoutingDataSource` (app/system Hikari pools keyed by
-  ThreadLocal `DbRoleContext`, default APP=fail-closed); `RlsRoutingTransactionManager.doBegin` runs
-  `set_config('app.current_tenant_id',?,true)` for APP txns, skips for SYSTEM. `RlsEnforcementConfig`
-  contributes the @Primary DataSource + tx-manager ONLY at enforce=true. Deleted the broken
-  `TenantAwareDataSourceConfig` (set_config at getConnection in autocommit = RLS-inert).
-- **C6 (job routing):** `@SystemTransactional` relocated to `io.nexuspay.common.rls` (so all 7 modules
-  can declare it; the `SystemRoleAspect` stays in `app` and advises by annotation type across the
-  context, pinning SYSTEM via a call-scoped thread-local that covers the whole synchronous subtree).
-  Applied to the **16 genuinely cross-tenant @Scheduled jobs** (15 + TrialExpirationScheduler added
-  per review finding #2) (analytics rollups/retention/MV ×5,
-  app DLQ reprocessor, billing renewal+dunning ×2, ledger reconcile, marketplace payouts, obs
-  outbox-lag, payment retention ×2 + outbox relay + fx-lock). 6 single-tenant Kafka consumers were
-  deliberately NOT annotated; 5 NO_DB jobs need nothing.
-- **C7 (FORCE owner):** `R__rls_force_owner.sql` repeatable, idempotent both ways, gated `${rlsforce}`
-  (default false = no table forced → app-as-owner never locked out). application.yml defaults it
-  false; application-rls-enforce.yml flips it true.
-- **Proof:** RlsDormancyIT (enforce=false → routing DS/aspect/config absent AND zero tables forced)
-  + RlsEnforceIT (boots on nexuspay_app under the `rls-enforce` profile: tenant A↔A / B↔B isolation,
-  unbound=zero rows fail-closed, @SystemTransactional sees all, every RLS table FORCE'd).
+DONE (this session): **B-002 RLS — the whole feature is built and dormant behind rls.enforce=false.**
+- C5-C7 (prior part of session, on main): routing datasource + RlsRoutingTransactionManager GUC +
+  16 @SystemTransactional jobs + repeatable FORCE + analytics fail-closed policies (V3022). ADR-010/012.
+- B-002-activation-tenant (this part, PR #2): `TenantWorkRunner` (runInTenant/callInTenant open a
+  REQUIRES_NEW APP+tenant tx; bindTenant binds APP+tenant with NO outer tx so an inner @Transactional
+  keeps its own isolation). 6 consumers bind before their tx; 3 billing sweeps split SYSTEM discovery
+  from per-item APP writes; gateway tenant-scoping gated on the enforce flag. ADR-013, L-036/037/038.
+- Adversarial review SHIP-WITH-FIXES → fixed: gateway dormancy (L-037), ledger SERIALIZABLE (L-036).
 
-STATE: CI green; 296→297 tests (floor 289); coverage floor 16. PR #1 mergeable. A post-ship
-adversarial review (ultracode, 5 dimensions + per-finding verification) returned SHIP-WITH-MINORS
-(0 blockers/0 must-fix, 8 confirmed minors) — all fixed or documented: TrialExpiration annotated
-(→16 jobs), analytics policies made fail-closed (V3022), the R__ re-trigger runbook corrected
-(placeholder flip alone re-runs; no file bump), DLQ async-pin + superuser-FORCE caveats documented.
-See ADR-012 addendum. Findings #4 (FORCE/enforce interlock = profile coupling) and #6 (cross-module
-routing assertion) are documented residuals folded into B-002-activation-tenant.
+STATE: CI build+test green via PR #2; coverage floor 16. Process guardrail: ci.yml now also builds on
+push:[perpetua/**] (L-038 — branch pushes used to skip build+test once the PR merged).
 
-### ⚠ B-002 CUTOVER CHECKLIST (human-gated; do in order — see BACKLOG B-002-activation-tenant / B-002-cutover)
-The machinery is dormant. Before flipping enforcement in prod, these MUST be green first:
-1. **B-002-activation-tenant (MANDATORY PRE-FLIP):** the 6 single-tenant consumers never bind
-   TenantContext, so they fail-closed (break) at the flip. Bind tenant from the event (try/finally),
-   stay on APP (NOT @SystemTransactional), add an IT each under the rls-enforce profile:
-   - ledger `PaymentEventConsumer.onPaymentEvent` (posting INSERT + idempotency read → DLT)
-   - analytics `PaymentEventAnalyticsConsumer.consume`, `RoutingEventAnalyticsConsumer.consume`
-   - billing `BillingPaymentEventListener.onPaymentEvent` (invoices stop PAID; dunning stops)
-   - gateway-api `WebhookDeliveryService.onPaymentEvent` (ALSO add @Transactional + tenant-scoped finder)
-   - analytics `FraudEventAnalyticsConsumer` (NO_DB today; pre-bind when it gains a write)
-   PLUS billing batch sweeps (RenewalScheduler doProcessRenewals/processDunning,
-   TrialManagementService.convertExpiredTrials): keep the DISCOVERY scan SYSTEM but bind TenantContext
-   per-subscription for the per-item WRITES so WITH CHECK still guards them (split the cross-tenant tx
-   into per-tenant txns). DeadLetterReprocessor async whenComplete saves run off the SYSTEM pin
-   (harmless until RLS is added to dead_letter_queue).
-2. **B-002-cutover:** provision real nexuspay_app + nexuspay_system secrets out-of-band; then
-   staging→canary→fleet: app role→nexuspay_app, `rls.enforce=true`, and (paired) flip
-   `spring.flyway.placeholders.rlsforce=true` AND bump `R__rls_force_owner.sql` so Flyway re-applies
-   FORCE. Rollback: enforce=false (reverts to owner) and/or rlsforce=false + file bump (NO FORCE).
-   RlsEnforceIT is the pre-flip gate. Resolves review M2 (capture-hold GUC visibility) once consumers bind tenant.
+### ⚠ B-002 CUTOVER CHECKLIST (human-gated; in order)
+1. **B-002-cutover Step 0 (MANDATORY PRE-FLIP):** stamp the real tenant on `nexuspay.payments` —
+   HyperSwitchWebhookController omits it today (4 payments-topic consumers bind "default" under
+   enforcement → real-tenant rows invisible). Resolve merchant→tenant at HS ingest, stamp
+   metadata.tenant_id + tenant-aware OutboxEvent ctor; then write the deferred per-site ITs (gateway,
+   the 3 sweeps, routing/ledger consumers) against real-tenant fixtures.
+2. **B-002-cutover flip:** provision real nexuspay_app/nexuspay_system secrets; staging→canary→fleet
+   set app role→nexuspay_app, rls.enforce=true, rlsforce=true. Rollback: enforce=false (+ rlsforce=false).
+   RlsEnforceIT is the pre-flip gate.
 
-WATCH OUT (carried forward):
-- **B-029 (HIGH, latent):** gate mode + tenant from request metadata; safe today (callers stamp
-  server-side) but ties into the per-job tenant binding above.
-- **B-025/B-026 still open:** sanctions geography client-metadata-derived; OFAC CSV parser broken
-  (4-country static fallback). Do NOT advertise OFAC coverage.
-- Benign log noise: under the enforce IT, @Scheduled jobs (e.g. OutboxRelay.relayEvents) log a
-  `FATAL: postmaster exit` at Testcontainer teardown — a teardown race, not a failure (CI green).
-- BUILD: JDK 21 + TMP=C:\Temp, then .\gradlew.bat. No Docker locally AND the Gradle daemon can't
-  fork its JVM in this sandbox (loopback) → ALL verification is via CI; diagnose via the
-  `test-results` artifact (JUnit HTML has the real stack/SQL).
-- B-022 (stuck-APPROVED refund) open. Q-002/Q-006 open. CHARTER still L1 (update to L2).
+WATCH OUT:
+- The "default" tenant fallback in consumers is a fail-closed placeholder until Step 0 — do NOT flip
+  prod enforce=true before Step 0 or payment events silently no-op.
+- Pre-existing cross-tenant webhook fan-out leak: preserved (dormant) at enforce=false; FIXED only under
+  enforcement (tenant-scoped delivery) — coupled to Step 0.
+- B-029 (gate mode/tenant authority, HIGH latent) ties into the per-job tenant binding. B-025/B-026
+  (sanctions geography + OFAC parser) still open. B-015 (RFC-4180 CSV money-drop) is the top open defect.
+- BUILD: JDK 21 + TMP=C:\Temp; no Docker locally AND the Gradle daemon can't fork in this sandbox →
+  ALL verification via CI. Diagnose via the test-results artifact. Confirm the BUILD+TEST workflow ran
+  (not just perpetua-gates) before claiming green (L-038).
 
-BUDGET: heavy (two ultracode workflows + a 4-agent annotation fan-out + multi-module change). limit: ok.
-QUEUE (pick by value): B-002-activation-tenant (the pre-flip gate, T3, HIGH) · B-029 (gate authority) ·
-B-025/B-026 (sanctions authority + OFAC parser) · B-030 (review event) · B-014 (coverage) ·
-B-023 (checkout-sdk npm vulns) · CHARTER L1→L2.
+BUDGET: very heavy this session (C5-C7 + full B-002-activation-tenant + 4 ultracode workflows + agent
+fan-outs). limit: ok.
+QUEUE (pick by value): FF main after CI green · B-002-cutover Step 0 (pre-flip) · B-015 (RFC-4180 CSV) ·
+B-025/B-026 (sanctions) · B-029 (gate authority) · B-014 (coverage) · B-006 (semgrep) · CHARTER L1→L2.
