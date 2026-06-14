@@ -1,9 +1,12 @@
 package io.nexuspay.app;
 
 import com.zaxxer.hikari.HikariDataSource;
+import io.nexuspay.app.rls.AppTenantTransactionTemplate;
+import io.nexuspay.app.rls.InlineTenantWorkRunner;
 import io.nexuspay.app.rls.RlsEnforcementConfig;
 import io.nexuspay.app.rls.RoleRoutingDataSource;
 import io.nexuspay.app.rls.SystemRoleAspect;
+import io.nexuspay.common.rls.TenantWorkRunner;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
@@ -44,6 +47,14 @@ class RlsDormancyIntegrationTest extends IntegrationTestBase {
                 .as("no SystemRoleAspect at enforce=false").isEmpty();
         assertThat(ctx.getBeansOfType(RlsEnforcementConfig.class))
                 .as("no RlsEnforcementConfig at enforce=false").isEmpty();
+
+        // B-002-activation-tenant: the TenantWorkRunner is wired even when dormant, but it must be
+        // the inline (no role-routing, tenant-ignoring) impl — never the RLS-enforcing one.
+        assertThat(ctx.getBean(TenantWorkRunner.class))
+                .as("dormant TenantWorkRunner must be the inline, non-routing implementation")
+                .isInstanceOf(InlineTenantWorkRunner.class);
+        assertThat(ctx.getBeansOfType(AppTenantTransactionTemplate.class))
+                .as("no AppTenantTransactionTemplate at enforce=false").isEmpty();
     }
 
     @Test

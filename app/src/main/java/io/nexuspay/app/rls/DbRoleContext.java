@@ -19,6 +19,16 @@ public final class DbRoleContext {
         return ROLE.get();
     }
 
+    /**
+     * Sets the current role directly. Prefer {@link #runAs} for scoped pinning; this lower-level
+     * setter exists for {@code AppTenantTransactionTemplate}, which must interleave role save/restore
+     * with {@code TenantContext} save/restore (which a nesting {@code runAs} can't express cleanly).
+     * Callers MUST restore the previous value in a {@code finally}.
+     */
+    public static void set(DbRole role) {
+        ROLE.set(role);
+    }
+
     /** Runs {@code body} with the given role pinned, restoring the previous role afterward. */
     public static void runAs(DbRole role, ThrowingRunnable body) throws Throwable {
         DbRole previous = ROLE.get();

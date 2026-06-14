@@ -1,6 +1,7 @@
 package io.nexuspay.app;
 
 import io.nexuspay.common.rls.SystemTransactional;
+import io.nexuspay.common.rls.TenantWorkRunner;
 import io.nexuspay.iam.domain.TenantContext;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -22,6 +23,7 @@ import java.util.Base64;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
@@ -63,6 +65,39 @@ class RlsEnforceIntegrationTest extends IntegrationTestBase {
 
     @Autowired
     private RlsProbe probe;
+    @Autowired
+    private TenantWorkRunner tenantWork;
+
+    @Test
+    void tenantWorkRunner_bindsAppTenant_enforcesWithCheck_andNestsUnderSystemPin() throws Exception {
+        assumeTrue(DOCKER_AVAILABLE, "requires Docker (Testcontainers Postgres)");
+        cleanupAsOwner(); // start clean (this test seeds via the helper, not as owner)
+        try {
+            // (a) APP role bound to en_tA: a write whose tenant_id matches passes RLS WITH CHECK.
+            tenantWork.runInTenant("en_tA", () -> probe.insertTestAccount("la_hw_a", "en_tA"));
+            assertThat(probe.systemVisibleTenants())
+                    .as("helper write under en_tA is committed and visible to SYSTEM").contains("en_tA");
+
+            // (b) a read bound to en_tA via the helper sees only A (RLS USING on the app role).
+            assertThat(tenantWork.callInTenant("en_tA", probe::rawDistinctTestTenants))
+                    .as("helper read bound to en_tA sees only en_tA").containsExactly("en_tA");
+
+            // (c) mis-bind: bound to en_tA but writing an en_tB row → RLS WITH CHECK rejects it.
+            assertThatThrownBy(() ->
+                    tenantWork.runInTenant("en_tA", () -> probe.insertTestAccount("la_hw_bad", "en_tB")))
+                    .as("WITH CHECK rejects a write whose tenant_id != the bound tenant");
+
+            // (d) nesting: invoked from inside a @SystemTransactional method, the helper still
+            //     switches to APP+tenant for its write (the billing-sweep case) and restores SYSTEM.
+            probe.systemThenTenantWrite("la_hw_b", "en_tB");
+            assertThat(probe.systemVisibleTenants())
+                    .as("helper under a SYSTEM pin writes under the bound tenant; rejected mis-bind left no row")
+                    .containsExactlyInAnyOrder("en_tA", "en_tB");
+        } finally {
+            TenantContext.clear();
+            cleanupAsOwner();
+        }
+    }
 
     @Test
     void appRoleIsolatesTenants_systemRoleBypasses_unboundFailsClosed() throws Exception {
@@ -194,6 +229,8 @@ class RlsEnforceIntegrationTest extends IntegrationTestBase {
     static class RlsProbe {
         @PersistenceContext
         private EntityManager em;
+        @Autowired
+        private TenantWorkRunner tenantWork;
 
         @Transactional(readOnly = true)
         public List<String> appVisibleTenants() {
@@ -204,6 +241,28 @@ class RlsEnforceIntegrationTest extends IntegrationTestBase {
         @Transactional(readOnly = true)
         public List<String> systemVisibleTenants() {
             return distinctTestTenants();
+        }
+
+        /** Native insert that joins the CALLER's transaction (no @Transactional) — used inside the helper's tx. */
+        public void insertTestAccount(String id, String tenant) {
+            em.createNativeQuery(
+                            "INSERT INTO ledger_accounts (id, name, type, currency, tenant_id) "
+                                    + "VALUES (?1, ?2, 'ASSET', 'USD', ?3)")
+                    .setParameter(1, id)
+                    .setParameter(2, "helper test " + tenant)
+                    .setParameter(3, tenant)
+                    .executeUpdate();
+        }
+
+        /** Read that joins the CALLER's transaction — used inside a helper-bound read. */
+        public List<String> rawDistinctTestTenants() {
+            return distinctTestTenants();
+        }
+
+        /** Proves the helper still routes to APP+tenant when invoked from inside a SYSTEM pin (the sweep case). */
+        @SystemTransactional
+        public void systemThenTenantWrite(String id, String tenant) {
+            tenantWork.runInTenant(tenant, () -> insertTestAccount(id, tenant));
         }
 
         @SuppressWarnings("unchecked")
