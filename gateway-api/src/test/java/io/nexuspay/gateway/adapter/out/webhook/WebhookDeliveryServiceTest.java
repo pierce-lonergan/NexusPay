@@ -15,7 +15,10 @@ import org.junit.jupiter.api.Test;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HexFormat;
@@ -23,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -40,6 +44,15 @@ import static org.mockito.Mockito.when;
  * delivery path is exercised end-to-end against a real loopback HTTP server that captures the request
  * (proving algorithm/key/encoding) rather than asserting on a mock chain. Delivery is synchronous
  * ({@code toBodilessEntity()} blocks), so captures are populated by the time onPaymentEvent returns.</p>
+ *
+ * <p><strong>SEC-14 test seam:</strong> the delivery-time SSRF gate
+ * ({@code WebhookUrlValidator.validateAndResolve}) rejects the loopback {@code http://127.0.0.1} target
+ * this test uses (non-https + loopback). To keep this untagged test green in the default gate WITHOUT
+ * weakening production validation, the service is built through its package-private seam constructor
+ * with a {@link #loopbackPermittingGuard() loopback-permitting guard}. The guard still RESOLVES the
+ * host and returns its real {@link InetAddress}[], so the production IP-pin path (the custom
+ * {@code DnsResolver} connecting to exactly the validator-approved addresses) is still exercised
+ * end-to-end — only the public/https policy checks are relaxed for the in-process receiver.</p>
  */
 class WebhookDeliveryServiceTest {
 
@@ -60,8 +73,11 @@ class WebhookDeliveryServiceTest {
         repository = mock(JpaWebhookEndpointRepository.class);
         tenantWork = mock(TenantWorkRunner.class);
         objectMapper = new ObjectMapper();
-        // rlsEnforced=false -> service uses findAllByEnabledTrue() (dormant path).
-        service = new WebhookDeliveryService(repository, objectMapper, tenantWork, false);
+        // rlsEnforced=false -> service uses findAllByEnabledTrue() (dormant path). The seam constructor
+        // injects a guard that PERMITS the loopback receiver but still resolves+returns its addresses,
+        // so the IP-pin (DnsResolver) path is still exercised. Production validation is untouched.
+        service = new WebhookDeliveryService(repository, objectMapper, tenantWork, false,
+                loopbackPermittingGuard());
 
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", exchange -> {
@@ -87,6 +103,24 @@ class WebhookDeliveryServiceTest {
 
     private String urlFor(String path) {
         return "http://127.0.0.1:" + server.getAddress().getPort() + path;
+    }
+
+    /**
+     * SEC-14 seam: a delivery-time guard that RESOLVES the URL's host and returns its real addresses
+     * (so the production IP-pin / DnsResolver path still runs against the loopback receiver) but skips
+     * the public/https policy checks the real {@code WebhookUrlValidator} enforces. Used ONLY in tests;
+     * production keeps the full validator. A genuinely unresolvable host still rejects (fail-closed).
+     */
+    private static Function<String, List<InetAddress>> loopbackPermittingGuard() {
+        return url -> {
+            String host = URI.create(url).getHost();
+            try {
+                return List.of(InetAddress.getAllByName(host));
+            } catch (UnknownHostException e) {
+                throw new io.nexuspay.common.net.WebhookUrlValidationException(
+                        "test guard: host unresolvable: " + host);
+            }
+        };
     }
 
     private WebhookEndpointEntity endpoint(String id, String path, String secret, List<String> events) {

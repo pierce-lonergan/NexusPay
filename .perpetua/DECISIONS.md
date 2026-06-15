@@ -523,3 +523,26 @@ the gate (SEC-10/SEC-11 permanent guards). T3 review (money-once / migration+con
 SHIP_WITH_NITS, 0 blockers. MERGE-ORDER: V4028 > V4027. RESIDUAL (SEC-25): the payout disburse-before-commit
 window (a crash after claim PROCESSING but before disbursement leaves a stuck PROCESSING payout) — needs a
 payout reconciler like B-022's for refunds (the atomic claim prevents double-pay, not the stuck state).
+
+## ADR-023 | 2026-06-15 | SEC-BATCH-4b: outbound-webhook SSRF + dead-letter stuck-RETRYING (T3)
+STATUS: Accepted (T3; via PR). Closes audit SEC-14 + SEC-16 (HIGH). NEW RUNTIME DEP (flagged): httpclient5
+(Apache, Spring-BOM-managed 5.2.3) added to gateway-api for SSRF-safe IP-pinned delivery — supply-chain
+checked by the perpetua-gates OSV scan; mainstream Apache lib. (Charter new-dep rule noted; human-flagged.)
+SEC-14 (outbound webhook SSRF): WebhookDeliveryService POSTed to merchant URLs with no validation. FIX:
+common.net.WebhookUrlValidator (https-only; reject loopback/RFC1918/link-local incl. 169.254.169.254/ULA
+fc00::/7/CGNAT 100.64/10/IPv4-mapped/multicast/0.0.0.0/NXDOMAIN; multi-record any-private reject) enforced at
+REGISTRATION (@SafeWebhookUrl → 400) AND at DELIVERY. Three real holes closed in review: (1) redirects were
+followed → 3xx to an internal host = deterministic SSRF → redirects DISABLED + 3xx treated as a delivery
+failure; (2) DNS-rebinding TOCTOU → the validator's resolved InetAddress[] is now PINNED per-delivery via an
+Apache HttpClient5 custom DnsResolver (connect goes ONLY to validated IPs, fail-closed for unpinned; TLS
+SNI/Host keep the hostname so certs validate) — the check and the connect use the SAME resolution; (3) the new
+gate broke the loopback WebhookDeliveryServiceTest → a package-private validator-seam constructor lets the test
+permit loopback without weakening production. 49 WebhookUrlValidator unit tests (in-gate) + a positive
+registration case. OutboundWebhookSsrfRedteamTest flipped into the gate.
+SEC-16 (dead-letter stuck RETRYING): DeadLetterReprocessor flipped RETRYING then mutated the terminal state in
+an async Kafka callback outliving the tx/lock/role-pin → rows stuck RETRYING forever (findRetryable selects
+PENDING only). FIX: BLOCK on the send ack (.get(SEND_ACK_TIMEOUT), mirror OutboxRelay) + mutate
+RESOLVED/PENDING/DISCARDED SYNCHRONOUSLY inside the @SystemTransactional tx; on failure → PENDING+backoff
+(re-selectable). BATCH_SIZE bounded to 6 so worst-case cycle (6×10s) stays ≤ ½ the 120s lock TTL (no overrun).
+T3 review (SSRF-bypass / dead-letter-correctness / test-adequacy): SSRF BLOCK→fixed (redirects + real IP-pin +
+test); dead-letter + tests SHIP_WITH_NITS. ADR + L-053.

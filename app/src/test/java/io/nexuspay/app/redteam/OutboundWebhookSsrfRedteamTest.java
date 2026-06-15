@@ -5,7 +5,6 @@ import io.nexuspay.app.config.TestSecurityConfig;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -19,8 +18,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 /**
- * RED-TEAM (report-only, {@code @Tag("redteam")}): outbound-webhook SSRF — no
- * egress filter on the registered target URL.
+ * GATING (SEC-14): outbound-webhook SSRF — registration must REFUSE a non-public target URL.
  *
  * <p><strong>Attack:</strong> register an outbound webhook endpoint whose URL
  * points at an internal/link-local/loopback address (the cloud metadata service,
@@ -29,15 +27,24 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  * SSRF (credential theft via {@code 169.254.169.254}, internal port scans, etc.).
  * A SECURE system REJECTS registration of a non-public target URL.</p>
  *
- * <p><strong>Why this FAILS on current main (excluded + report-only):</strong>
- * webhook-endpoint registration validates the URL shape but applies no egress
- * allow-list / private-range block, so an internal URL is accepted (201). When the
- * SSRF egress-filter PR lands, drop {@code @Tag("redteam")} to gate it.</p>
+ * <p><strong>SEC-14 landed — flipped INTO the gate</strong> (the {@code @Tag("redteam")} was
+ * removed): {@code @SafeWebhookUrl} on {@code CreateWebhookEndpointRequest.url} now delegates to the
+ * shared {@code WebhookUrlValidator}. The 7 {@code http://} vectors reject on the https-only scheme
+ * check; the {@code https://metadata.google.internal/...} vector rejects either via host resolution to
+ * a link-local address or, where it does not resolve in CI, fail-closed on NXDOMAIN. All surface as
+ * {@code MethodArgumentNotValidException} → 400 (GlobalExceptionHandler), satisfying isIn(400,422).</p>
+ *
+ * <p>NOTE: this suite exercises ONLY the REGISTRATION gate. The delivery-time / DNS-rebinding half of
+ * SEC-14 ({@code WebhookDeliveryService.validateAndResolve} + IP pinning) is verified by reasoning and
+ * the validator's own unit cases, not by an attack here.</p>
+ *
+ * <p>The suite also asserts a POSITIVE case ({@link #registeringPublicHttpsTarget_succeeds()}): a
+ * normal public https endpoint must be ACCEPTED (201). Without it, an over-broad validator that
+ * rejected EVERYTHING would pass all the reject cases — the positive case catches over-rejection.</p>
  */
-@Tag("redteam")
 @AutoConfigureMockMvc
 @Import(TestSecurityConfig.class)
-@DisplayName("RED-TEAM: outbound-webhook SSRF (internal target not refused)")
+@DisplayName("SEC-14: outbound-webhook SSRF (internal target refused at registration)")
 class OutboundWebhookSsrfRedteamTest extends IntegrationTestBase {
 
     @Autowired
@@ -77,5 +84,33 @@ class OutboundWebhookSsrfRedteamTest extends IntegrationTestBase {
                         org.assertj.core.api.Assertions.assertThat(result.getResponse().getStatus())
                                 .as("an internal/link-local webhook target must be rejected (400/422), not created (201)")
                                 .isIn(400, 422));
+    }
+
+    /**
+     * POSITIVE case (guards against over-rejection): registering a NORMAL public https endpoint must
+     * SUCCEED (201). {@code example.com} is an IANA-reserved, stably-resolving public domain whose A/AAAA
+     * records are public addresses, so {@code @SafeWebhookUrl} -> {@code WebhookUrlValidator} accepts it.
+     * If the validator were over-broad (rejecting everything), this would fail — so it proves the gate
+     * blocks ONLY non-public targets, not all targets.
+     */
+    @Test
+    @DisplayName("SEC-14: a normal public https webhook target is ACCEPTED (201)")
+    void registeringPublicHttpsTarget_succeeds() throws Exception {
+        String body = """
+                {
+                  "url": "https://example.com/webhooks/payments",
+                  "description": "legitimate merchant endpoint",
+                  "events": ["payment.captured"]
+                }
+                """;
+
+        mockMvc.perform(post("/v1/webhook-endpoints")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body)
+                        .with(authentication(TestSecurityConfig.authFor("default", "admin"))))
+                .andExpect(result ->
+                        org.assertj.core.api.Assertions.assertThat(result.getResponse().getStatus())
+                                .as("a legitimate public https webhook target must be accepted (201)")
+                                .isEqualTo(201));
     }
 }

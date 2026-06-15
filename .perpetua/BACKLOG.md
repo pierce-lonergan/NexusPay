@@ -49,7 +49,13 @@ Fix program (each batch = its own T3 PR via the fusion topology; diverse impleme
   redelivery. SEC-11: inlined fail-closed MarketplaceSchedulerLock (B-022 precedent) + atomic per-payout claim
   (UPDATE...WHERE status=PENDING rows==1) → no payout double-pay on multi-replica. Both red-team tests flipped
   into the gate. ADR-022.
-- **SEC-BATCH-4b (HIGH) SSRF + reliability** — SEC-14 (outbound webhook delivery POSTs to merchant URLs with
+- ~~**SEC-BATCH-4b (HIGH) SSRF + reliability**~~ — DONE 2026-06-15 (T3 PR). SEC-14: common WebhookUrlValidator
+  (https-only + private/loopback/link-local/169.254.169.254/ULA/CGNAT/IPv4-mapped deny) at registration
+  (@SafeWebhookUrl) AND delivery; redirects DISABLED (3xx→fail); DNS-rebinding closed by pinning the validated
+  IP via an Apache HttpClient5 DnsResolver (new dep, BOM-managed, OSV-scanned). SEC-16: dead-letter blocks on
+  the send ack + mutates terminal state synchronously in-tx (batch bounded vs lock TTL). 49 validator unit
+  tests + OutboundWebhookSsrfRedteamTest flipped into the gate. ADR-023, L-053. (superseded SEC-14/16 line below)
+- ~~SUPERSEDED~~ SEC-BATCH-4b (HIGH) SSRF + reliability — SEC-14 (outbound webhook delivery POSTs to merchant URLs with
   no SSRF guard → validate at registration AND before delivery: require https, reject RFC1918/loopback/
   link-local/169.254.169.254, defeat DNS rebinding) + SEC-16 (DeadLetterReprocessor flips RETRYING then mutates
   final state only in an async callback after the tx/lock → dead letters stuck RETRYING; block on the send ack
