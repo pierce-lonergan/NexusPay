@@ -4,6 +4,7 @@ import io.nexuspay.b2b.adapter.in.rest.dto.IssueVirtualCardRequest;
 import io.nexuspay.b2b.adapter.in.rest.dto.VirtualCardResponse;
 import io.nexuspay.b2b.application.port.in.IssueVirtualCardUseCase;
 import io.nexuspay.b2b.domain.VirtualCardType;
+import io.nexuspay.common.tenant.CallerTenant;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -30,7 +31,6 @@ public class VirtualCardController {
     @PostMapping
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<VirtualCardResponse> issueCard(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @Valid @RequestBody IssueVirtualCardRequest request) {
 
         VirtualCardType cardType = VirtualCardType.valueOf(request.cardType());
@@ -40,7 +40,7 @@ public class VirtualCardController {
 
         var result = virtualCardUseCase.issueCard(
                 new IssueVirtualCardUseCase.IssueCardCommand(
-                        tenantId, cardType, request.amountLimit(), request.currency(),
+                        CallerTenant.require(), cardType, request.amountLimit(), request.currency(),
                         request.expiresAt(), mccCodes, request.purchaseOrderId()));
 
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(result));
@@ -49,30 +49,27 @@ public class VirtualCardController {
     @GetMapping("/{cardId}")
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<VirtualCardResponse> getCard(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String cardId) {
 
-        var result = virtualCardUseCase.getCard(cardId, tenantId);
+        var result = virtualCardUseCase.getCard(cardId, CallerTenant.require());
         return ResponseEntity.ok(toResponse(result));
     }
 
     @PostMapping("/{cardId}/freeze")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<Void> freezeCard(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String cardId) {
 
-        virtualCardUseCase.freezeCard(cardId, tenantId);
+        virtualCardUseCase.freezeCard(cardId, CallerTenant.require());
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{cardId}/cancel")
     @PreAuthorize("hasRole('admin')")
     public ResponseEntity<Void> cancelCard(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String cardId) {
 
-        virtualCardUseCase.cancelCard(cardId, tenantId);
+        virtualCardUseCase.cancelCard(cardId, CallerTenant.require());
         return ResponseEntity.noContent().build();
     }
 

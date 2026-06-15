@@ -1,5 +1,6 @@
 package io.nexuspay.fraud.adapter.in.rest;
 
+import io.nexuspay.common.tenant.CallerTenant;
 import io.nexuspay.fraud.application.dto.FraudRuleCreateRequest;
 import io.nexuspay.fraud.application.dto.FraudRuleResponse;
 import io.nexuspay.fraud.application.dto.FraudRuleUpdateRequest;
@@ -33,10 +34,12 @@ public class FraudRuleController {
     @PreAuthorize("hasRole('admin')")
     public ResponseEntity<FraudRuleResponse> createRule(
             @RequestBody FraudRuleCreateRequest request,
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId,
             @AuthenticationPrincipal Jwt jwt) {
+        // SEC-05/06: tenant resolved from the authenticated principal, never from a client header
+        // (the old defaultValue="default" silently collapsed an absent header to the "default" tenant).
+        // The Jwt is retained ONLY for the createdBy audit field — not for authority.
         String createdBy = jwt != null ? jwt.getSubject() : "system";
-        FraudRuleResponse response = ruleUseCase.createRule(request, tenantId, createdBy);
+        FraudRuleResponse response = ruleUseCase.createRule(request, CallerTenant.require(), createdBy);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
@@ -44,41 +47,36 @@ public class FraudRuleController {
     @PreAuthorize("hasRole('admin')")
     public ResponseEntity<FraudRuleResponse> updateRule(
             @PathVariable UUID ruleId,
-            @RequestBody FraudRuleUpdateRequest request,
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId) {
-        return ResponseEntity.ok(ruleUseCase.updateRule(ruleId, request, tenantId));
+            @RequestBody FraudRuleUpdateRequest request) {
+        return ResponseEntity.ok(ruleUseCase.updateRule(ruleId, request, CallerTenant.require()));
     }
 
     @PostMapping("/{ruleId}/disable")
     @PreAuthorize("hasRole('admin')")
     public ResponseEntity<Void> disableRule(
-            @PathVariable UUID ruleId,
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId) {
-        ruleUseCase.disableRule(ruleId, tenantId);
+            @PathVariable UUID ruleId) {
+        ruleUseCase.disableRule(ruleId, CallerTenant.require());
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{ruleId}/enable")
     @PreAuthorize("hasRole('admin')")
     public ResponseEntity<Void> enableRule(
-            @PathVariable UUID ruleId,
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId) {
-        ruleUseCase.enableRule(ruleId, tenantId);
+            @PathVariable UUID ruleId) {
+        ruleUseCase.enableRule(ruleId, CallerTenant.require());
         return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/{ruleId}")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<FraudRuleResponse> getRule(
-            @PathVariable UUID ruleId,
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId) {
-        return ResponseEntity.ok(ruleUseCase.getRule(ruleId, tenantId));
+            @PathVariable UUID ruleId) {
+        return ResponseEntity.ok(ruleUseCase.getRule(ruleId, CallerTenant.require()));
     }
 
     @GetMapping
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
-    public ResponseEntity<List<FraudRuleResponse>> listRules(
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId) {
-        return ResponseEntity.ok(ruleUseCase.listRules(tenantId));
+    public ResponseEntity<List<FraudRuleResponse>> listRules() {
+        return ResponseEntity.ok(ruleUseCase.listRules(CallerTenant.require()));
     }
 }

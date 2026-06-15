@@ -7,6 +7,7 @@ import io.nexuspay.b2b.application.port.out.CardIssuingPort;
 import io.nexuspay.b2b.domain.VirtualCard;
 import io.nexuspay.b2b.domain.VirtualCardStatus;
 import io.nexuspay.b2b.domain.VirtualCardType;
+import io.nexuspay.common.exception.ResourceNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -73,7 +74,8 @@ class VirtualCardServiceTest {
     void getCard_returnsCardInfo() {
         VirtualCard card = VirtualCard.create("tenant-1", "stub", VirtualCardType.SINGLE_USE,
                 100000, "USD", Instant.now().plus(30, ChronoUnit.DAYS));
-        when(repository.findVirtualCardById(card.getId())).thenReturn(Optional.of(card));
+        // SEC-BATCH-1: card loaded tenant-scoped.
+        when(repository.findVirtualCardById(card.getId(), "tenant-1")).thenReturn(Optional.of(card));
 
         var result = service.getCard(card.getId(), "tenant-1");
 
@@ -82,11 +84,18 @@ class VirtualCardServiceTest {
     }
 
     @Test
+    void getCard_crossTenant_throwsNotFound() {
+        when(repository.findVirtualCardById("vc_foreign", "tenant-1")).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () -> service.getCard("vc_foreign", "tenant-1"));
+    }
+
+    @Test
     void freezeCard_updatesStatusAndCallsProvider() {
         VirtualCard card = VirtualCard.create("tenant-1", "stub", VirtualCardType.MULTI_USE,
                 500000, "USD", Instant.now().plus(90, ChronoUnit.DAYS));
         card.setExternalCardId("ext_456");
-        when(repository.findVirtualCardById(card.getId())).thenReturn(Optional.of(card));
+        when(repository.findVirtualCardById(card.getId(), "tenant-1")).thenReturn(Optional.of(card));
         when(repository.saveVirtualCard(any())).thenAnswer(inv -> inv.getArgument(0));
 
         service.freezeCard(card.getId(), "tenant-1");
@@ -99,11 +108,21 @@ class VirtualCardServiceTest {
     }
 
     @Test
+    void freezeCard_crossTenant_throwsNotFound() {
+        // SEC-BATCH-1: cross-tenant freeze must 404 and never touch the issuing provider.
+        when(repository.findVirtualCardById("vc_foreign", "tenant-1")).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () -> service.freezeCard("vc_foreign", "tenant-1"));
+        verify(repository, never()).saveVirtualCard(any());
+        verify(cardIssuingPort, never()).freezeCard(any());
+    }
+
+    @Test
     void cancelCard_updatesStatusAndCallsProvider() {
         VirtualCard card = VirtualCard.create("tenant-1", "stub", VirtualCardType.MULTI_USE,
                 500000, "USD", Instant.now().plus(90, ChronoUnit.DAYS));
         card.setExternalCardId("ext_789");
-        when(repository.findVirtualCardById(card.getId())).thenReturn(Optional.of(card));
+        when(repository.findVirtualCardById(card.getId(), "tenant-1")).thenReturn(Optional.of(card));
         when(repository.saveVirtualCard(any())).thenAnswer(inv -> inv.getArgument(0));
 
         service.cancelCard(card.getId(), "tenant-1");
@@ -115,9 +134,18 @@ class VirtualCardServiceTest {
     }
 
     @Test
-    void getCard_throwsWhenNotFound() {
-        when(repository.findVirtualCardById("vc_missing")).thenReturn(Optional.empty());
+    void cancelCard_crossTenant_throwsNotFound() {
+        when(repository.findVirtualCardById("vc_foreign", "tenant-1")).thenReturn(Optional.empty());
 
-        assertThrows(IllegalArgumentException.class, () -> service.getCard("vc_missing", "tenant-1"));
+        assertThrows(ResourceNotFoundException.class, () -> service.cancelCard("vc_foreign", "tenant-1"));
+        verify(repository, never()).saveVirtualCard(any());
+        verify(cardIssuingPort, never()).cancelCard(any());
+    }
+
+    @Test
+    void getCard_throwsWhenNotFound() {
+        when(repository.findVirtualCardById("vc_missing", "tenant-1")).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () -> service.getCard("vc_missing", "tenant-1"));
     }
 }

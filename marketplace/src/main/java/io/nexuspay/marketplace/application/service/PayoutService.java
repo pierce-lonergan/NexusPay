@@ -1,5 +1,6 @@
 package io.nexuspay.marketplace.application.service;
 
+import io.nexuspay.common.tenant.TenantOwnership;
 import io.nexuspay.marketplace.application.port.in.SchedulePayoutUseCase;
 import io.nexuspay.marketplace.application.port.out.MarketplaceEventPublisher;
 import io.nexuspay.marketplace.application.port.out.MarketplaceRepository;
@@ -42,10 +43,12 @@ public class PayoutService implements SchedulePayoutUseCase {
     @Override
     @Transactional
     public PayoutResult createPayout(CreatePayoutCommand command) {
-        // Validate connected account and enforce minimum threshold
-        ConnectedAccount account = repository.findAccountById(command.connectedAccountId())
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Connected account not found: " + command.connectedAccountId()));
+        // SEC-BATCH-1: referenced-resource ownership — the connected account must belong to the
+        // caller's tenant. Scoping the load to command.tenantId() (and 404-ing on mismatch) prevents
+        // money misdirection where tenant B creates a payout crediting tenant A's account.
+        ConnectedAccount account = TenantOwnership.require(
+                repository.findAccountById(command.connectedAccountId(), command.tenantId()),
+                "Connected account");
 
         // Only ACTIVE (KYC-verified) accounts may receive funds. Without this
         // gate, payouts could be created and later executed for ONBOARDING,
@@ -94,7 +97,9 @@ public class PayoutService implements SchedulePayoutUseCase {
     @Override
     @Transactional(readOnly = true)
     public List<PayoutResult> listPayouts(String tenantId, String connectedAccountId) {
-        return repository.findPayoutsByAccountId(connectedAccountId).stream()
+        // SEC-BATCH-1: scope by caller tenant (previously the tenant arg was ignored, leaking another
+        // tenant's payouts for a guessed accountId).
+        return repository.findPayoutsByAccountId(connectedAccountId, tenantId).stream()
                 .map(this::toPayoutResult)
                 .toList();
     }
@@ -102,8 +107,9 @@ public class PayoutService implements SchedulePayoutUseCase {
     @Override
     @Transactional(readOnly = true)
     public PayoutResult getPayout(String payoutId, String tenantId) {
-        Payout payout = repository.findPayoutById(payoutId)
-                .orElseThrow(() -> new IllegalArgumentException("Payout not found: " + payoutId));
+        // SEC-BATCH-1: tenant-scoped by-id read — 404 on absent OR wrong-tenant (no existence oracle).
+        Payout payout = TenantOwnership.require(
+                repository.findPayoutById(payoutId, tenantId), "Payout");
         return toPayoutResult(payout);
     }
 

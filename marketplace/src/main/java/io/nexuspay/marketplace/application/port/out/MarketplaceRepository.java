@@ -16,12 +16,16 @@ public interface MarketplaceRepository {
     // --- ConnectedAccount ---
     ConnectedAccount saveAccount(ConnectedAccount account);
     Optional<ConnectedAccount> findAccountById(String id);
+    /** SEC-BATCH-1: tenant-scoped by-id lookup — empty when absent OR owned by another tenant. */
+    Optional<ConnectedAccount> findAccountById(String id, String tenantId);
     List<ConnectedAccount> findAccountsByTenantId(String tenantId);
     void deleteAccount(String id);
 
     // --- SplitPayment ---
     SplitPayment saveSplitPayment(SplitPayment splitPayment);
     Optional<SplitPayment> findSplitPaymentById(String id);
+    /** SEC-BATCH-1: tenant-scoped by-id lookup. */
+    Optional<SplitPayment> findSplitPaymentById(String id, String tenantId);
     List<SplitPayment> findSplitPaymentsByPaymentId(String paymentId);
 
     // --- SplitRule ---
@@ -31,7 +35,11 @@ public interface MarketplaceRepository {
     // --- Payout ---
     Payout savePayout(Payout payout);
     Optional<Payout> findPayoutById(String id);
+    /** SEC-BATCH-1: tenant-scoped by-id lookup. */
+    Optional<Payout> findPayoutById(String id, String tenantId);
     List<Payout> findPayoutsByAccountId(String connectedAccountId);
+    /** SEC-BATCH-1: tenant-scoped list — drops the previously-ignored-tenant leak on getPayout list. */
+    List<Payout> findPayoutsByAccountId(String connectedAccountId, String tenantId);
     List<Payout> findPendingPayoutsDueBefore(Instant cutoff);
 
     // --- PlatformFee ---

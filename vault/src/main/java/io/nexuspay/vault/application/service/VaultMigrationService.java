@@ -1,5 +1,6 @@
 package io.nexuspay.vault.application.service;
 
+import io.nexuspay.common.tenant.TenantOwnership;
 import io.nexuspay.vault.application.port.in.MigrateVaultUseCase;
 import io.nexuspay.vault.application.port.out.VaultEventPublisher;
 import io.nexuspay.vault.application.port.out.VaultRepository;
@@ -49,7 +50,8 @@ public class VaultMigrationService implements MigrateVaultUseCase {
     @Override
     @Transactional(readOnly = true)
     public VaultMigration getMigrationStatus(String migrationId, String tenantId) {
-        return repository.findMigrationById(migrationId)
-                .orElseThrow(() -> new IllegalArgumentException("Migration not found: " + migrationId));
+        // SEC-BATCH-1 (SEC-20): tenant-scoped by-id read — 404 on absent OR wrong-tenant.
+        return TenantOwnership.require(
+                repository.findMigrationById(migrationId, tenantId), "Migration");
     }
 }

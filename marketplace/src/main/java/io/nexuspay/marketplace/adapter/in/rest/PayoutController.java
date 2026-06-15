@@ -1,5 +1,6 @@
 package io.nexuspay.marketplace.adapter.in.rest;
 
+import io.nexuspay.common.tenant.CallerTenant;
 import io.nexuspay.marketplace.adapter.in.rest.dto.*;
 import io.nexuspay.marketplace.application.port.in.SchedulePayoutUseCase;
 import io.nexuspay.marketplace.domain.PayoutMethod;
@@ -29,11 +30,10 @@ public class PayoutController {
     @PostMapping
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<PayoutResponse> createPayout(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @Valid @RequestBody CreatePayoutRequest request) {
 
         var result = payoutUseCase.createPayout(new SchedulePayoutUseCase.CreatePayoutCommand(
-                tenantId, request.connectedAccountId(), request.amount(),
+                CallerTenant.require(), request.connectedAccountId(), request.amount(),
                 request.currency(), PayoutMethod.valueOf(request.method()),
                 request.scheduledAt()));
 
@@ -43,20 +43,18 @@ public class PayoutController {
     @GetMapping
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<List<PayoutResponse>> listPayouts(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @RequestParam String connectedAccountId) {
 
-        var results = payoutUseCase.listPayouts(tenantId, connectedAccountId);
+        var results = payoutUseCase.listPayouts(CallerTenant.require(), connectedAccountId);
         return ResponseEntity.ok(results.stream().map(this::toResponse).toList());
     }
 
     @GetMapping("/{payoutId}")
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<PayoutResponse> getPayout(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String payoutId) {
 
-        var result = payoutUseCase.getPayout(payoutId, tenantId);
+        var result = payoutUseCase.getPayout(payoutId, CallerTenant.require());
         return ResponseEntity.ok(toResponse(result));
     }
 

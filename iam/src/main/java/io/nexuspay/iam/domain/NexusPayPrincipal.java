@@ -1,11 +1,18 @@
 package io.nexuspay.iam.domain;
 
+import io.nexuspay.common.tenant.TenantPrincipal;
+
 /**
  * Uniform principal produced by JWT (Keycloak), API key, or session token authentication.
  * Available via SecurityContext in all downstream code.
  *
  * <p>Session-scoped principals (from checkout SDK) include a {@code sessionId} that
  * restricts them to operations on a single payment session.
+ *
+ * <p>Implements {@link TenantPrincipal} (a {@code common} contract) so that {@code :common}-only
+ * modules can read the caller's tenant via {@code CallerTenant.require()} without importing this
+ * iam type. The {@code tenantId()} record accessor already satisfies the interface — zero
+ * behaviour change.
  */
 public record NexusPayPrincipal(
         String userId,
@@ -13,7 +20,7 @@ public record NexusPayPrincipal(
         String role,
         AuthMethod authMethod,
         String sessionId
-) {
+) implements TenantPrincipal {
     /**
      * Constructor without sessionId (backward-compatible for JWT and API key auth).
      */

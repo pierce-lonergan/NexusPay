@@ -32,12 +32,24 @@ public class TestSecurityConfig {
     }
 
     /**
-     * Helper to create a test authentication token for a specific role.
+     * Helper to create a test authentication token for a specific role on the "default" tenant.
      */
     public static UsernamePasswordAuthenticationToken authForRole(String role) {
+        return authForRole(role, "default");
+    }
+
+    /**
+     * Helper to create a test authentication token for a specific role and tenant. Because
+     * {@link NexusPayPrincipal} implements {@code common.TenantPrincipal}, {@code CallerTenant.require()}
+     * resolves this principal's tenant in tests exactly as in production — letting integration tests
+     * exercise cross-tenant isolation (caller tenant A, resource tenant B).
+     *
+     * @since SEC-BATCH-1
+     */
+    public static UsernamePasswordAuthenticationToken authForRole(String role, String tenantId) {
         var principal = new NexusPayPrincipal(
                 "test-" + role + "-user",
-                "default",
+                tenantId,
                 role,
                 NexusPayPrincipal.AuthMethod.JWT
         );

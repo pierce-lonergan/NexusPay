@@ -4,6 +4,7 @@ import io.nexuspay.b2b.adapter.in.rest.dto.CreateVendorPaymentRequest;
 import io.nexuspay.b2b.adapter.in.rest.dto.VendorPaymentResponse;
 import io.nexuspay.b2b.application.port.in.ManageVendorPaymentUseCase;
 import io.nexuspay.b2b.domain.VendorPaymentMethod;
+import io.nexuspay.common.tenant.CallerTenant;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -30,39 +31,36 @@ public class VendorPaymentController {
     @PostMapping
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<VendorPaymentResponse> createPayment(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @Valid @RequestBody CreateVendorPaymentRequest request) {
 
-        var result = vendorPaymentUseCase.createVendorPayment(toCommand(request, tenantId));
+        var result = vendorPaymentUseCase.createVendorPayment(toCommand(request, CallerTenant.require()));
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(result));
     }
 
     @GetMapping("/{paymentId}")
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<VendorPaymentResponse> getPayment(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String paymentId) {
 
-        var result = vendorPaymentUseCase.getVendorPayment(paymentId, tenantId);
+        var result = vendorPaymentUseCase.getVendorPayment(paymentId, CallerTenant.require());
         return ResponseEntity.ok(toResponse(result));
     }
 
     @PostMapping("/{paymentId}/approve")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<VendorPaymentResponse> approvePayment(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String paymentId) {
 
-        var result = vendorPaymentUseCase.approveVendorPayment(paymentId, tenantId);
+        var result = vendorPaymentUseCase.approveVendorPayment(paymentId, CallerTenant.require());
         return ResponseEntity.ok(toResponse(result));
     }
 
     @PostMapping("/batch")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<List<VendorPaymentResponse>> createBatch(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @Valid @RequestBody List<CreateVendorPaymentRequest> requests) {
 
+        String tenantId = CallerTenant.require();
         List<ManageVendorPaymentUseCase.CreateVendorPaymentCommand> commands = requests.stream()
                 .map(r -> toCommand(r, tenantId))
                 .toList();

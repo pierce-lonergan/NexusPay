@@ -49,6 +49,11 @@ public class MarketplaceRepositoryAdapter implements MarketplaceRepository {
     }
 
     @Override
+    public Optional<ConnectedAccount> findAccountById(String id, String tenantId) {
+        return accountRepo.findByIdAndTenantId(id, tenantId).map(this::toDomain);
+    }
+
+    @Override
     public List<ConnectedAccount> findAccountsByTenantId(String tenantId) {
         return accountRepo.findByTenantId(tenantId).stream().map(this::toDomain).toList();
     }
@@ -68,6 +73,16 @@ public class MarketplaceRepositoryAdapter implements MarketplaceRepository {
     @Override
     public Optional<SplitPayment> findSplitPaymentById(String id) {
         return splitPaymentRepo.findById(id).map(e -> {
+            SplitPayment sp = toDomain(e);
+            List<SplitRule> rules = findRulesBySplitPaymentId(id);
+            sp.setRules(rules);
+            return sp;
+        });
+    }
+
+    @Override
+    public Optional<SplitPayment> findSplitPaymentById(String id, String tenantId) {
+        return splitPaymentRepo.findByIdAndTenantId(id, tenantId).map(e -> {
             SplitPayment sp = toDomain(e);
             List<SplitRule> rules = findRulesBySplitPaymentId(id);
             sp.setRules(rules);
@@ -111,8 +126,19 @@ public class MarketplaceRepositoryAdapter implements MarketplaceRepository {
     }
 
     @Override
+    public Optional<Payout> findPayoutById(String id, String tenantId) {
+        return payoutRepo.findByIdAndTenantId(id, tenantId).map(this::toDomain);
+    }
+
+    @Override
     public List<Payout> findPayoutsByAccountId(String connectedAccountId) {
         return payoutRepo.findByConnectedAccountId(connectedAccountId).stream()
+                .map(this::toDomain).toList();
+    }
+
+    @Override
+    public List<Payout> findPayoutsByAccountId(String connectedAccountId, String tenantId) {
+        return payoutRepo.findByConnectedAccountIdAndTenantId(connectedAccountId, tenantId).stream()
                 .map(this::toDomain).toList();
     }
 

@@ -1,5 +1,6 @@
 package io.nexuspay.marketplace.application.service;
 
+import io.nexuspay.common.tenant.TenantOwnership;
 import io.nexuspay.marketplace.application.port.in.CreateSplitPaymentUseCase;
 import io.nexuspay.marketplace.application.port.out.MarketplaceEventPublisher;
 import io.nexuspay.marketplace.application.port.out.MarketplaceRepository;
@@ -50,10 +51,11 @@ public class SplitPaymentService implements CreateSplitPaymentUseCase {
         // Create split rules and calculate platform fee from first account's settings
         List<SplitRuleResult> ruleResults = new ArrayList<>();
         for (SplitRuleCommand ruleCmd : command.rules()) {
-            // Validate connected account exists
-            ConnectedAccount account = repository.findAccountById(ruleCmd.connectedAccountId())
-                    .orElseThrow(() -> new IllegalArgumentException(
-                            "Connected account not found: " + ruleCmd.connectedAccountId()));
+            // SEC-BATCH-1: each referenced connected account must belong to the caller tenant, else a
+            // tenant could build a split crediting foreign accounts. 404 on absent OR wrong-tenant.
+            ConnectedAccount account = TenantOwnership.require(
+                    repository.findAccountById(ruleCmd.connectedAccountId(), command.tenantId()),
+                    "Connected account");
 
             // Calculate platform fee from first account (platform fee is tenant-level)
             if (platformFeeAmount == 0 && account.getPlatformFeePercent() != null) {
@@ -85,8 +87,10 @@ public class SplitPaymentService implements CreateSplitPaymentUseCase {
 
         // Record platform fee if applicable
         if (platformFeeAmount > 0) {
+            // SEC-BATCH-1: re-load the platform-fee account tenant-scoped (already validated in the
+            // loop above, but keep the read tenant-isolated for defence in depth).
             ConnectedAccount firstAccount = repository.findAccountById(
-                    command.rules().get(0).connectedAccountId()).orElse(null);
+                    command.rules().get(0).connectedAccountId(), command.tenantId()).orElse(null);
             PlatformFee fee = PlatformFee.create(
                     splitPayment.getId(), command.tenantId(), platformFeeAmount,
                     command.currency(),
@@ -120,9 +124,9 @@ public class SplitPaymentService implements CreateSplitPaymentUseCase {
     @Override
     @Transactional(readOnly = true)
     public SplitPaymentResult getSplitPayment(String splitPaymentId, String tenantId) {
-        SplitPayment sp = repository.findSplitPaymentById(splitPaymentId)
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Split payment not found: " + splitPaymentId));
+        // SEC-BATCH-1: tenant-scoped by-id read — 404 on absent OR wrong-tenant.
+        SplitPayment sp = TenantOwnership.require(
+                repository.findSplitPaymentById(splitPaymentId, tenantId), "Split payment");
 
         List<SplitRuleResult> ruleResults = sp.getRules().stream()
                 .map(r -> new SplitRuleResult(

@@ -354,3 +354,33 @@ enabled — branch protection on main (Q-002), without which L2 push authority r
 the agent's discipline + the CI ratchets rather than on the structural §18.3 enforcement
 that would make it robust against a degenerated future session. The human still owns
 CHARTER.md; future edits to it require explicit human instruction (recorded as here).
+
+## ADR-019 | 2026-06-15 | SEC-BATCH-1: tenant-authority from the principal, routed through `common` (T3, via PR)
+STATUS: Accepted (T3 — via PR, human merges). Closes audit SEC-02/05/06/19/20 (cross-tenant IDOR/spoof).
+CONTEXT: every module except gateway-api derived tenant authority from a client `X-Tenant-Id` header; by-id
+reads were global PK lookups; no authz aspect; RLS dormant ⇒ cross-tenant read/write of cardholder data,
+payouts, and approvals (CRITICAL). The obvious fix (copy gateway-api's `@AuthenticationPrincipal
+NexusPayPrincipal`) is UNCOMPILABLE in marketplace/vault/b2b/fraud: NexusPayPrincipal + TenantContext live
+in `iam`, which those modules do not depend on (common-only; fraud pins allowedDependencies={common}).
+DECISION: route the mechanism through `common` (the @Modulithic sharedModule), mirroring the existing
+TenantWorkRunner/@SystemTransactional precedent:
+ - common.tenant.TenantPrincipal (interface {tenantId()}); iam NexusPayPrincipal implements it (iam→common
+   is the legal direction; zero behaviour change).
+ - common.tenant.CallerTenant.require() — reads SecurityContextHolder, returns the principal's tenantId or
+   throws AuthorizationException(403). The controller-side tenant source (replaces every X-Tenant-Id header).
+ - common.tenant.TenantOwnership.assertOwned/require — returns the entity iff present AND owner==caller, else
+   common.exception.ResourceNotFoundException → 404. Collapses absent + wrong-tenant into ONE not-found path
+   (NO existence oracle). GlobalExceptionHandler maps it to 404 (also fixes a latent bug: services threw
+   IllegalArgumentException for not-found, which had NO handler → was returning 500).
+ - common needs spring-boot-starter-security on its own compile classpath (SecurityContextHolder).
+ - Every by-id read/write switched to findByIdAndTenantId (JPA derivation, NO migration — columns exist);
+   writes assert referenced-resource ownership (payout→account, split rules, vendor approve).
+SCOPE: marketplace (Payout/SplitPayment/ConnectedAccount + services), vault (card/network-token/migration —
+cardholder data), b2b (VendorPayment/VirtualCard), fraud (FraudRule), gateway WebhookEndpoint.delete. 58 files.
+PRESERVED: the legit NON-HTTP cross-tenant sweep PayoutScheduler.processPendingPayouts (@SystemTransactional /
+BYPASSRLS) is untouched — it has no SecurityContext; adding CallerTenant.require() there would NPE/403.
+CONSEQUENCES: tenant isolation is now enforced at the APPLICATION layer regardless of RLS state (so it holds
+pre-cutover). T3 review (3 lenses) SHIP/SHIP_WITH_NITS, 0 blockers. RESIDUALS: SEC-23 (b2b B2bInvoice/
+PurchaseOrder + fraud FraudAssessment controllers have the SAME defect, out of this batch's verified scope —
+apply the same helper); extend the real-SQL TenantIsolationIntegrationTest to the money + cryptogram paths.
+See L-048. The RLS cutover (B-002-cutover) remains the human-gated defense-in-depth backstop.

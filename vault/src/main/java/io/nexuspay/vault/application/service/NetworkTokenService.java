@@ -1,5 +1,6 @@
 package io.nexuspay.vault.application.service;
 
+import io.nexuspay.common.tenant.TenantOwnership;
 import io.nexuspay.vault.application.port.in.GenerateCryptogramUseCase;
 import io.nexuspay.vault.application.port.in.ProvisionNetworkTokenUseCase;
 import io.nexuspay.vault.application.port.out.*;
@@ -42,8 +43,10 @@ public class NetworkTokenService implements ProvisionNetworkTokenUseCase, Genera
     @Override
     @Transactional
     public NetworkTokenResult provision(String vaultTokenId, String tenantId, NetworkType network) {
-        VaultToken token = repository.findTokenById(vaultTokenId)
-                .orElseThrow(() -> new IllegalArgumentException("Vault token not found: " + vaultTokenId));
+        // SEC-BATCH-1: scope+assert the vault token to the caller's tenant BEFORE provisioning — ownership
+        // is derived from the principal, never trusted from the request. 404 on absent OR wrong-tenant.
+        VaultToken token = TenantOwnership.require(
+                repository.findTokenById(vaultTokenId, tenantId), "Vault token");
 
         VaultedCard card = repository.findCardById(token.getVaultedCardId())
                 .orElseThrow(() -> new IllegalStateException("Vaulted card not found for token: " + vaultTokenId));
@@ -80,9 +83,10 @@ public class NetworkTokenService implements ProvisionNetworkTokenUseCase, Genera
     @Override
     @Transactional(readOnly = true)
     public CryptogramResult generate(CryptogramRequest request, String tenantId) {
-        NetworkToken networkToken = repository.findNetworkTokenById(request.networkTokenId())
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Network token not found: " + request.networkTokenId()));
+        // SEC-BATCH-1: scope+assert the network token to the caller's tenant BEFORE invoking the
+        // visa/mc/amex port — no payment-grade cryptogram is produced for a token the caller doesn't own.
+        NetworkToken networkToken = TenantOwnership.require(
+                repository.findNetworkTokenById(request.networkTokenId(), tenantId), "Network token");
 
         CryptogramResult result;
         switch (networkToken.getNetwork()) {

@@ -1,5 +1,6 @@
 package io.nexuspay.marketplace.adapter.in.rest;
 
+import io.nexuspay.common.tenant.CallerTenant;
 import io.nexuspay.marketplace.adapter.in.rest.dto.*;
 import io.nexuspay.marketplace.application.port.in.CreateSplitPaymentUseCase;
 import io.nexuspay.marketplace.domain.SplitType;
@@ -29,7 +30,6 @@ public class SplitPaymentController {
     @PostMapping
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<SplitPaymentResponse> createSplitPayment(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @Valid @RequestBody CreateSplitPaymentRequest request) {
 
         List<CreateSplitPaymentUseCase.SplitRuleCommand> rules = request.rules().stream()
@@ -40,7 +40,7 @@ public class SplitPaymentController {
 
         var result = splitPaymentUseCase.createSplitPayment(
                 new CreateSplitPaymentUseCase.CreateSplitCommand(
-                        tenantId, request.paymentId(), request.totalAmount(),
+                        CallerTenant.require(), request.paymentId(), request.totalAmount(),
                         request.currency(), rules));
 
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(result));
@@ -49,10 +49,9 @@ public class SplitPaymentController {
     @GetMapping("/{splitPaymentId}")
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<SplitPaymentResponse> getSplitPayment(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String splitPaymentId) {
 
-        var result = splitPaymentUseCase.getSplitPayment(splitPaymentId, tenantId);
+        var result = splitPaymentUseCase.getSplitPayment(splitPaymentId, CallerTenant.require());
         return ResponseEntity.ok(toResponse(result));
     }
 
