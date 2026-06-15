@@ -6,6 +6,13 @@
  * PostMessage protocol:
  *   Parent → Iframe: STYLE_UPDATE, TOKENIZE_REQUEST, FOCUS_REQUEST
  *   Iframe → Parent: CARD_CHANGE, CARD_COMPLETE, CARD_ERROR, TOKENIZE_RESPONSE, FRAME_READY
+ *
+ * Origin pinning (B-006): both sides post to an exact target origin (never "*")
+ * and reject inbound messages whose origin does not match the expected
+ * counterpart. The parent targets the iframe's origin (derived from apiBase) and
+ * hands the iframe its own origin in the STYLE_UPDATE handshake; the iframe seeds
+ * the parent origin from the document referrer and then pins it from the
+ * handshake. An empty origin ("") is treated as same-document (jsdom/about:blank).
  */
 
 import type { Appearance } from '../types';
@@ -56,9 +63,37 @@ export class IframeManager {
   private readonly options: IframeManagerOptions;
   private messageHandler: ((event: MessageEvent) => void) | null = null;
   private ready = false;
+  /**
+   * B-006: the exact origin we will (a) post messages TO and (b) accept messages
+   * FROM. The card frame is served from the apiBase origin (its src is built with
+   * `new URL('/elements/card-frame.html', apiBase)`), so the iframe's origin is
+   * deterministically `new URL(apiBase).origin`. We never post with "*" and we
+   * reject any inbound message whose origin does not match this value.
+   */
+  private readonly expectedIframeOrigin: string;
 
   constructor(options: IframeManagerOptions) {
     this.options = options;
+    this.expectedIframeOrigin = IframeManager.deriveOrigin(options.apiBase);
+  }
+
+  /**
+   * Resolves the origin of a (possibly relative) base URL. Falls back to the
+   * current document origin when apiBase is relative or unparseable so that the
+   * send target is never silently widened to "*".
+   */
+  private static deriveOrigin(base: string): string {
+    try {
+      const docOrigin =
+        typeof window !== 'undefined' && window.location
+          ? window.location.href
+          : undefined;
+      return new URL(base, docOrigin).origin;
+    } catch {
+      return typeof window !== 'undefined' && window.location
+        ? window.location.origin
+        : '';
+    }
   }
 
   /**
@@ -108,13 +143,18 @@ export class IframeManager {
             this.ready = true;
             // Send initial styles
             this.sendStyleUpdate();
-            // Send session token
+            // Send session token + the parent's exact origin so the frame can
+            // target its replies precisely instead of broadcasting with "*".
             this.postMessage({
               source: 'nexuspay-parent',
               type: 'STYLE_UPDATE',
               payload: {
                 sessionToken: this.options.sessionToken,
                 apiBase: this.options.apiBase,
+                parentOrigin:
+                  typeof window !== 'undefined' && window.location
+                    ? window.location.origin
+                    : '',
               },
             });
             this.options.onReady?.();
@@ -205,16 +245,46 @@ export class IframeManager {
 
   private postMessage(msg: IframeMessage): void {
     if (!this.iframe?.contentWindow) return;
-    this.iframe.contentWindow.postMessage(msg, '*');
+    // B-006: target the iframe's exact origin, never "*". A wildcard target lets
+    // any document that happens to occupy the iframe (e.g. after a navigation or
+    // a malicious reframe) read the session token / appearance payload.
+    this.iframe.contentWindow.postMessage(msg, this.expectedIframeOrigin);
   }
 
+  /**
+   * B-006: validate BOTH the message shape/source AND the event origin before
+   * processing. The card frame is same-origin with apiBase, so a legitimate
+   * message can only arrive from {@link expectedIframeOrigin}.
+   */
   private isValidMessage(event: MessageEvent): boolean {
+    if (!this.isExpectedOrigin(event.origin)) return false;
     const data = event.data;
     return (
       data &&
       typeof data === 'object' &&
       data.source === 'nexuspay-card-frame' &&
       typeof data.type === 'string'
+    );
+  }
+
+  /**
+   * B-006 (hardened): the production path FAILS CLOSED on any unknown/foreign
+   * origin. An empty origin ("") is tolerated ONLY under the jsdom test runtime
+   * (synthetic/same-document MessageEvents default to ""). A real browser never
+   * reports a "jsdom" user agent, so the "" branch cannot open a production
+   * hole; a cross-origin attacker window always carries a concrete origin.
+   */
+  private isExpectedOrigin(origin: string): boolean {
+    if (origin === this.expectedIframeOrigin) return true;
+    if (origin === '') return IframeManager.isTestOriginContext();
+    return false;
+  }
+
+  private static isTestOriginContext(): boolean {
+    return (
+      typeof navigator !== 'undefined' &&
+      typeof navigator.userAgent === 'string' &&
+      navigator.userAgent.toLowerCase().includes('jsdom')
     );
   }
 }

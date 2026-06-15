@@ -335,3 +335,25 @@ body {
     background-size: 200% 100%;
   }
 }
+
+/* --- Reduced Motion (a11y) --- */
+
+/*
+ * Respect prefers-reduced-motion: disable button hover transitions and all
+ * decorative animations (submit spinner, success checkmark draw, skeleton
+ * shimmer). The spinner/skeleton remain visible as static affordances; only the
+ * motion is removed. Default-motion behavior is unchanged for everyone else.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .checkout__submit,
+  .failure__retry {
+    transition: none;
+  }
+
+  .checkout__spinner,
+  .success__checkmark .success__circle,
+  .success__checkmark .success__check,
+  .skeleton {
+    animation: none;
+  }
+}

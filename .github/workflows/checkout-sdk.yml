@@ -1,0 +1,72 @@
+# checkout-sdk CI (DX-1). Until now there was NO verifier for the TypeScript
+# checkout-sdk: ci.yml/perpetua-gates are Java/Gradle only and semgrep explicitly
+# excludes checkout-sdk (sast-scan: --exclude checkout-sdk). This workflow is the
+# ground-truth verifier for all TS work — build + vitest + a report-only npm audit.
+#
+# Trigger mirrors ci.yml (L-038): build on main, on PRs to main, AND on
+# perpetua/** branch pushes, so dormant TS work pushed after a PR merges is still
+# compiled/tested. A paths filter keeps it scoped to checkout-sdk/** (Java-only
+# changes don't spin this up). The lockfile lives at checkout-sdk/package-lock.json,
+# so it is included in the path filter to retrigger on dependency bumps.
+name: checkout-sdk
+
+on:
+  push:
+    branches: [main, 'perpetua/**']
+    paths:
+      - 'checkout-sdk/**'
+      - '.github/workflows/checkout-sdk.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'checkout-sdk/**'
+      - '.github/workflows/checkout-sdk.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        # All npm steps run inside the workspace root (npm workspaces: packages/*).
+        working-directory: checkout-sdk
+    steps:
+      # B-012: third-party actions are pinned by 40-hex commit SHA (with a # <tag>
+      # comment), matching ci.yml / perpetua-gates.yml.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: checkout-sdk/package-lock.json
+
+      # Reproducible install from the committed lockfile. `npm ci` requires the
+      # lockfile to exist and be in sync; the fallback to `npm install` only fires
+      # if the lockfile is somehow absent (it is committed, so this is a guardrail).
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            echo "::warning::package-lock.json missing — falling back to npm install"
+            npm install
+          fi
+
+      # §15.3 report-only audit gate. The remaining CRITICAL/HIGH advisories
+      # (vitest CRITICAL, esbuild/tsup HIGH, vite/vite-node MODERATE) are dev-only
+      # and ONLY clear after a MAJOR toolchain bump (vitest 1->4, vite 5->8),
+      # deferred to PR-B. PR-A already cleared the non-major ones (picomatch ReDoS
+      # HIGH, postcss MODERATE, ws MODERATE) via `npm audit fix` (no --force). So
+      # this step REPORTS but does not block; flip it to blocking once PR-B lands.
+      - name: npm audit (report-only)
+        run: npm audit --audit-level=high || echo "::warning::npm audit found high/critical advisories — report-only (dev-only, clears after PR-B major-toolchain bump)"
+
+      - name: Build
+        run: npm run build
+
+      - name: Test (vitest)
+        run: npm test

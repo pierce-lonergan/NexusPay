@@ -135,6 +135,40 @@ describe('IframeManager', () => {
     manager.destroy();
   });
 
+  // B-006: receive-side origin enforcement.
+  it('rejects messages from a foreign (non-apiBase) origin', async () => {
+    const manager = new IframeManager(options); // apiBase = https://api.test.com
+    const createPromise = manager.create(container);
+
+    // Attacker posts a well-formed FRAME_READY but from a different origin.
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { source: 'nexuspay-card-frame', type: 'FRAME_READY' },
+      origin: 'https://evil.example.com',
+    }));
+    expect(manager.isReady()).toBe(false);
+
+    // A well-formed CARD_CHANGE from the wrong origin must also be ignored.
+    window.dispatchEvent(new MessageEvent('message', {
+      data: {
+        source: 'nexuspay-card-frame',
+        type: 'CARD_CHANGE',
+        payload: { complete: false, empty: false, brand: 'visa', error: null, cardLastFour: '4242' },
+      },
+      origin: 'https://evil.example.com',
+    }));
+    expect(options.onChange).not.toHaveBeenCalled();
+
+    // The legitimate frame origin (derived from apiBase) is accepted.
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { source: 'nexuspay-card-frame', type: 'FRAME_READY' },
+      origin: 'https://api.test.com',
+    }));
+    await createPromise;
+    expect(manager.isReady()).toBe(true);
+
+    manager.destroy();
+  });
+
   it('calls onError when requestTokenize is called before ready', () => {
     const manager = new IframeManager(options);
     manager.requestTokenize();

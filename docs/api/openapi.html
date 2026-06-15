@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NexusPay API Reference</title>
+  <!--
+    DX-1 committed API reference.
+
+    This is a static ReDoc viewer for the NexusPay OpenAPI document. The spec
+    itself is generated at runtime by springdoc (2.5.0) and served live by the
+    gateway:
+
+        JSON : http://localhost:8090/v1/api-docs
+        YAML : http://localhost:8090/v1/api-docs.yaml
+        UI   : http://localhost:8090/v1/swagger-ui   (interactive Swagger UI)
+
+    Document-level metadata (title, version, the three security schemes, server
+    URL) comes from io.nexuspay.gateway.config.OpenApiConfig.
+
+    To view this page against a running gateway, open it in a browser; ReDoc
+    fetches the spec from the URL in spec-url below. Point spec-url at a deployed
+    environment's /v1/api-docs as needed.
+
+    To snapshot the spec to a file (e.g. for diff review or offline reference),
+    with the gateway running on :8090:
+
+        curl -s http://localhost:8090/v1/api-docs.yaml -o docs/api/openapi.yaml
+        # or JSON:
+        curl -s http://localhost:8090/v1/api-docs      -o docs/api/openapi.json
+
+    This page does NOT replace the live Swagger UI — it is an additional,
+    committed, dependency-light reference that renders the same spec.
+  -->
+  <style>
+    body { margin: 0; padding: 0; }
+  </style>
+</head>
+<body>
+  <redoc spec-url="http://localhost:8090/v1/api-docs"></redoc>
+  <!-- Pinned ReDoc standalone bundle (CDN). Swap to a vendored copy for offline use. -->
+  <script src="https://cdn.redoc.ly/redoc/v2.1.5/bundles/redoc.standalone.js"></script>
+</body>
+</html>

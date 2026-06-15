@@ -6,6 +6,13 @@ All notable changes to NexusPay are documented here. Format follows [Keep a Chan
 
 ### Added
 
+**DX-1 — checkout-sdk CI + security/verifier foundation**
+- New GitHub Actions workflow `.github/workflows/checkout-sdk.yml` — the first CI verifier for the TypeScript `checkout-sdk` (Java CI and semgrep never covered it). Runs `npm ci` + `npm run build` + `npm test` (vitest) on Node 20, plus a report-only `npm audit --audit-level=high` gate (§15.3). Triggered on `push:[main, perpetua/**]` and `pull_request:[main]` with a `checkout-sdk/**` paths filter. Third-party actions SHA-pinned (B-012 convention).
+- npm PR-A non-major audit fixes (`npm audit fix`, no `--force`): picomatch 4.0.3→4.0.4 (ReDoS HIGH GHSA-c2c7-rcm5-vvqj + GHSA-3v7f-55p6-f55p), postcss→8.5.15 (XSS MODERATE GHSA-qx2v-qp2m-jg93), ws→8.21.0 (MODERATE). Lockfile committed. Major-toolchain advisories (vitest CRITICAL, esbuild/tsup HIGH, vite/vite-node MODERATE) deferred to PR-B.
+- B-006 postMessage origin hardening (security HIGH) for the PCI card iframe: SDK↔iframe now post to an exact computed target origin (never `*`) and both receivers validate `event.origin` against the expected counterpart before processing. Files: `iframe-manager.ts`, `card-frame.ts`, `card-frame.html`. New origin-rejection test in `iframe-manager.test.ts`.
+- `prefers-reduced-motion: reduce` blocks added to `card-frame.html`, `card-frame.css`, and hosted-checkout `checkout.css` (a11y): disable transitions/animations under reduced-motion without changing default-motion behavior.
+- OpenAPI metadata bean `io.nexuspay.gateway.config.OpenApiConfig` (springdoc 2.5.0): Info (title/version/description), three security schemes (apiKey `sk_`, sessionToken JWT, bearerAuth OIDC), and server URL. Committed reference at `docs/api/openapi.html` (ReDoc viewer + generation command). Live Swagger UI unchanged.
+
 **Sprint 4.4 — Visual Workflow Builder**
 - Extended existing `workflow` module with visual workflow builder backend (DAG-based)
 - WorkflowDefinition domain model with graph lifecycle: DRAFT → PUBLISHED → ARCHIVED

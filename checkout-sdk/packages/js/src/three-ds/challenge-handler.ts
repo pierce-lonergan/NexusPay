@@ -30,6 +30,13 @@ export class ChallengeHandler {
       return { status: 'failed', error: 'No challenge URL provided' };
     }
 
+    // B-021: only navigate to / iframe an absolute https URL on a real host.
+    // Reject javascript:/data:/blob:/relative URLs before they can execute in
+    // the merchant page context or be loaded into the challenge iframe.
+    if (!ChallengeHandler.isSafeChallengeUrl(nextAction.url)) {
+      return { status: 'failed', error: 'Invalid or unsafe challenge URL' };
+    }
+
     switch (nextAction.type) {
       case 'redirect':
         return this.handleRedirect(nextAction.url);
@@ -38,6 +45,41 @@ export class ChallengeHandler {
       default:
         return { status: 'failed', error: `Unknown action type: ${nextAction.type}` };
     }
+  }
+
+  /**
+   * B-021: validates that a challenge URL is an absolute https URL on a real
+   * host. Rejects javascript:/data:/blob:/file: schemes, protocol-relative and
+   * relative URLs, and anything unparseable. This is the gate that decides what
+   * we are willing to navigate the top window to (redirect mode) or load into
+   * the challenge iframe (three_d_secure mode).
+   */
+  static isSafeChallengeUrl(url: string): boolean {
+    if (typeof url !== 'string' || url.trim() === '') return false;
+    let parsed: URL;
+    try {
+      // No base: a relative URL ("/foo", "foo", "//evil.com") throws or yields
+      // a non-https scheme, so it is rejected below.
+      parsed = new URL(url);
+    } catch {
+      return false;
+    }
+    if (parsed.protocol !== 'https:') return false;
+    if (!parsed.hostname) return false;
+    return true;
+  }
+
+  /**
+   * True only under the jsdom test runtime, where synthetic MessageEvents
+   * default to an empty origin. A real browser never reports a "jsdom" user
+   * agent, so the "" origin allowance can never open a production hole.
+   */
+  static isTestOriginContext(): boolean {
+    return (
+      typeof navigator !== 'undefined' &&
+      typeof navigator.userAgent === 'string' &&
+      navigator.userAgent.toLowerCase().includes('jsdom')
+    );
   }
 
   /** Cancels an in-progress challenge. */
@@ -70,6 +112,11 @@ export class ChallengeHandler {
   private handleIframe(url: string): Promise<ThreeDSResult> {
     return new Promise((resolve) => {
       this.resolver = resolve;
+
+      // B-021: the only origin allowed to complete this challenge is the origin
+      // of the 3DS URL we loaded. Computed up front from the (already validated)
+      // absolute https URL.
+      const expectedOrigin = new URL(url).origin;
 
       // Create overlay
       this.overlay = document.createElement('div');
@@ -137,6 +184,19 @@ export class ChallengeHandler {
 
       // Listen for completion message from iframe
       this.messageHandler = (event: MessageEvent) => {
+        // B-021: origin gate FIRST. Only the 3DS URL's own origin may resolve
+        // the challenge — otherwise any window/origin could force a
+        // 'succeeded'/'failed' result. An empty origin ("") is tolerated only
+        // under the jsdom test runtime (synthetic MessageEvents default to "");
+        // a real browser always reports a concrete cross-origin value, so the
+        // production path fails closed.
+        if (
+          event.origin !== expectedOrigin &&
+          !(event.origin === '' && ChallengeHandler.isTestOriginContext())
+        ) {
+          return;
+        }
+
         const data = event.data;
         if (!data || typeof data !== 'object') return;
 

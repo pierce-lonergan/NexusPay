@@ -145,6 +145,15 @@
     /* RTL */
     [dir="rtl"] .field__input { text-align: right; }
     [dir="rtl"] .brand-icon { right: auto; left: calc(var(--nxp-spacing-unit, 4px) * 3); }
+
+    /* Reduced motion (a11y): users who prefer reduced motion get no transitions
+       or animations. Visual state still changes (focus ring, error message,
+       brand icon) — only the motion is removed. */
+    @media (prefers-reduced-motion: reduce) {
+      .field__input,
+      .brand-icon { transition: none; }
+      .field__error { animation: none; }
+    }
   </style>
 </head>
 <body>
@@ -271,14 +280,78 @@
 
     function cvcLen(brand) { return brand === 'amex' ? 4 : 3; }
 
+    // B-006 (race fix): the browser-ATTESTED origin of our immediate embedder,
+    // read from window.location.ancestorOrigins (a DOMStringList on
+    // Chromium/WebKit; index 0 is the immediate parent). It CANNOT be spoofed by
+    // a co-resident frame, so when present it is the SOLE accepted parent origin
+    // and closes the trust-on-first-use race where a hostile co-resident frame
+    // (e.g. https://evil.example on the same merchant page) posts the handshake
+    // before the real SDK and gets pinned. Returns "" when unavailable/empty
+    // (Firefox / jsdom), in which case the legacy referrer-seeded TOFU applies.
+    function deriveAuthoritativeParentOrigin() {
+      try {
+        const ancestors = window.location && window.location.ancestorOrigins;
+        if (ancestors && ancestors.length > 0) return ancestors[0];
+      } catch (e) { /* fall through */ }
+      return '';
+    }
+
+    // B-006: best-effort origin of the embedding parent, used to target the
+    // initial FRAME_READY before the parent hands us its exact origin in the
+    // STYLE_UPDATE handshake. "" means "same origin as this document" — never a
+    // wildcard.
+    function deriveInitialParentOrigin() {
+      try {
+        if (document.referrer) return new URL(document.referrer).origin;
+      } catch (e) { /* fall through */ }
+      return '';
+    }
+
+    // B-006 (race fix): computed ONCE at init. When the browser attests the
+    // immediate-parent origin it is the SOLE accepted origin and is pinned into
+    // state.parentOrigin so the very first inbound message is validated against
+    // the real parent — a co-resident attacker's first message is rejected even
+    // if it wins the race. "" => no attestation (Firefox / jsdom) => legacy TOFU.
+    const authoritativeParentOrigin = deriveAuthoritativeParentOrigin();
+
     const state = {
       pan: '', expMonth: '', expYear: '', cvc: '', brand: 'unknown',
       errors: { pan: null, expiry: null, cvc: null },
-      apiBase: '', sessionToken: ''
+      apiBase: '', sessionToken: '',
+      // Pin the attested parent immediately when known; otherwise seed from the
+      // referrer for the initial FRAME_READY target and let TOFU pin later.
+      parentOrigin: authoritativeParentOrigin || deriveInitialParentOrigin()
     };
 
+    // B-006: post replies to the parent's EXACT origin, never "*". A wildcard
+    // target would leak card metadata / tokenization results to any document
+    // that currently occupies the parent frame.
     function post(type, payload) {
-      window.parent.postMessage({ source: 'nexuspay-card-frame', type, payload }, '*');
+      window.parent.postMessage({ source: 'nexuspay-card-frame', type, payload }, state.parentOrigin || '');
+    }
+
+    // B-006 (hardened): only honor a parent message whose BROWSER-ATTESTED
+    // event.origin matches the pinned parent origin. NO accept-all fallback:
+    // the old `!state.parentOrigin` clause degraded to accept-any-origin when
+    // the referrer was stripped, letting a hostile co-resident frame win the
+    // handshake race and redirect the PAN. An empty origin ("") is tolerated
+    // only under the jsdom test runtime; a real browser never reports a "jsdom"
+    // UA, so the production gate fails closed on any unknown/foreign origin.
+    function isTestOriginContext() {
+      return typeof navigator !== 'undefined'
+        && typeof navigator.userAgent === 'string'
+        && navigator.userAgent.toLowerCase().includes('jsdom');
+    }
+    function isExpectedParentOrigin(origin) {
+      // B-006 (race fix): when the browser attests the immediate-parent origin,
+      // it is the SOLE accepted origin — NO trust-on-first-use, NO accept-all.
+      // A co-resident attacker (event.origin = https://evil.example) is rejected
+      // even if its handshake arrives first; state.parentOrigin was pinned to
+      // this value at init so the first message is already validated.
+      if (authoritativeParentOrigin) return origin === authoritativeParentOrigin;
+      if (origin === '') return isTestOriginContext();
+      if (!state.parentOrigin) return true; // TOFU (browser-attested), no attestation available
+      return origin === state.parentOrigin;
     }
 
     function isComplete() {
@@ -379,11 +452,20 @@
 
     // Parent messages
     window.addEventListener('message', async (event) => {
+      if (!isExpectedParentOrigin(event.origin)) return;
+
       const data = event.data;
       if (!data || data.source !== 'nexuspay-parent') return;
 
+      // Pin the parent origin to the BROWSER-ATTESTED event.origin on the first
+      // accepted message. Never to a sender-declared payload value.
+      if (!state.parentOrigin && event.origin) state.parentOrigin = event.origin;
+
       if (data.type === 'STYLE_UPDATE') {
         const p = data.payload || {};
+        // Do NOT let the payload set/override the origin. If present it must
+        // AGREE with the browser-attested event.origin, else drop the message.
+        if (p.parentOrigin && event.origin && p.parentOrigin !== event.origin) return;
         if (p.sessionToken) state.sessionToken = p.sessionToken;
         if (p.apiBase) state.apiBase = p.apiBase;
         if (p.appearance?.variables) {

@@ -188,3 +188,21 @@ body {
   right: auto;
   left: calc(var(--nxp-spacing-unit, 4px) * 3);
 }
+
+/* --- Reduced Motion (a11y) --- */
+
+/*
+ * Respect the user's prefers-reduced-motion setting: disable the input/icon
+ * transitions and the error slide-in animation. Visual state (focus ring,
+ * error visibility, brand icon) still changes — only the motion is removed.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .field__input,
+  .brand-icon {
+    transition: none;
+  }
+
+  .field__error {
+    animation: none;
+  }
+}

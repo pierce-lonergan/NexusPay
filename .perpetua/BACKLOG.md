@@ -63,6 +63,17 @@ claims: (none — single instance)
   idempotency key (fold into B-002/outbox work). Score (4×4)/4 +2 = **6**.
 
 ## Done
+- **DX-1 | checkout-sdk verifier + postMessage/3DS origin hardening + OpenAPI + a11y** (2026-06-15, FF) —
+  (1) NEW .github/workflows/checkout-sdk.yml: first CI verifier for the TS SDK (npm ci/build/test + report-only
+  `npm audit --audit-level=high`; SHA-pinned actions); fixed the pre-existing BROKEN lockfile (missing
+  packages/checkout → npm ci would have failed). (2) B-006 postMessage: send to exact computed origin (no '*'),
+  receive checks event.origin first; parent origin pinned from BROWSER-ATTESTED window.location.ancestorOrigins
+  (TOFU-on-event.origin only as Firefox fallback) — closes the PAN-exfil handshake spoof. (3) B-021 3DS handler:
+  event.origin gate + https-host URL validation. (4) npm PR-A (picomatch/postcss/ws non-major). (5) OpenApiConfig
+  @Bean (Info + 3 security schemes + server) + docs/api/openapi.html ReDoc. (6) prefers-reduced-motion across
+  card-frame + checkout CSS. 109 SDK tests green. 3 adversarial-review iterations (L-047). RESIDUALS: B-023b npm
+  PR-B (major toolchain: vitest/vite/esbuild/tsup — then flip the audit gate to blocking); ReDoc CDN not SRI-pinned;
+  per-operation @SecurityRequirement for Swagger padlocks; same-origin hostile-parent is out of scope (page integrity).
 - **Dead-code: TokenizationService multi-use path** (2026-06-14, FF) — removed the provably-dead
   `multiUseTokenExpiry` field + `@Value` ctor param + unreachable ternary branch (`singleUse=true` was
   hardcoded) and the now-unused `nexuspay.session.multi-use-token-expiry` key from application.yml.
