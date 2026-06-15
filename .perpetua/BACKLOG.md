@@ -6,6 +6,17 @@ high blast radius, −1 elegance-only. Tier per ratchets.risk_map.
 
 claims: (none — single instance)
 
+## ⚠ SECURITY — code-sweep 2026-06-15 (TOP PRIORITY; full detail in security/AUDITS.md)
+48 confirmed defects (13 CRIT / 17 HIGH / 12 MED / 6 LOW) → 22 remediations. Root cause: client-`X-Tenant-Id`
+trust + global-PK reads + no authz aspect + RLS dormant ⇒ tenant isolation effectively OFF outside gateway-api.
+App-level fixes make it safe regardless of RLS; RLS cutover (B-002-cutover) is now URGENT but human-gated.
+Fix program (each batch = its own T3 PR via the fusion topology; diverse implementers → CI filter → select-and-repair → fresh review):
+- **SEC-BATCH-1 (CRIT) tenant-authority hardening** — SEC-02 (X-Tenant-Id trust everywhere) + SEC-05 (vault card get/delete/cryptogram IDOR) + SEC-06 (marketplace payout/account/split not scoped) + SEC-08 (ledger journal queries leak all tenants) + SEC-19 (webhook-endpoint DELETE IDOR) + SEC-20 (vault migration IDOR) + SEC-07 (payment-lifecycle IDOR incl. sub-threshold cross-tenant refund) + SEC-09 (cross-tenant webhook fan-out). Pattern: tenant from principal ONLY (reject header mismatch) + tenant-scoped finders + an authorization helper/aspect asserting resource.tenantId == caller.
+- **SEC-BATCH-2 (CRIT) dispute webhook** — SEC-01: add HMAC verify + replay dedup + tenant-from-payload + idempotent openDispute (mirror HyperSwitchWebhookController).
+- **SEC-BATCH-3 (CRIT/HIGH) PCI/PAN** — SEC-03 (checkout iframe forged postMessage / STYLE_UPDATE overrides apiBase+sessionToken; frame-ancestors *) [origin half DONE in DX-1; residual: never accept apiBase/sessionToken via message + tighten frame-ancestors] + SEC-04 (full PAN persisted base64 in payment_tokens → route SDK tokenize through encrypted vault).
+- **SEC-BATCH-4 (HIGH) money-dup/SSRF/reliability** — SEC-10 (ledger double-post: DB unique on idempotency) + SEC-11 (payout scheduler no lock → double-pay) + SEC-14 (outbound webhook SSRF allowlist) + SEC-16 (dead-letter stuck RETRYING) + SEC-13 (iframe-manager token leak — DONE in DX-1).
+- **SEC-BATCH-5 (MED/LOW)** — SEC-12 (server-derived idempotency key for capture/void/refund) + SEC-15 (webhook dedup-before-commit) + SEC-17 (recon run.fail durable) + SEC-18 (analytics rollup idempotency) + SEC-21 (3DS origin — DONE in DX-1) + SEC-22 (float fee math, split idempotency, static master key, api-key prefix collision, /internal rate-limit bypass).
+
 ## Ready (sorted by score)
 
 - ~~**B-006 | Run + record baseline security scans**~~ | DONE 2026-06-14 (CI-green).
