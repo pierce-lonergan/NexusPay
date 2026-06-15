@@ -25,7 +25,8 @@ import org.testcontainers.utility.DockerImageName;
 @Testcontainers(disabledWithoutDocker = true)
 public abstract class IntegrationTestBase {
 
-    static final boolean DOCKER_AVAILABLE = isDockerAvailable();
+    // public so subclasses in sibling test packages (app.redteam, app.sim) can gate on it.
+    public static final boolean DOCKER_AVAILABLE = isDockerAvailable();
 
     static final PostgreSQLContainer<?> nexuspayPg;
     static final KafkaContainer kafka;
