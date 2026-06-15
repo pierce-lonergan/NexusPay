@@ -21,6 +21,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -67,8 +68,11 @@ class VirtualCardControllerTest {
         doThrow(new ResourceNotFoundException("Virtual card not found"))
                 .when(virtualCardUseCase).freezeCard(eq("vc_foreign"), eq("tenant-1"));
 
-        mockMvc.perform(post("/v1/virtual-cards/vc_foreign/freeze")
-                .with(authentication(tenantAuth("tenant-1", "admin"))));
+        // Slice has no @ControllerAdvice (it lives in gateway-api) — the not-found propagates out of
+        // perform; assert it raises, then verify the SECURITY property: the service was invoked with
+        // the CALLER's tenant. The →404 mapping is covered by the app-level integration test.
+        assertThatThrownBy(() -> mockMvc.perform(post("/v1/virtual-cards/vc_foreign/freeze")
+                .with(authentication(tenantAuth("tenant-1", "admin")))));
 
         verify(virtualCardUseCase).freezeCard("vc_foreign", "tenant-1");
     }

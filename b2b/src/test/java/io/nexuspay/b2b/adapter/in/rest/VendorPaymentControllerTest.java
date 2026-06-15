@@ -20,6 +20,7 @@ import java.util.List;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -77,8 +78,12 @@ class VendorPaymentControllerTest {
         when(vendorPaymentUseCase.approveVendorPayment(eq("vp_foreign"), eq("tenant-1")))
                 .thenThrow(new ResourceNotFoundException("Vendor payment not found"));
 
-        mockMvc.perform(post("/v1/vendor-payments/vp_foreign/approve")
-                .with(authentication(tenantAuth("tenant-1", "admin"))));
+        // The slice has no @ControllerAdvice (GlobalExceptionHandler lives in gateway-api), so the
+        // not-found propagates out of perform — assert it raises, then verify the SECURITY property:
+        // the service was invoked with the CALLER's tenant, not the path/header tenant. The →404
+        // mapping is a global concern covered by the app-level TenantIsolationIntegrationTest.
+        assertThatThrownBy(() -> mockMvc.perform(post("/v1/vendor-payments/vp_foreign/approve")
+                .with(authentication(tenantAuth("tenant-1", "admin")))));
 
         verify(vendorPaymentUseCase).approveVendorPayment("vp_foreign", "tenant-1");
     }
