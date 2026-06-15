@@ -10,7 +10,12 @@ claims: (none — single instance)
 
 - **B-006 | Run + record baseline security scans** | security — PARTIAL
   DONE: real local secret-pattern baseline (clean); gitleaks + OSV-Scanner wired
-  into CI as gating jobs; AUDITS recorded. REMAINING: semgrep java SAST in CI;
+  into CI as gating jobs; semgrep java SAST wired into CI (sast-scan job, pinned
+  semgrep/semgrep:1.166.0 image, REPORT-ONLY first run per §15.3); pre-triaged via
+  real semgrep run in WSL2 — 0 Java findings across p/java+owasp+secrets and
+  p/security-audit+sql/cmd-injection+xss (703 files, ~100% parse); L-007/008/009
+  re-verified intact; AUDITS recorded. REMAINING: confirm same on the CI runner,
+  then FLIP semgrep gate to blocking (drop `|| echo`, add semgrep ratchet);
   first CI run's OSV findings triaged (needs push, Q-001) or local tools (Q-003).
   Score (4×5)/2 = **10**.
 

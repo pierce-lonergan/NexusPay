@@ -73,3 +73,58 @@ osv-scanner 2.3.8); the previous marketplace-action versions were broken.
 NEXT DEEP AUDIT should: run gitleaks over git history (not just working tree),
 wire semgrep java rulesets, triage+fix B-023 then enforce OSV, and re-verify the
 OPEN-HIGH items above are closed or still tracked. Log results here.
+
+## 2026-06-14 — semgrep Java SAST wired into CI + real pre-triage (B-006 remainder)
+Tool: semgrep 1.166.0. Native Windows can't run it (semgrep-core's OCaml RPC
+needs Unix `socketpair`, fails on Win even under git-bash; no Windows wheel;
+docker/pipx absent). RAN IT FOR REAL in WSL2 (Ubuntu, kernel 6.6, x86_64) via a
+`python3 -m venv` + `pip install semgrep`; repo reachable at /mnt/c/...; registry
+fetch worked. CI itself uses the pinned `semgrep/semgrep:1.166.0` Linux image
+(no socketpair issue), so the local-Win limitation is irrelevant to the gate.
+
+CI STEP ADDED — `.github/workflows/perpetua-gates.yml`, new `sast-scan` job
+(mirrors dependency-scan's pinned-binary, report-only style):
+- `runs-on: ubuntu-latest`, `container: semgrep/semgrep:1.166.0` (PINNED tag; not
+  the floating marketplace action — same rationale as gitleaks/osv). @sha256
+  digest pin deferred to B-012 with the other pins.
+- `semgrep scan --config p/java --config p/owasp-top-ten --config p/secrets
+  --metrics off --include '*.java' --exclude build --exclude '**/build/**'
+  --exclude '**/generated/**' --exclude '**/test/**' --exclude gatling
+  --exclude checkout-sdk --error --sarif --output semgrep.sarif .`
+- REPORT-ONLY on first run (§15.3): trailing `|| echo "::warning::...not blocking
+  yet"` swallows semgrep's non-zero exit so the build stays GREEN; SARIF uploaded
+  as artifact for review. Excludes: 16 modules' build/ (jacoco + generated avro
+  classes), generated sources, all test trees, gatling, and checkout-sdk (Node/TS
+  — out of Java SAST scope). YAML validated (parses; 4 jobs).
+
+PRE-TRIAGE (REAL semgrep runs in WSL2 over git-tracked Java, 703 files, ~100% parse):
+- PASS A — p/java + p/owasp-top-ten + p/secrets (100 rules): **0 Java findings**.
+- PASS B — p/security-audit + p/sql-injection + p/command-injection + p/xss
+  (61 rules): **0 Java findings**.
+- NET: semgrep OSS finds ZERO Java SAST issues. No HIGH-confidence real issue to
+  fix → no code changes made (correctly: nothing to fix).
+
+OUT-OF-SCOPE FINDINGS (TypeScript checkout-sdk; NOT Java SAST, excluded from the
+CI scan; recorded here for completeness, not blocking):
+- `checkout-sdk/.../iframe-manager.ts:208` and `card-frame.ts:38-41` —
+  `postMessage(msg, '*')` wildcard target origin (rule:
+  wildcard-postmessage-configuration, WARNING). TRIAGE: REAL but LOW severity —
+  parent↔own-iframe only, and the receiver validates `data.source` (e.g.
+  'nexuspay-card-frame'/'nexuspay-parent'). DISPOSITION: ACCEPTED for now; tighten
+  target origin to the known frame origin under a separate JS/SDK item (not B-006).
+
+REGRESSION RE-CHECK — prior SAST-class fixes ALL STILL FIXED (read the source):
+- L-007 webhook HMAC constant-time: HyperSwitchWebhookController.java:154-171 uses
+  `MessageDigest.isEqual` on HmacSHA512 hex (not String.equals). INTACT.
+- L-008 evidence path traversal: LocalEvidenceStorageAdapter.java:70-91 —
+  per-segment `safeSegment()` + `resolveWithinRoot()` normalize + `startsWith(root)`
+  reject (defense in depth). INTACT.
+- L-009 PAN fingerprint HMAC-keyed: AesGcmEncryptionAdapter.java:97-119 — HmacSHA256
+  keyed by a domain-separated SHA-256(masterKey||"fingerprint"). INTACT.
+- Crypto/SQL/deserialization/SSRF/cmd-injection/XXE: clean (consistent with 0
+  semgrep findings). Math.random() hits are all cosmetic mock last4 in network-token
+  STUB adapters (note: use SecureRandom when real impls land — not a current vuln).
+
+NEXT: after the first report-only CI run confirms 0 on the runner, FLIP the gate to
+blocking (drop the `|| echo`, add a semgrep ratchet) — the Java surface is already
+0-finding so it can gate at high/error severity immediately.

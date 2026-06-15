@@ -6,7 +6,7 @@
   "mutation_floor": { "default": 0.0 },
   "mutation_status": "UNMEASURED — no PIT wired yet (B-005).",
   "high_vulns_max": 0,
-  "high_vulns_status": "No automated scan run yet (B-006). Audit-identified design risks tracked in security/AUDITS.md + BACKLOG.",
+  "high_vulns_status": "2026-06-14 (B-006): semgrep Java SAST wired into CI (perpetua-gates sast-scan job, pinned semgrep/semgrep:1.166.0, REPORT-ONLY first run per §15.3). Pre-triaged via a REAL semgrep 1.166.0 run in WSL2 over 703 git-tracked Java files (~100% parse): 0 Java findings across p/java+owasp-top-ten+secrets AND p/security-audit+sql/cmd-injection+xss. L-007/008/009 re-verified intact. Only 2 out-of-scope TS checkout-sdk wildcard-postMessage WARNINGs (accepted, AUDITS.md). gitleaks + OSV-Scanner already gating. high=0 measured by SAST; FLIP semgrep gate report-only->blocking after the first CI run confirms 0 on the runner (see perpetua-gates PENDING block + L-043). Audit-identified design risks still tracked in security/AUDITS.md + BACKLOG.",
   "suppressions_require_expiry": true,
   "bench_regression_pct": 5,
   "benchmarks": {},
@@ -36,7 +36,7 @@
     "mutation": "RECOMMENDED info.solidsoft.pitest — not yet wired (B-005)",
     "property": "RECOMMENDED net.jqwik:jqwik — not yet wired",
     "bench": "RECOMMENDED JMH (me.champeau.jmh) — not yet wired",
-    "sast": "RECOMMENDED semgrep (java rulesets) — not yet run (B-006)",
+    "sast": "WIRED (B-006): semgrep (p/java+owasp-top-ten+secrets) in CI as the perpetua-gates sast-scan job, pinned semgrep/semgrep:1.166.0, report-only first run; 0 Java findings pre-triaged. FLIP to blocking + add semgrep ratchet after first CI run confirms (L-043)",
     "secrets": "RECOMMENDED gitleaks — not yet run (B-006)",
     "deps": "RECOMMENDED google/osv-scanner + OWASP dependency-check — not yet run (B-006)"
   }

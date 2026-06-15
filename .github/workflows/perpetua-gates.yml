@@ -114,8 +114,59 @@ jobs:
           /tmp/osv-scanner --version
           /tmp/osv-scanner scan source --recursive ./ || echo "::warning::OSV findings above are report-only (B-006 triage pending); not blocking yet"
 
+  # SAST (B-006) via the PINNED semgrep image — not the floating marketplace
+  # action, matching the gitleaks/osv "pinned binary, no marketplace action"
+  # convention. The image is a Linux container so semgrep-core runs cleanly
+  # (the OCaml RPC needs Unix socketpair, which is unavailable on native
+  # Windows but fine here). First run is REPORT-ONLY (§15.3): the `|| echo
+  # ::warning` swallows semgrep's non-zero exit so findings can be triaged into
+  # security/AUDITS.md before the gate is flipped (mirrors dependency-scan).
+  # Rulesets: p/java (core Java SAST), p/owasp-top-ten (injection/SSRF/XXE),
+  # p/secrets (defense-in-depth vs gitleaks). Excludes: build/ + every module's
+  # build/ (jacoco + generated avro classes), generated sources, all test trees,
+  # gatling, and checkout-sdk (Node/TS, out of Java SAST scope).
+  sast-scan:
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep:1.166.0  # pin the tag; TODO(B-012) also pin @sha256 digest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Semgrep Java SAST (pinned image, report-only)
+        run: |
+          # Pre-create the SARIF so the upload step never fails on a missing file even if
+          # semgrep crashes before writing (registry/rule-fetch failure, core error). The
+          # `|| echo` below only swallows the SCAN step's exit, not the separate upload step.
+          : > semgrep.sarif
+          semgrep --version
+          semgrep scan \
+            --config p/java --config p/owasp-top-ten --config p/secrets \
+            --metrics off \
+            --include '*.java' \
+            --exclude build --exclude '**/build/**' \
+            --exclude '**/generated/**' --exclude '**/test/**' \
+            --exclude gatling --exclude checkout-sdk \
+            --error \
+            --sarif --output semgrep.sarif . \
+            || echo "::warning::Semgrep findings above are report-only (B-006 triage pending); not blocking yet"
+      - name: Upload SARIF
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-sarif
+          path: semgrep.sarif
+          if-no-files-found: warn
+
   # PENDING gates (enable as the tooling lands; do not fake-pass):
   #  - scoped mutation on changed modules         -> B-005 (PIT)
-  #  - SAST (semgrep java rulesets)               -> B-006 (semgrep)
+  #  - SAST gate flip (report-only -> blocking)   -> B-006: once the first CI run
+  #      is triaged clean, add a semgrep ratchet. DO NOT just drop the `|| echo`:
+  #      it swallows ANY non-zero exit, so a BROKEN scan (registry unreachable, 0
+  #      rules loaded, all files unparsed) exits non-zero and is swallowed too —
+  #      green-but-scanned-nothing. semgrep exit codes are 0=clean / 1=findings /
+  #      >=2=error; the flip must distinguish them (e.g. `|| { rc=$?; [ "$rc" = 1 ]
+  #      && exit 1 || exit $rc; }`, i.e. fail the build on real findings AND on a
+  #      broken scan, never on neither). Java surface is already 0-finding under
+  #      p/java+owasp+secrets, so it can gate at high/error severity once the
+  #      runner confirms the scan actually executed (non-zero file/rule count).
   #  - benchmark smoke vs ratchets.benchmarks     -> ROADMAP Later (JMH)
   # TODO(B-012): pin all third-party actions by commit SHA.
