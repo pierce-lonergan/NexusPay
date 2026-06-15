@@ -12,4 +12,7 @@ import java.util.Optional;
 public interface JpaVaultTokenRepository extends JpaRepository<VaultTokenEntity, String> {
 
     Optional<VaultTokenEntity> findByVaultedCardId(String vaultedCardId);
+
+    // SEC-BATCH-1: tenant-scoped by-id lookup (cardholder-data access must be tenant-isolated in SQL).
+    Optional<VaultTokenEntity> findByIdAndTenantId(String id, String tenantId);
 }

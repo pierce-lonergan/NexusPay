@@ -6,6 +6,7 @@ import io.nexuspay.common.exception.AuthorizationException;
 import io.nexuspay.common.exception.LedgerException;
 import io.nexuspay.common.exception.NexusPayException;
 import io.nexuspay.common.exception.PaymentException;
+import io.nexuspay.common.exception.ResourceNotFoundException;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -87,6 +88,20 @@ public class GlobalExceptionHandler {
         String param = fieldError != null ? fieldError.getField() : null;
         ApiError error = ApiError.invalidRequest("invalid_parameter", message, param);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiErrorResponse.of(error));
+    }
+
+    /**
+     * Tenant-scoped by-id reads/writes throw {@link ResourceNotFoundException} when the resource is
+     * absent OR belongs to another tenant (SEC-BATCH-1). Both map to 404 so a wrong-tenant id is
+     * indistinguishable from a non-existent one (no existence oracle). This also fixes the latent
+     * bug where "not found" services threw {@code IllegalArgumentException}, which had no handler and
+     * fell through to a 500.
+     */
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleResourceNotFound(ResourceNotFoundException ex) {
+        log.warn("Resource not found: {} [{}]", ex.getMessage(), ex.getErrorCode());
+        ApiError error = ApiError.apiError(ex.getErrorCode(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiErrorResponse.of(error));
     }
 
     @ExceptionHandler(NexusPayException.class)

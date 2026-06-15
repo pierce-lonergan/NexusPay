@@ -11,7 +11,22 @@ claims: (none — single instance)
 trust + global-PK reads + no authz aspect + RLS dormant ⇒ tenant isolation effectively OFF outside gateway-api.
 App-level fixes make it safe regardless of RLS; RLS cutover (B-002-cutover) is now URGENT but human-gated.
 Fix program (each batch = its own T3 PR via the fusion topology; diverse implementers → CI filter → select-and-repair → fresh review):
-- **SEC-BATCH-1 (CRIT) tenant-authority hardening** — SEC-02 (X-Tenant-Id trust everywhere) + SEC-05 (vault card get/delete/cryptogram IDOR) + SEC-06 (marketplace payout/account/split not scoped) + SEC-08 (ledger journal queries leak all tenants) + SEC-19 (webhook-endpoint DELETE IDOR) + SEC-20 (vault migration IDOR) + SEC-07 (payment-lifecycle IDOR incl. sub-threshold cross-tenant refund) + SEC-09 (cross-tenant webhook fan-out). Pattern: tenant from principal ONLY (reject header mismatch) + tenant-scoped finders + an authorization helper/aspect asserting resource.tenantId == caller.
+- ~~**SEC-BATCH-1 (CRIT) tenant-authority hardening**~~ — DONE 2026-06-15 (T3 PR, branch perpetua/SEC-batch-1).
+  Closes SEC-02 (X-Tenant-Id trust) + SEC-05 (vault card get/delete/cryptogram/network-token IDOR) + SEC-06
+  (marketplace payout/account/split) + SEC-19 (webhook DELETE IDOR) + SEC-20 (vault migration IDOR), across
+  marketplace/vault/b2b/fraud/gateway. Mechanism routed through `common` (TenantPrincipal + CallerTenant.require()
+  + TenantOwnership→ResourceNotFoundException 404, no existence oracle) — the iam principal can't be referenced
+  from common-only modules (L-048). NO migration (tenant_id cols exist). 58 files. ADR-019, L-048.
+- **SEC-BATCH-1b (HIGH) tenant scope: payment-lifecycle + ledger + webhook fan-out** — SEC-07 (get/capture/
+  cancel/confirm/refund verify principal tenant owns the gateway id via ScreeningOriginService; incl. sub-threshold
+  cross-tenant refund bypassing maker-checker) + SEC-08 (ledger journal queries add tenant scope) + SEC-09
+  (webhook fan-out filter by event tenant UNCONDITIONALLY). gateway-api/ledger/payment-orchestration; T3 PR.
+- **SEC-23 (HIGH) remaining X-Tenant-Id controllers** — found during SEC-BATCH-1 review (same defect class, were
+  outside the verified scope + not in the original catalog): b2b B2bInvoiceController (getInvoice/sendInvoice/
+  markInvoicePaid) + PurchaseOrderController + fraud FraudAssessmentController. Apply the SEC-BATCH-1 pattern
+  (CallerTenant.require() + findByIdAndTenantId + TenantOwnership). Also: extend TenantIsolationIntegrationTest
+  with real-SQL cross-tenant cases for the money + cryptogram paths (vendor approve, vault cryptogram, payout/
+  split get). T3 PR. (chip task_b4c7fd92.)
 - **SEC-BATCH-2 (CRIT) dispute webhook** — SEC-01: add HMAC verify + replay dedup + tenant-from-payload + idempotent openDispute (mirror HyperSwitchWebhookController).
 - **SEC-BATCH-3 (CRIT/HIGH) PCI/PAN** — SEC-03 (checkout iframe forged postMessage / STYLE_UPDATE overrides apiBase+sessionToken; frame-ancestors *) [origin half DONE in DX-1; residual: never accept apiBase/sessionToken via message + tighten frame-ancestors] + SEC-04 (full PAN persisted base64 in payment_tokens → route SDK tokenize through encrypted vault).
 - **SEC-BATCH-4 (HIGH) money-dup/SSRF/reliability** — SEC-10 (ledger double-post: DB unique on idempotency) + SEC-11 (payout scheduler no lock → double-pay) + SEC-14 (outbound webhook SSRF allowlist) + SEC-16 (dead-letter stuck RETRYING) + SEC-13 (iframe-manager token leak — DONE in DX-1).

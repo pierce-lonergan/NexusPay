@@ -1,5 +1,6 @@
 package io.nexuspay.marketplace.adapter.in.rest;
 
+import io.nexuspay.common.tenant.CallerTenant;
 import io.nexuspay.marketplace.adapter.in.rest.dto.*;
 import io.nexuspay.marketplace.application.port.in.ConfigureFeeUseCase;
 import io.nexuspay.marketplace.application.port.in.OnboardAccountUseCase;
@@ -31,8 +32,9 @@ public class ConnectedAccountController {
     @PostMapping
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<ConnectedAccountResponse> onboardAccount(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @Valid @RequestBody OnboardAccountRequest request) {
+
+        String tenantId = CallerTenant.require();
 
         PayoutSchedule schedule = request.payoutSchedule() != null
                 ? PayoutSchedule.valueOf(request.payoutSchedule())
@@ -50,17 +52,15 @@ public class ConnectedAccountController {
     @GetMapping("/{accountId}")
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<ConnectedAccountResponse> getAccount(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String accountId) {
 
-        var info = onboardUseCase.getAccount(accountId, tenantId);
+        var info = onboardUseCase.getAccount(accountId, CallerTenant.require());
         return ResponseEntity.ok(toResponse(info));
     }
 
     @PutMapping("/{accountId}")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<ConnectedAccountResponse> updateAccount(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String accountId,
             @Valid @RequestBody UpdateAccountRequest request) {
 
@@ -68,7 +68,7 @@ public class ConnectedAccountController {
                 ? PayoutSchedule.valueOf(request.payoutSchedule())
                 : null;
 
-        var info = onboardUseCase.updateAccount(accountId, tenantId,
+        var info = onboardUseCase.updateAccount(accountId, CallerTenant.require(),
                 new OnboardAccountUseCase.UpdateAccountCommand(
                         request.businessName(), request.email(), schedule,
                         request.payoutMinimum(), request.platformFeePercent(),
@@ -80,33 +80,30 @@ public class ConnectedAccountController {
     @PostMapping("/{accountId}/suspend")
     @PreAuthorize("hasRole('admin')")
     public ResponseEntity<Void> suspendAccount(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String accountId,
             @RequestParam(defaultValue = "Manual suspension") String reason) {
 
-        onboardUseCase.suspendAccount(accountId, tenantId, reason);
+        onboardUseCase.suspendAccount(accountId, CallerTenant.require(), reason);
         return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/{accountId}")
     @PreAuthorize("hasRole('admin')")
     public ResponseEntity<Void> closeAccount(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String accountId) {
 
-        onboardUseCase.closeAccount(accountId, tenantId);
+        onboardUseCase.closeAccount(accountId, CallerTenant.require());
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{accountId}/fees")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<FeeConfigResponse> configureFee(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String accountId,
             @Valid @RequestBody ConfigureFeeRequest request) {
 
         var result = feeUseCase.configureFee(new ConfigureFeeUseCase.ConfigureFeeCommand(
-                tenantId, accountId, request.feePercent(), request.feeFixed()));
+                CallerTenant.require(), accountId, request.feePercent(), request.feeFixed()));
 
         return ResponseEntity.ok(new FeeConfigResponse(
                 result.connectedAccountId(), result.feePercent(), result.feeFixed()));
@@ -115,10 +112,9 @@ public class ConnectedAccountController {
     @GetMapping("/{accountId}/fees")
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<FeeConfigResponse> getFeeConfig(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String accountId) {
 
-        var result = feeUseCase.getFeeConfig(accountId, tenantId);
+        var result = feeUseCase.getFeeConfig(accountId, CallerTenant.require());
         return ResponseEntity.ok(new FeeConfigResponse(
                 result.connectedAccountId(), result.feePercent(), result.feeFixed()));
     }

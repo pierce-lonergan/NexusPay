@@ -1,5 +1,6 @@
 package io.nexuspay.vault.application.service;
 
+import io.nexuspay.common.exception.ResourceNotFoundException;
 import io.nexuspay.vault.application.port.in.ProvisionNetworkTokenUseCase.NetworkTokenResult;
 import io.nexuspay.vault.application.port.out.AmexTokenServicePort;
 import io.nexuspay.vault.application.port.out.MastercardMdesPort;
@@ -28,8 +29,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -84,7 +87,8 @@ class NetworkTokenServiceTest {
         VaultToken token = createVaultToken("tok_123", "vc_456");
         VaultedCard card = createVaultedCard("vc_456", CardBrand.VISA);
 
-        when(repository.findTokenById("tok_123")).thenReturn(Optional.of(token));
+        // SEC-BATCH-1: vault token is loaded tenant-scoped before provisioning.
+        when(repository.findTokenById("tok_123", TENANT)).thenReturn(Optional.of(token));
         when(repository.findCardById("vc_456")).thenReturn(Optional.of(card));
         when(visaPort.provisionToken(anyString(), anyString(), anyString(), anyInt(), anyInt(), anyString()))
                 .thenReturn(new NetworkTokenProvisionResult("vts_ref_001", "7890", "12/2028"));
@@ -112,7 +116,7 @@ class NetworkTokenServiceTest {
         card.setPanLast4("0004");
         card.setPanBin("55000000");
 
-        when(repository.findTokenById("tok_mc")).thenReturn(Optional.of(token));
+        when(repository.findTokenById("tok_mc", TENANT)).thenReturn(Optional.of(token));
         when(repository.findCardById("vc_mc")).thenReturn(Optional.of(card));
         when(mastercardPort.provisionToken(anyString(), anyString(), anyString(), anyInt(), anyInt(), anyString()))
                 .thenReturn(new NetworkTokenProvisionResult("mdes_ref_001", "5678", "06/2029"));
@@ -137,7 +141,8 @@ class NetworkTokenServiceTest {
 
         CryptogramResult expectedResult = new CryptogramResult("AABBCCDD", "05", Instant.now().plusSeconds(300));
 
-        when(repository.findNetworkTokenById("nt_001")).thenReturn(Optional.of(networkToken));
+        // SEC-BATCH-1: network token is loaded tenant-scoped before any cryptogram is produced.
+        when(repository.findNetworkTokenById("nt_001", TENANT)).thenReturn(Optional.of(networkToken));
         when(visaPort.generateCryptogram("vts_ref_001", 5000L, "USD")).thenReturn(expectedResult);
 
         // Act
@@ -151,10 +156,35 @@ class NetworkTokenServiceTest {
 
     @Test
     void provision_notFoundToken_throwsException() {
-        when(repository.findTokenById("tok_missing")).thenReturn(Optional.empty());
+        when(repository.findTokenById("tok_missing", TENANT)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.provision("tok_missing", TENANT, NetworkType.VISA_VTS))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Vault token not found");
+                .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    void provision_crossTenantToken_throwsNotFound() {
+        // SEC-BATCH-1: vault token owned by tenant-2 → empty for tenant-1 → 404, no provisioning,
+        // no network port invoked.
+        when(repository.findTokenById("tok_foreign", TENANT)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.provision("tok_foreign", TENANT, NetworkType.VISA_VTS))
+                .isInstanceOf(ResourceNotFoundException.class);
+        verify(visaPort, never()).provisionToken(anyString(), anyString(), anyString(), anyInt(), anyInt(), anyString());
+        verify(repository, never()).saveNetworkToken(any());
+    }
+
+    @Test
+    void generate_crossTenantNetworkToken_throwsNotFound() {
+        // SEC-BATCH-1: network token owned by tenant-2 → empty for tenant-1 → 404. Crucially, NO
+        // payment-grade cryptogram is generated for a foreign card.
+        when(repository.findNetworkTokenById("nt_foreign", TENANT)).thenReturn(Optional.empty());
+
+        var request = new io.nexuspay.vault.domain.CryptogramRequest("tok_x", "nt_foreign", 5000L, "USD", "merch_001");
+        assertThatThrownBy(() -> service.generate(request, TENANT))
+                .isInstanceOf(ResourceNotFoundException.class);
+        verify(visaPort, never()).generateCryptogram(anyString(), anyLong(), anyString());
+        verify(mastercardPort, never()).generateCryptogram(anyString(), anyLong(), anyString());
+        verify(amexPort, never()).generateCryptogram(anyString(), anyLong(), anyString());
     }
 }

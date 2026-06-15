@@ -5,6 +5,7 @@ import io.nexuspay.b2b.application.port.out.B2bEventPublisher;
 import io.nexuspay.b2b.application.port.out.B2bRepository;
 import io.nexuspay.b2b.application.port.out.VendorPaymentExecutionPort;
 import io.nexuspay.b2b.domain.VendorPayment;
+import io.nexuspay.common.tenant.TenantOwnership;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -68,7 +69,9 @@ public class VendorPaymentService implements ManageVendorPaymentUseCase {
     @Override
     @Transactional
     public VendorPaymentResult approveVendorPayment(String paymentId, String tenantId) {
-        VendorPayment payment = findOrThrow(paymentId);
+        // SEC-BATCH-1: tenant-scoped load BEFORE approve() — money-moving approval can no longer be
+        // triggered across tenants. 404 on absent OR wrong-tenant.
+        VendorPayment payment = findOrThrow(paymentId, tenantId);
         payment.approve();
         payment = repository.saveVendorPayment(payment);
 
@@ -109,12 +112,14 @@ public class VendorPaymentService implements ManageVendorPaymentUseCase {
     @Override
     @Transactional(readOnly = true)
     public VendorPaymentResult getVendorPayment(String paymentId, String tenantId) {
-        return toResult(findOrThrow(paymentId));
+        // SEC-BATCH-1: tenant-scoped by-id read.
+        return toResult(findOrThrow(paymentId, tenantId));
     }
 
-    private VendorPayment findOrThrow(String paymentId) {
-        return repository.findVendorPaymentById(paymentId)
-                .orElseThrow(() -> new IllegalArgumentException("Vendor payment not found: " + paymentId));
+    private VendorPayment findOrThrow(String paymentId, String tenantId) {
+        // SEC-BATCH-1: tenant-scoped finder + 404 on absent OR wrong-tenant (no existence oracle).
+        return TenantOwnership.require(
+                repository.findVendorPaymentById(paymentId, tenantId), "Vendor payment");
     }
 
     private VendorPaymentResult toResult(VendorPayment vp) {

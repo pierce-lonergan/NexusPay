@@ -1,5 +1,6 @@
 package io.nexuspay.vault.application.service;
 
+import io.nexuspay.common.tenant.TenantOwnership;
 import io.nexuspay.vault.application.port.in.VaultCardUseCase;
 import io.nexuspay.vault.application.port.out.EncryptionPort;
 import io.nexuspay.vault.application.port.out.VaultEventPublisher;
@@ -103,9 +104,12 @@ public class CardVaultService implements VaultCardUseCase {
     @Override
     @Transactional(readOnly = true)
     public VaultedCardInfo getCard(String vaultTokenId, String tenantId) {
-        VaultToken token = repository.findTokenById(vaultTokenId)
-                .orElseThrow(() -> new IllegalArgumentException("Vault token not found: " + vaultTokenId));
+        // SEC-BATCH-1: cardholder-data read scoped to the caller's tenant via the vault TOKEN — 404 on
+        // absent OR wrong-tenant (no PAN BIN/last4/name disclosure across tenants, no existence oracle).
+        VaultToken token = TenantOwnership.require(
+                repository.findTokenById(vaultTokenId, tenantId), "Vault token");
 
+        // Card is reached through the now-tenant-scoped token, so this stays an internal-consistency load.
         VaultedCard card = repository.findCardById(token.getVaultedCardId())
                 .orElseThrow(() -> new IllegalStateException("Vaulted card not found for token: " + vaultTokenId));
 
@@ -119,8 +123,10 @@ public class CardVaultService implements VaultCardUseCase {
     @Override
     @Transactional
     public void deleteCard(String vaultTokenId, String tenantId) {
-        VaultToken token = repository.findTokenById(vaultTokenId)
-                .orElseThrow(() -> new IllegalArgumentException("Vault token not found: " + vaultTokenId));
+        // SEC-BATCH-1: scope+assert ownership on the vault TOKEN BEFORE the cascade deletes — prevents
+        // cross-tenant card destruction. 404 on absent OR wrong-tenant.
+        VaultToken token = TenantOwnership.require(
+                repository.findTokenById(vaultTokenId, tenantId), "Vault token");
 
         String cardId = token.getVaultedCardId();
 

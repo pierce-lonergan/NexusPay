@@ -1,5 +1,6 @@
 package io.nexuspay.vault.application.service;
 
+import io.nexuspay.common.exception.ResourceNotFoundException;
 import io.nexuspay.vault.application.port.out.VaultEventPublisher;
 import io.nexuspay.vault.application.port.out.VaultRepository;
 import io.nexuspay.vault.domain.MigrationStatus;
@@ -64,7 +65,8 @@ class VaultMigrationServiceTest {
     void getMigrationStatus_found() {
         // Arrange
         VaultMigration migration = VaultMigration.create(TENANT, "stripe", 1000);
-        when(repository.findMigrationById(migration.getId())).thenReturn(Optional.of(migration));
+        // SEC-BATCH-1: migration loaded tenant-scoped.
+        when(repository.findMigrationById(migration.getId(), TENANT)).thenReturn(Optional.of(migration));
 
         // Act
         VaultMigration result = service.getMigrationStatus(migration.getId(), TENANT);
@@ -76,10 +78,18 @@ class VaultMigrationServiceTest {
 
     @Test
     void getMigrationStatus_notFound_throwsException() {
-        when(repository.findMigrationById("vm_nonexistent")).thenReturn(Optional.empty());
+        when(repository.findMigrationById("vm_nonexistent", TENANT)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.getMigrationStatus("vm_nonexistent", TENANT))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Migration not found");
+                .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    void getMigrationStatus_crossTenant_throwsNotFound() {
+        // SEC-20: migration owned by tenant-2 → tenant-scoped finder empty for tenant-1 → 404.
+        when(repository.findMigrationById("vm_foreign", TENANT)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getMigrationStatus("vm_foreign", TENANT))
+                .isInstanceOf(ResourceNotFoundException.class);
     }
 }

@@ -1,5 +1,6 @@
 package io.nexuspay.vault.adapter.in.rest;
 
+import io.nexuspay.common.tenant.CallerTenant;
 import io.nexuspay.vault.adapter.in.rest.dto.*;
 import io.nexuspay.vault.application.port.in.*;
 import io.nexuspay.vault.domain.CryptogramRequest;
@@ -39,11 +40,10 @@ public class VaultController {
     @PostMapping("/cards")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<VaultCardResponse> vaultCard(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @Valid @RequestBody VaultCardRequest request) {
 
         var result = vaultCardUseCase.vaultCard(new VaultCardUseCase.VaultCardCommand(
-                tenantId, request.pan(), request.expMonth(), request.expYear(),
+                CallerTenant.require(), request.pan(), request.expMonth(), request.expYear(),
                 request.cardholderName()));
 
         return ResponseEntity.status(HttpStatus.CREATED).body(new VaultCardResponse(
@@ -54,10 +54,9 @@ public class VaultController {
     @GetMapping("/cards/{token}")
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<VaultedCardInfoResponse> getCard(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String token) {
 
-        var info = vaultCardUseCase.getCard(token, tenantId);
+        var info = vaultCardUseCase.getCard(token, CallerTenant.require());
 
         return ResponseEntity.ok(new VaultedCardInfoResponse(
                 info.vaultTokenId(), info.panLast4(), info.panBin(),
@@ -68,22 +67,20 @@ public class VaultController {
     @DeleteMapping("/cards/{token}")
     @PreAuthorize("hasRole('admin')")
     public ResponseEntity<Void> deleteCard(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String token) {
 
-        vaultCardUseCase.deleteCard(token, tenantId);
+        vaultCardUseCase.deleteCard(token, CallerTenant.require());
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/cards/{token}/network-tokens")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<NetworkTokenResponse> provisionNetworkToken(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String token,
             @Valid @RequestBody NetworkTokenRequest request) {
 
         NetworkType network = NetworkType.valueOf(request.network());
-        var result = provisionUseCase.provision(token, tenantId, network);
+        var result = provisionUseCase.provision(token, CallerTenant.require(), network);
 
         return ResponseEntity.status(HttpStatus.CREATED).body(new NetworkTokenResponse(
                 result.networkTokenId(), result.tokenLast4(),
@@ -93,14 +90,13 @@ public class VaultController {
     @PostMapping("/cards/{token}/cryptogram")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<CryptogramResponse> generateCryptogram(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String token,
             @Valid @RequestBody CryptogramRequestDto request) {
 
         CryptogramResult result = cryptogramUseCase.generate(
                 new CryptogramRequest(token, request.networkTokenId(),
                         request.amount(), request.currency(), request.merchantId()),
-                tenantId);
+                CallerTenant.require());
 
         return ResponseEntity.ok(new CryptogramResponse(
                 result.cryptogram(), result.eci(), result.expiresAt()));
@@ -109,11 +105,10 @@ public class VaultController {
     @PostMapping("/migrations")
     @PreAuthorize("hasRole('admin')")
     public ResponseEntity<MigrationResponse> startMigration(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @Valid @RequestBody MigrationRequest request) {
 
         VaultMigration migration = migrateUseCase.startMigration(
-                tenantId, request.sourceProvider(), request.totalCards());
+                CallerTenant.require(), request.sourceProvider(), request.totalCards());
 
         return ResponseEntity.status(HttpStatus.CREATED).body(new MigrationResponse(
                 migration.getId(), migration.getStatus().name(),
@@ -124,10 +119,9 @@ public class VaultController {
     @GetMapping("/migrations/{id}")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<MigrationResponse> getMigrationStatus(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String id) {
 
-        VaultMigration migration = migrateUseCase.getMigrationStatus(id, tenantId);
+        VaultMigration migration = migrateUseCase.getMigrationStatus(id, CallerTenant.require());
 
         return ResponseEntity.ok(new MigrationResponse(
                 migration.getId(), migration.getStatus().name(),

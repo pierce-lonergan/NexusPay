@@ -25,16 +25,22 @@ public interface VaultRepository {
     // VaultToken
     VaultToken saveToken(VaultToken token);
     Optional<VaultToken> findTokenById(String tokenId);
+    /** SEC-BATCH-1: tenant-scoped by-id lookup — empty when absent OR owned by another tenant. */
+    Optional<VaultToken> findTokenById(String tokenId, String tenantId);
     Optional<VaultToken> findTokenByVaultedCardId(String vaultedCardId);
     void deleteToken(String tokenId);
 
     // NetworkToken
     NetworkToken saveNetworkToken(NetworkToken token);
     Optional<NetworkToken> findNetworkTokenById(String id);
+    /** SEC-BATCH-1: tenant-scoped by-id lookup. */
+    Optional<NetworkToken> findNetworkTokenById(String id, String tenantId);
     List<NetworkToken> findNetworkTokensByCardId(String cardId);
     void deleteNetworkTokensByCardId(String cardId);
 
     // VaultMigration
     VaultMigration saveMigration(VaultMigration migration);
     Optional<VaultMigration> findMigrationById(String id);
+    /** SEC-BATCH-1: tenant-scoped by-id lookup. */
+    Optional<VaultMigration> findMigrationById(String id, String tenantId);
 }

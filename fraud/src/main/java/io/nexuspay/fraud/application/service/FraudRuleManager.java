@@ -3,6 +3,7 @@ package io.nexuspay.fraud.application.service;
 import io.nexuspay.fraud.application.dto.FraudRuleCreateRequest;
 import io.nexuspay.fraud.application.dto.FraudRuleResponse;
 import io.nexuspay.fraud.application.dto.FraudRuleUpdateRequest;
+import io.nexuspay.common.exception.ResourceNotFoundException;
 import io.nexuspay.fraud.application.port.in.ManageFraudRulesUseCase;
 import io.nexuspay.fraud.application.port.out.FraudEventPublisher;
 import io.nexuspay.fraud.application.port.out.FraudRuleRepository;
@@ -90,7 +91,7 @@ public class FraudRuleManager implements ManageFraudRulesUseCase {
     public FraudRuleResponse updateRule(UUID ruleId, FraudRuleUpdateRequest request, String tenantId) {
         FraudRule rule = ruleRepository.findById(ruleId)
                 .filter(r -> r.getTenantId().equals(tenantId))
-                .orElseThrow(() -> new IllegalArgumentException("Rule not found: " + ruleId));
+                .orElseThrow(() -> new ResourceNotFoundException("Rule not found: " + ruleId));
 
         if (request.conditionDsl() != null) rule.setCondition(new RuleCondition(request.conditionDsl()));
         if (request.action() != null) rule.setAction(request.action());
@@ -118,7 +119,7 @@ public class FraudRuleManager implements ManageFraudRulesUseCase {
     public void disableRule(UUID ruleId, String tenantId) {
         FraudRule rule = ruleRepository.findById(ruleId)
                 .filter(r -> r.getTenantId().equals(tenantId))
-                .orElseThrow(() -> new IllegalArgumentException("Rule not found: " + ruleId));
+                .orElseThrow(() -> new ResourceNotFoundException("Rule not found: " + ruleId));
 
         rule.setEnabled(false);
         rule.setUpdatedAt(Instant.now());
@@ -134,7 +135,7 @@ public class FraudRuleManager implements ManageFraudRulesUseCase {
     public void enableRule(UUID ruleId, String tenantId) {
         FraudRule rule = ruleRepository.findById(ruleId)
                 .filter(r -> r.getTenantId().equals(tenantId))
-                .orElseThrow(() -> new IllegalArgumentException("Rule not found: " + ruleId));
+                .orElseThrow(() -> new ResourceNotFoundException("Rule not found: " + ruleId));
 
         rule.setEnabled(true);
         rule.setUpdatedAt(Instant.now());
@@ -148,7 +149,7 @@ public class FraudRuleManager implements ManageFraudRulesUseCase {
         return ruleRepository.findById(ruleId)
                 .filter(r -> r.getTenantId().equals(tenantId))
                 .map(FraudRuleResponse::from)
-                .orElseThrow(() -> new IllegalArgumentException("Rule not found: " + ruleId));
+                .orElseThrow(() -> new ResourceNotFoundException("Rule not found: " + ruleId));
     }
 
     @Override

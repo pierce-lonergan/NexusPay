@@ -1,5 +1,6 @@
 package io.nexuspay.vault.application.service;
 
+import io.nexuspay.common.exception.ResourceNotFoundException;
 import io.nexuspay.vault.application.port.in.VaultCardUseCase;
 import io.nexuspay.vault.application.port.in.VaultCardUseCase.VaultCardCommand;
 import io.nexuspay.vault.application.port.in.VaultCardUseCase.VaultCardResult;
@@ -132,9 +133,11 @@ class CardVaultServiceTest {
         VaultToken token = new VaultToken();
         token.setId("tok_123");
         token.setVaultedCardId("vc_456");
+        token.setTenantId(TENANT);
 
         VaultedCard card = new VaultedCard();
         card.setId("vc_456");
+        card.setTenantId(TENANT);
         card.setPanLast4("1111");
         card.setPanBin("41111111");
         card.setBrand(CardBrand.VISA);
@@ -143,7 +146,8 @@ class CardVaultServiceTest {
         card.setCardholderName("John Doe");
         card.setCreatedAt(Instant.parse("2026-01-15T10:00:00Z"));
 
-        when(repository.findTokenById("tok_123")).thenReturn(Optional.of(token));
+        // SEC-BATCH-1: cardholder-data read is scoped on the token (id + caller tenant).
+        when(repository.findTokenById("tok_123", TENANT)).thenReturn(Optional.of(token));
         when(repository.findCardById("vc_456")).thenReturn(Optional.of(card));
 
         // Act
@@ -158,13 +162,25 @@ class CardVaultServiceTest {
     }
 
     @Test
+    void getCard_crossTenant_throwsNotFound() {
+        // SEC-BATCH-1: token owned by tenant-2 → tenant-scoped finder empty for tenant-1 → 404. No
+        // PAN BIN/last4/cardholder-name is disclosed; the card load is never reached.
+        when(repository.findTokenById("tok_foreign", TENANT)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getCard("tok_foreign", TENANT))
+                .isInstanceOf(ResourceNotFoundException.class);
+        verify(repository, never()).findCardById(anyString());
+    }
+
+    @Test
     void deleteCard_cascadesDeletes() {
         // Arrange
         VaultToken token = new VaultToken();
         token.setId("tok_123");
         token.setVaultedCardId("vc_456");
+        token.setTenantId(TENANT);
 
-        when(repository.findTokenById("tok_123")).thenReturn(Optional.of(token));
+        when(repository.findTokenById("tok_123", TENANT)).thenReturn(Optional.of(token));
 
         // Act
         service.deleteCard("tok_123", TENANT);
@@ -179,6 +195,18 @@ class CardVaultServiceTest {
         inOrder.verify(eventPublisher).publishEvent(eq("VaultedCard"), eq("vc_456"), eventTypeCaptor.capture(),
                 any(Map.class), eq(TENANT));
         assertThat(eventTypeCaptor.getValue()).isEqualTo("CardDeleted");
+    }
+
+    @Test
+    void deleteCard_crossTenant_throwsNotFound() {
+        // SEC-BATCH-1: cross-tenant delete must 404 BEFORE any cascade delete runs.
+        when(repository.findTokenById("tok_foreign", TENANT)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.deleteCard("tok_foreign", TENANT))
+                .isInstanceOf(ResourceNotFoundException.class);
+        verify(repository, never()).deleteNetworkTokensByCardId(anyString());
+        verify(repository, never()).deleteToken(anyString());
+        verify(repository, never()).deleteCard(anyString());
     }
 
     @Test

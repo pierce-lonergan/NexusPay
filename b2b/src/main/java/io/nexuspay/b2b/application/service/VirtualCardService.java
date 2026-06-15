@@ -5,6 +5,7 @@ import io.nexuspay.b2b.application.port.out.B2bEventPublisher;
 import io.nexuspay.b2b.application.port.out.B2bRepository;
 import io.nexuspay.b2b.application.port.out.CardIssuingPort;
 import io.nexuspay.b2b.domain.VirtualCard;
+import io.nexuspay.common.tenant.TenantOwnership;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -72,13 +73,14 @@ public class VirtualCardService implements IssueVirtualCardUseCase {
     @Override
     @Transactional(readOnly = true)
     public VirtualCardResult getCard(String cardId, String tenantId) {
-        return toResult(findOrThrow(cardId));
+        return toResult(findOrThrow(cardId, tenantId));
     }
 
     @Override
     @Transactional
     public void freezeCard(String cardId, String tenantId) {
-        VirtualCard card = findOrThrow(cardId);
+        // SEC-BATCH-1: tenant-scoped lifecycle write.
+        VirtualCard card = findOrThrow(cardId, tenantId);
         card.freeze();
         repository.saveVirtualCard(card);
 
@@ -95,7 +97,8 @@ public class VirtualCardService implements IssueVirtualCardUseCase {
     @Override
     @Transactional
     public void cancelCard(String cardId, String tenantId) {
-        VirtualCard card = findOrThrow(cardId);
+        // SEC-BATCH-1: tenant-scoped lifecycle write.
+        VirtualCard card = findOrThrow(cardId, tenantId);
         card.cancel();
         repository.saveVirtualCard(card);
 
@@ -109,9 +112,10 @@ public class VirtualCardService implements IssueVirtualCardUseCase {
         log.info("Virtual card cancelled: id={}", cardId);
     }
 
-    private VirtualCard findOrThrow(String cardId) {
-        return repository.findVirtualCardById(cardId)
-                .orElseThrow(() -> new IllegalArgumentException("Virtual card not found: " + cardId));
+    private VirtualCard findOrThrow(String cardId, String tenantId) {
+        // SEC-BATCH-1: tenant-scoped finder + 404 on absent OR wrong-tenant.
+        return TenantOwnership.require(
+                repository.findVirtualCardById(cardId, tenantId), "Virtual card");
     }
 
     private VirtualCardResult toResult(VirtualCard card) {

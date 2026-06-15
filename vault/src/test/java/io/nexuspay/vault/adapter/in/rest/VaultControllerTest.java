@@ -1,5 +1,6 @@
 package io.nexuspay.vault.adapter.in.rest;
 
+import io.nexuspay.common.tenant.TenantPrincipal;
 import io.nexuspay.vault.application.port.in.GenerateCryptogramUseCase;
 import io.nexuspay.vault.application.port.in.MigrateVaultUseCase;
 import io.nexuspay.vault.application.port.in.ProvisionNetworkTokenUseCase;
@@ -17,16 +18,19 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
-import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
+import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -51,14 +55,25 @@ class VaultControllerTest {
     @MockBean
     private MigrateVaultUseCase migrateUseCase;
 
+    /**
+     * Builds a tenant-bearing authentication WITHOUT importing the iam principal. The slice can
+     * construct this because {@link TenantPrincipal} lives in {@code common}; {@code CallerTenant}
+     * resolves the tenant from it exactly as in production. Replaces the old {@code @WithMockUser} +
+     * {@code X-Tenant-Id} header combination (the header is gone; the principal now carries tenant).
+     */
+    private static Authentication tenantAuth(String tenantId, String role) {
+        TenantPrincipal principal = () -> tenantId;
+        return new UsernamePasswordAuthenticationToken(
+                principal, null, List.of(new SimpleGrantedAuthority("ROLE_" + role)));
+    }
+
     @Test
-    @WithMockUser(roles = "admin")
     void postCard_returns201_withToken() throws Exception {
         VaultCardResult result = new VaultCardResult("tok_abc123", "1111", CardBrand.VISA, "fp_xyz");
         when(vaultCardUseCase.vaultCard(any(VaultCardUseCase.VaultCardCommand.class))).thenReturn(result);
 
         mockMvc.perform(post("/v1/vault/cards")
-                        .header("X-Tenant-Id", "tenant-1")
+                        .with(authentication(tenantAuth("tenant-1", "admin")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -76,15 +91,15 @@ class VaultControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "admin")
     void getCard_returns200() throws Exception {
         VaultedCardInfo info = new VaultedCardInfo(
                 "tok_123", "1111", "41111111", CardBrand.VISA,
                 12, 2028, "John Doe", Instant.parse("2026-01-15T10:00:00Z"));
-        when(vaultCardUseCase.getCard(eq("tok_123"), anyString())).thenReturn(info);
+        // Controller passes the principal tenant ("tenant-1"), not a header.
+        when(vaultCardUseCase.getCard(eq("tok_123"), eq("tenant-1"))).thenReturn(info);
 
         mockMvc.perform(get("/v1/vault/cards/tok_123")
-                        .header("X-Tenant-Id", "tenant-1"))
+                        .with(authentication(tenantAuth("tenant-1", "admin"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.token").value("tok_123"))
                 .andExpect(jsonPath("$.panLast4").value("1111"))
@@ -93,23 +108,22 @@ class VaultControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "admin")
     void deleteCard_returns204() throws Exception {
         mockMvc.perform(delete("/v1/vault/cards/tok_123")
-                        .header("X-Tenant-Id", "tenant-1"))
+                        .with(authentication(tenantAuth("tenant-1", "admin"))))
                 .andExpect(status().isNoContent());
 
+        // The principal now carries tenant-1, so the use case is invoked with it.
         verify(vaultCardUseCase).deleteCard(eq("tok_123"), eq("tenant-1"));
     }
 
     @Test
-    @WithMockUser(roles = "admin")
     void provisionNetworkToken_returns201() throws Exception {
         NetworkTokenResult result = new NetworkTokenResult("nt_001", "7890", TokenState.PROVISIONED, NetworkType.VISA_VTS);
-        when(provisionUseCase.provision(eq("tok_123"), anyString(), any(NetworkType.class))).thenReturn(result);
+        when(provisionUseCase.provision(eq("tok_123"), eq("tenant-1"), any(NetworkType.class))).thenReturn(result);
 
         mockMvc.perform(post("/v1/vault/cards/tok_123/network-tokens")
-                        .header("X-Tenant-Id", "tenant-1")
+                        .with(authentication(tenantAuth("tenant-1", "admin")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -124,7 +138,6 @@ class VaultControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "admin")
     void startMigration_returns201() throws Exception {
         VaultMigration migration = new VaultMigration();
         migration.setId("vm_001");
@@ -134,10 +147,10 @@ class VaultControllerTest {
         migration.setMigratedCount(0);
         migration.setFailedCount(0);
 
-        when(migrateUseCase.startMigration(anyString(), eq("spreedly"), eq(5000))).thenReturn(migration);
+        when(migrateUseCase.startMigration(eq("tenant-1"), eq("spreedly"), eq(5000))).thenReturn(migration);
 
         mockMvc.perform(post("/v1/vault/migrations")
-                        .header("X-Tenant-Id", "tenant-1")
+                        .with(authentication(tenantAuth("tenant-1", "admin")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -153,9 +166,25 @@ class VaultControllerTest {
     }
 
     @Test
+    void getCard_ignoresClientHeader_usesPrincipalTenant() throws Exception {
+        // SEC-05/06: an attacker-supplied X-Tenant-Id must NOT influence tenant scoping. Even when the
+        // header claims "tenant-evil", the controller resolves the principal's tenant ("tenant-1").
+        VaultedCardInfo info = new VaultedCardInfo(
+                "tok_123", "1111", "41111111", CardBrand.VISA,
+                12, 2028, "John Doe", Instant.parse("2026-01-15T10:00:00Z"));
+        when(vaultCardUseCase.getCard(eq("tok_123"), eq("tenant-1"))).thenReturn(info);
+
+        mockMvc.perform(get("/v1/vault/cards/tok_123")
+                        .header("X-Tenant-Id", "tenant-evil")
+                        .with(authentication(tenantAuth("tenant-1", "admin"))))
+                .andExpect(status().isOk());
+
+        verify(vaultCardUseCase).getCard(eq("tok_123"), eq("tenant-1"));
+    }
+
+    @Test
     void postCard_noAuth_returns401() throws Exception {
         mockMvc.perform(post("/v1/vault/cards")
-                        .header("X-Tenant-Id", "tenant-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {

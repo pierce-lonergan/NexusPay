@@ -1,5 +1,6 @@
 package io.nexuspay.marketplace.application.service;
 
+import io.nexuspay.common.tenant.TenantOwnership;
 import io.nexuspay.marketplace.application.port.in.ConfigureFeeUseCase;
 import io.nexuspay.marketplace.application.port.out.MarketplaceEventPublisher;
 import io.nexuspay.marketplace.application.port.out.MarketplaceRepository;
@@ -33,9 +34,10 @@ public class PlatformFeeService implements ConfigureFeeUseCase {
     @Override
     @Transactional
     public FeeConfigResult configureFee(ConfigureFeeCommand command) {
-        ConnectedAccount account = repository.findAccountById(command.connectedAccountId())
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Connected account not found: " + command.connectedAccountId()));
+        // SEC-BATCH-1: tenant-scoped write — a tenant can only configure fees on its own account.
+        ConnectedAccount account = TenantOwnership.require(
+                repository.findAccountById(command.connectedAccountId(), command.tenantId()),
+                "Connected account");
 
         account.setPlatformFeePercent(command.feePercent());
         account.setPlatformFeeFixed(command.feeFixed());
@@ -57,9 +59,9 @@ public class PlatformFeeService implements ConfigureFeeUseCase {
     @Override
     @Transactional(readOnly = true)
     public FeeConfigResult getFeeConfig(String accountId, String tenantId) {
-        ConnectedAccount account = repository.findAccountById(accountId)
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Connected account not found: " + accountId));
+        // SEC-BATCH-1: tenant-scoped read.
+        ConnectedAccount account = TenantOwnership.require(
+                repository.findAccountById(accountId, tenantId), "Connected account");
 
         return new FeeConfigResult(
                 account.getId(), account.getPlatformFeePercent(), account.getPlatformFeeFixed());

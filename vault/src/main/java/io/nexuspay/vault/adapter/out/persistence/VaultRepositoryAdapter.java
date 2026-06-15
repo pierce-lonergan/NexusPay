@@ -72,6 +72,11 @@ public class VaultRepositoryAdapter implements VaultRepository {
     }
 
     @Override
+    public Optional<VaultToken> findTokenById(String tokenId, String tenantId) {
+        return tokenRepo.findByIdAndTenantId(tokenId, tenantId).map(this::toDomain);
+    }
+
+    @Override
     public Optional<VaultToken> findTokenByVaultedCardId(String vaultedCardId) {
         return tokenRepo.findByVaultedCardId(vaultedCardId).map(this::toDomain);
     }
@@ -91,6 +96,11 @@ public class VaultRepositoryAdapter implements VaultRepository {
     @Override
     public Optional<NetworkToken> findNetworkTokenById(String id) {
         return networkTokenRepo.findById(id).map(this::toDomain);
+    }
+
+    @Override
+    public Optional<NetworkToken> findNetworkTokenById(String id, String tenantId) {
+        return networkTokenRepo.findByIdAndTenantId(id, tenantId).map(this::toDomain);
     }
 
     @Override
@@ -114,6 +124,11 @@ public class VaultRepositoryAdapter implements VaultRepository {
     @Override
     public Optional<VaultMigration> findMigrationById(String id) {
         return migrationRepo.findById(id).map(this::toDomain);
+    }
+
+    @Override
+    public Optional<VaultMigration> findMigrationById(String id, String tenantId) {
+        return migrationRepo.findByIdAndTenantId(id, tenantId).map(this::toDomain);
     }
 
     // --- Entity ↔ Domain Mapping: VaultedCard ---

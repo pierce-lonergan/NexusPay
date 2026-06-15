@@ -1,5 +1,6 @@
 package io.nexuspay.marketplace.application.service;
 
+import io.nexuspay.common.tenant.TenantOwnership;
 import io.nexuspay.marketplace.application.port.in.OnboardAccountUseCase;
 import io.nexuspay.marketplace.application.port.out.KycProviderPort;
 import io.nexuspay.marketplace.application.port.out.MarketplaceEventPublisher;
@@ -78,16 +79,18 @@ public class AccountOnboardingService implements OnboardAccountUseCase {
     @Override
     @Transactional(readOnly = true)
     public AccountInfo getAccount(String accountId, String tenantId) {
-        ConnectedAccount account = repository.findAccountById(accountId)
-                .orElseThrow(() -> new IllegalArgumentException("Connected account not found: " + accountId));
+        // SEC-BATCH-1: tenant-scoped read — 404 on absent OR wrong-tenant.
+        ConnectedAccount account = TenantOwnership.require(
+                repository.findAccountById(accountId, tenantId), "Connected account");
         return toAccountInfo(account);
     }
 
     @Override
     @Transactional
     public AccountInfo updateAccount(String accountId, String tenantId, UpdateAccountCommand command) {
-        ConnectedAccount account = repository.findAccountById(accountId)
-                .orElseThrow(() -> new IllegalArgumentException("Connected account not found: " + accountId));
+        // SEC-BATCH-1: tenant-scoped write.
+        ConnectedAccount account = TenantOwnership.require(
+                repository.findAccountById(accountId, tenantId), "Connected account");
 
         if (command.businessName() != null) account.setBusinessName(command.businessName());
         if (command.email() != null) account.setEmail(command.email());
@@ -108,8 +111,9 @@ public class AccountOnboardingService implements OnboardAccountUseCase {
     @Override
     @Transactional
     public void suspendAccount(String accountId, String tenantId, String reason) {
-        ConnectedAccount account = repository.findAccountById(accountId)
-                .orElseThrow(() -> new IllegalArgumentException("Connected account not found: " + accountId));
+        // SEC-BATCH-1: tenant-scoped lifecycle write (cross-tenant suspend is a high-impact attack).
+        ConnectedAccount account = TenantOwnership.require(
+                repository.findAccountById(accountId, tenantId), "Connected account");
 
         account.suspend(reason);
         repository.saveAccount(account);
@@ -123,8 +127,9 @@ public class AccountOnboardingService implements OnboardAccountUseCase {
     @Override
     @Transactional
     public void closeAccount(String accountId, String tenantId) {
-        ConnectedAccount account = repository.findAccountById(accountId)
-                .orElseThrow(() -> new IllegalArgumentException("Connected account not found: " + accountId));
+        // SEC-BATCH-1: tenant-scoped lifecycle write.
+        ConnectedAccount account = TenantOwnership.require(
+                repository.findAccountById(accountId, tenantId), "Connected account");
 
         account.close();
         repository.saveAccount(account);

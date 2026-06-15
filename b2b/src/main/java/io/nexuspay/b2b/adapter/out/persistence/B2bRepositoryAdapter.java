@@ -86,6 +86,11 @@ public class B2bRepositoryAdapter implements B2bRepository {
     }
 
     @Override
+    public Optional<VirtualCard> findVirtualCardById(String id, String tenantId) {
+        return cardRepo.findByIdAndTenantId(id, tenantId).map(this::toDomain);
+    }
+
+    @Override
     public List<VirtualCard> findVirtualCardsByTenantId(String tenantId) {
         return cardRepo.findByTenantId(tenantId).stream().map(this::toDomain).toList();
     }
@@ -100,6 +105,11 @@ public class B2bRepositoryAdapter implements B2bRepository {
     @Override
     public Optional<VendorPayment> findVendorPaymentById(String id) {
         return vendorPaymentRepo.findById(id).map(this::toDomain);
+    }
+
+    @Override
+    public Optional<VendorPayment> findVendorPaymentById(String id, String tenantId) {
+        return vendorPaymentRepo.findByIdAndTenantId(id, tenantId).map(this::toDomain);
     }
 
     @Override

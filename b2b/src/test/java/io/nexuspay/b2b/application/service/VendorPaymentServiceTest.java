@@ -7,6 +7,7 @@ import io.nexuspay.b2b.application.port.out.VendorPaymentExecutionPort;
 import io.nexuspay.b2b.domain.VendorPayment;
 import io.nexuspay.b2b.domain.VendorPaymentMethod;
 import io.nexuspay.b2b.domain.VendorPaymentStatus;
+import io.nexuspay.common.exception.ResourceNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -63,7 +64,8 @@ class VendorPaymentServiceTest {
     @Test
     void approveVendorPayment_changesStatusToApproved() {
         VendorPayment payment = VendorPayment.create("tenant-1", "vendor-1", 100000, "USD", VendorPaymentMethod.WIRE);
-        when(repository.findVendorPaymentById(payment.getId())).thenReturn(Optional.of(payment));
+        // SEC-BATCH-1: payment loaded tenant-scoped before approve().
+        when(repository.findVendorPaymentById(payment.getId(), "tenant-1")).thenReturn(Optional.of(payment));
         when(repository.saveVendorPayment(any())).thenAnswer(inv -> inv.getArgument(0));
 
         var result = service.approveVendorPayment(payment.getId(), "tenant-1");
@@ -73,10 +75,21 @@ class VendorPaymentServiceTest {
     }
 
     @Test
+    void approveVendorPayment_crossTenant_throwsNotFound() {
+        // SEC-BATCH-1 (headline write): caller tenant-1 approving a payment owned by tenant-2. The
+        // tenant-scoped finder returns empty → 404 → money-moving approval cannot cross tenants.
+        when(repository.findVendorPaymentById("vp_foreign", "tenant-1")).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> service.approveVendorPayment("vp_foreign", "tenant-1"));
+        verify(repository, never()).saveVendorPayment(any());
+    }
+
+    @Test
     void approveVendorPayment_throwsWhenAlreadyApproved() {
         VendorPayment payment = VendorPayment.create("tenant-1", "vendor-1", 100000, "USD", VendorPaymentMethod.ACH);
         payment.approve(); // Already APPROVED
-        when(repository.findVendorPaymentById(payment.getId())).thenReturn(Optional.of(payment));
+        when(repository.findVendorPaymentById(payment.getId(), "tenant-1")).thenReturn(Optional.of(payment));
 
         assertThrows(IllegalStateException.class, () -> service.approveVendorPayment(payment.getId(), "tenant-1"));
     }
@@ -106,7 +119,7 @@ class VendorPaymentServiceTest {
     @Test
     void getVendorPayment_returnsResult() {
         VendorPayment payment = VendorPayment.create("tenant-1", "vendor-1", 100000, "USD", VendorPaymentMethod.ACH);
-        when(repository.findVendorPaymentById(payment.getId())).thenReturn(Optional.of(payment));
+        when(repository.findVendorPaymentById(payment.getId(), "tenant-1")).thenReturn(Optional.of(payment));
 
         var result = service.getVendorPayment(payment.getId(), "tenant-1");
 
@@ -116,8 +129,16 @@ class VendorPaymentServiceTest {
 
     @Test
     void getVendorPayment_throwsWhenNotFound() {
-        when(repository.findVendorPaymentById("vp_missing")).thenReturn(Optional.empty());
+        when(repository.findVendorPaymentById("vp_missing", "tenant-1")).thenReturn(Optional.empty());
 
-        assertThrows(IllegalArgumentException.class, () -> service.getVendorPayment("vp_missing", "tenant-1"));
+        assertThrows(ResourceNotFoundException.class, () -> service.getVendorPayment("vp_missing", "tenant-1"));
+    }
+
+    @Test
+    void getVendorPayment_crossTenant_throwsNotFound() {
+        // SEC-BATCH-1: payment owned by tenant-2 → empty for tenant-1 → 404.
+        when(repository.findVendorPaymentById("vp_foreign", "tenant-1")).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () -> service.getVendorPayment("vp_foreign", "tenant-1"));
     }
 }

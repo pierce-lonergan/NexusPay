@@ -25,11 +25,15 @@ public interface B2bRepository {
     // --- VirtualCard ---
     VirtualCard saveVirtualCard(VirtualCard card);
     Optional<VirtualCard> findVirtualCardById(String id);
+    /** SEC-BATCH-1: tenant-scoped by-id lookup — empty when absent OR owned by another tenant. */
+    Optional<VirtualCard> findVirtualCardById(String id, String tenantId);
     List<VirtualCard> findVirtualCardsByTenantId(String tenantId);
 
     // --- VendorPayment ---
     VendorPayment saveVendorPayment(VendorPayment payment);
     Optional<VendorPayment> findVendorPaymentById(String id);
+    /** SEC-BATCH-1: tenant-scoped by-id lookup (approval is money-moving). */
+    Optional<VendorPayment> findVendorPaymentById(String id, String tenantId);
     List<VendorPayment> findVendorPaymentsByBatchId(String batchId);
     List<VendorPayment> findVendorPaymentsByVendorId(String vendorId);
 }

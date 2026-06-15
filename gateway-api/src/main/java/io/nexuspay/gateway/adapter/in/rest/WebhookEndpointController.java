@@ -64,8 +64,12 @@ public class WebhookEndpointController {
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('admin')")
     @Operation(summary = "Delete a webhook endpoint")
-    public ResponseEntity<Void> delete(@PathVariable String id) {
-        webhookEndpointRepository.findById(id).ifPresent(entity -> {
+    public ResponseEntity<Void> delete(@PathVariable String id,
+                                       @AuthenticationPrincipal NexusPayPrincipal principal) {
+        // SEC-19: scope the lookup to the caller's tenant so a foreign id cannot disable another
+        // tenant's endpoint. A cross-tenant (or absent) id silently no-ops to 204 — consistent with
+        // the existing 204-on-miss behaviour and giving no existence oracle.
+        webhookEndpointRepository.findByIdAndTenantId(id, principal.tenantId()).ifPresent(entity -> {
             entity.setEnabled(false);
             webhookEndpointRepository.save(entity);
         });

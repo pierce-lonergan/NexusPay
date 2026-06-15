@@ -15,4 +15,9 @@ dependencies {
     implementation("org.flywaydb:flyway-core")
     implementation("com.fasterxml.jackson.core:jackson-databind")
     implementation("io.github.resilience4j:resilience4j-spring-boot3")
+
+    // SEC-BATCH-1: FraudRuleControllerTest is a @WebMvcTest slice driving principal-based auth via
+    // SecurityMockMvcRequestPostProcessors (spring-security-test). spring-boot-starter-test is already
+    // supplied to every module by the root subprojects block.
+    testImplementation("org.springframework.security:spring-security-test")
 }
