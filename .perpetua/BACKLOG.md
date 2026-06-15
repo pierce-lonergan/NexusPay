@@ -74,6 +74,19 @@ Fix program (each batch = its own T3 PR via the fusion topology; diverse impleme
   idempotency key (fold into B-002/outbox work). Score (4×4)/4 +2 = **6**.
 
 ## Done
+- **Simulation / stress + red-team environment** (2026-06-15, FF) — an aggressive test harness, all
+  REPORT-ONLY so it never reds the default gate (the SEC-* fixes are un-merged). (1) gatling load sims
+  (payment burst / mixed-concurrency / refund-idempotency storm / dashboard read storm). (2) UNTAGGED in-gate
+  soak/fuzz that passes on current main: ledger balance-invariant soak (de-flaked: low-contention + 40001
+  retry), refund deterministic-key idempotency, HyperSwitch webhook guard, + parser/money fuzz (Money,
+  StripeCsv, OFAC — partition-invariant / no-money-drop). (3) `@Tag("redteam")` attack suite EXCLUDED from
+  the gate, run by a report-only `redteam-sim` CI job — genuine fail-on-vulnerable-main attacks: cross-tenant
+  IDOR (seeded victims), dispute-webhook auth/replay, ledger double-post on redelivery, payout double-pay,
+  outbound-webhook SSRF, PAN-in-payment_tokens (retargeted to the real B-004/SEC-04 path). 2 @Disabled with
+  TODOs (need a stub PSP: idempotency-reuse → B-012/SEC-BATCH-5; payment-lifecycle IDOR → B-007/SEC-BATCH-3).
+  Adversarial review killed 2 false-assurance tests + a gradle tag-filter no-op (redteamTest selected 0
+  tests). Flip-plan in docs/simulation/README — each attack moves into the gate as its SEC-* fix lands. L-049.
+  FOLLOW-UP: add vault delete/cryptogram + b2b vendor-approve + ledger-query + webhook-DELETE IDOR scenarios.
 - **DX-1 | checkout-sdk verifier + postMessage/3DS origin hardening + OpenAPI + a11y** (2026-06-15, FF) —
   (1) NEW .github/workflows/checkout-sdk.yml: first CI verifier for the TS SDK (npm ci/build/test + report-only
   `npm audit --audit-level=high`; SHA-pinned actions); fixed the pre-existing BROKEN lockfile (missing

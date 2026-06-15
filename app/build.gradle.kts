@@ -66,3 +66,41 @@ configurations.all {
 springBoot {
     mainClass.set("io.nexuspay.NexusPayApplication")
 }
+
+// ---------------------------------------------------------------------------
+// redteamTest — the INVERSE of the default gate (simulation/red-team env).
+//
+// The root `subprojects { tasks.withType<Test> { useJUnitPlatform { excludeTags(
+// "redteam", "simulation") } } }` block EXCLUDES the attack suite from the
+// default `test` task so main stays GREEN (those tests assert secure behavior
+// current main lacks). This task does the opposite: it INCLUDES only those tags
+// and runs them REPORT-ONLY (the perpetua-gates `redteam-sim` CI job swallows a
+// non-zero exit with `|| echo ::warning`). It reuses the SAME compiled
+// `test` source set — no separate source set, no duplicated IntegrationTestBase /
+// TestSecurityConfig machinery.
+//
+// CRITICAL: `tasks.withType<Test>` above ALSO matches THIS task and mutates the
+// SAME JUnitPlatformOptions instance — its `excludeTags("redteam","simulation")`
+// runs first and is NOT replaced by a later `includeTags(...)` call (include and
+// exclude accumulate independently; when a tag is in BOTH sets JUnit's exclude
+// WINS → 0 tests selected). So we must explicitly RESET the inherited excludes to
+// empty here before including, otherwise the report-only job silently runs ZERO
+// tests. We clear `excludeTags` (and defensively re-set the include set) so the
+// resulting task includes redteam/simulation and excludes nothing.
+// It runs after the gate `test` so a local `./gradlew test redteamTest` does the
+// gate first. See docs/simulation/README.md for the flip-to-gating plan.
+// ---------------------------------------------------------------------------
+tasks.register<Test>("redteamTest") {
+    description = "Runs the report-only @Tag(\"redteam\")/@Tag(\"simulation\") attack + stress suite."
+    group = "verification"
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    useJUnitPlatform {
+        // Drop the excludes inherited from the root `subprojects` Test config —
+        // without this the shared options carry excludeTags(redteam,simulation)
+        // and JUnit's exclude beats our include → nothing runs.
+        excludeTags = emptySet()
+        includeTags = setOf("redteam", "simulation")
+    }
+    shouldRunAfter(tasks.named("test"))
+}

@@ -46,7 +46,16 @@ subprojects {
     }
 
     tasks.withType<Test> {
-        useJUnitPlatform()
+        // Default gate (ci.yml + perpetua-gates `build test jacocoTestReport`) EXCLUDES the
+        // report-only attack/stress tags. The @Tag("redteam") suite asserts SECURE behavior that
+        // current main does NOT yet have (the SEC-* PRs are unmerged), so it WOULD red the gate —
+        // it is excluded here and run only by the report-only `redteamTest` task / CI job.
+        // @Tag("simulation") is a reserved co-excluded alias for heavier on-demand in-JVM stress.
+        // The classes still COMPILE under `./gradlew build` (they live in app/src/test, compiled by
+        // the test compile task even when excluded from execution) so CI verifies buildability.
+        // In-gate soak/fuzz are deliberately UNTAGGED so they keep running and raise the ratchet
+        // floors. See docs/simulation/README.md for the flip-to-gating plan.
+        useJUnitPlatform { excludeTags("redteam", "simulation") }
         jvmArgs("-XX:+EnableDynamicAgentLoading")
         finalizedBy(tasks.named("jacocoTestReport"))
     }
