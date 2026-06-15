@@ -18,6 +18,7 @@ import java.util.List;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -57,8 +58,10 @@ class SplitPaymentControllerTest {
         when(splitPaymentUseCase.getSplitPayment(eq("sp_foreign"), eq("tenant-1")))
                 .thenThrow(new ResourceNotFoundException("Split payment not found"));
 
-        mockMvc.perform(get("/v1/split-payments/sp_foreign")
-                .with(authentication(tenantAuth("tenant-1", "admin"))));
+        // No @ControllerAdvice in the @WebMvcTest slice → not-found propagates out of perform; assert
+        // it raises, then verify the caller-tenant security property.
+        assertThatThrownBy(() -> mockMvc.perform(get("/v1/split-payments/sp_foreign")
+                .with(authentication(tenantAuth("tenant-1", "admin")))));
 
         verify(splitPaymentUseCase).getSplitPayment("sp_foreign", "tenant-1");
     }

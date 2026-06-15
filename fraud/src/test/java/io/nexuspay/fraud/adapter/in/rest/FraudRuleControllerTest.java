@@ -23,6 +23,7 @@ import java.util.UUID;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -83,8 +84,10 @@ class FraudRuleControllerTest {
         when(ruleUseCase.getRule(eq(RULE_ID), eq("tenant-1")))
                 .thenThrow(new ResourceNotFoundException("Rule not found: " + RULE_ID));
 
-        mockMvc.perform(get("/v1/fraud/rules/" + RULE_ID)
-                .with(authentication(tenantAuth("tenant-1", "admin"))));
+        // No @ControllerAdvice in the @WebMvcTest slice → not-found propagates out of perform; assert
+        // it raises, then verify the caller-tenant security property.
+        assertThatThrownBy(() -> mockMvc.perform(get("/v1/fraud/rules/" + RULE_ID)
+                .with(authentication(tenantAuth("tenant-1", "admin")))));
 
         verify(ruleUseCase).getRule(RULE_ID, "tenant-1");
     }

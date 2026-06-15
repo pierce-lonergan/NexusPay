@@ -20,6 +20,7 @@ import java.util.List;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -80,8 +81,10 @@ class PayoutControllerTest {
         when(payoutUseCase.getPayout(eq("po_foreign"), eq("tenant-1")))
                 .thenThrow(new ResourceNotFoundException("Payout not found"));
 
-        mockMvc.perform(get("/v1/payouts/po_foreign")
-                .with(authentication(tenantAuth("tenant-1", "admin"))));
+        // No @ControllerAdvice in the @WebMvcTest slice (it lives in gateway-api) → not-found
+        // propagates out of perform; assert it raises, then verify the caller-tenant security property.
+        assertThatThrownBy(() -> mockMvc.perform(get("/v1/payouts/po_foreign")
+                .with(authentication(tenantAuth("tenant-1", "admin")))));
 
         verify(payoutUseCase).getPayout("po_foreign", "tenant-1");
     }
