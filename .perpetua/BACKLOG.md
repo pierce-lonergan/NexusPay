@@ -44,7 +44,20 @@ Fix program (each batch = its own T3 PR via the fusion topology; diverse impleme
   SEC-03 residual: the card iframe pins apiBase/sessionToken ONCE at init (ignores later message changes) +
   frame-ancestors tightened off '*'. PanPersistenceRedteamTest flipped into the gate. ADR-021, L-052.
   (SEC-03 origin half was DX-1.)
-- **SEC-BATCH-4 (HIGH) money-dup/SSRF/reliability** — SEC-10 (ledger double-post: DB unique on idempotency) + SEC-11 (payout scheduler no lock → double-pay) + SEC-14 (outbound webhook SSRF allowlist) + SEC-16 (dead-letter stuck RETRYING) + SEC-13 (iframe-manager token leak — DONE in DX-1).
+- ~~**SEC-BATCH-4 (HIGH) money-dup**~~ — DONE 2026-06-15 (T3 PR). SEC-10: V4028 UNIQUE(payment_reference,
+  description) on journal_entries + saveAndFlush dup-key no-op (L-041) → no ledger double-post on Kafka
+  redelivery. SEC-11: inlined fail-closed MarketplaceSchedulerLock (B-022 precedent) + atomic per-payout claim
+  (UPDATE...WHERE status=PENDING rows==1) → no payout double-pay on multi-replica. Both red-team tests flipped
+  into the gate. ADR-022.
+- **SEC-BATCH-4b (HIGH) SSRF + reliability** — SEC-14 (outbound webhook delivery POSTs to merchant URLs with
+  no SSRF guard → validate at registration AND before delivery: require https, reject RFC1918/loopback/
+  link-local/169.254.169.254, defeat DNS rebinding) + SEC-16 (DeadLetterReprocessor flips RETRYING then mutates
+  final state only in an async callback after the tx/lock → dead letters stuck RETRYING; block on the send ack
+  + mutate synchronously). gateway-api + app; T3 PR.
+- **SEC-25 (MED) payout disburse-before-commit reconciler** — found in SEC-BATCH-4 review: the atomic claim
+  marks PROCESSING then disburses; a crash between claim-commit and disbursement leaves a stuck PROCESSING
+  payout (no double-pay, but un-disbursed). Add a payout reconciler (mirror B-022's stuck-APPROVED refund
+  reconciler) keyed on the payout idempotency. T3.
 - **SEC-BATCH-5 (MED/LOW)** — SEC-12 (server-derived idempotency key for capture/void/refund) + SEC-15 (webhook dedup-before-commit) + SEC-17 (recon run.fail durable) + SEC-18 (analytics rollup idempotency) + SEC-21 (3DS origin — DONE in DX-1) + SEC-22 (float fee math, split idempotency, static master key, api-key prefix collision, /internal rate-limit bypass).
 
 ## Ready (sorted by score)

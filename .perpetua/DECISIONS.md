@@ -501,3 +501,25 @@ tightened off '*'.
 CONSEQUENCES: no recoverable PAN persists anywhere on this path. PanPersistenceRedteamTest flipped from
 @Tag(redteam) report-only INTO the default gate (SEC-04 permanent guard). T3 review (PCI / regression+modulith
 / test-adequacy): all SHIP, 0 blockers. See L-052. MERGE-ORDER: V4027 > V4026 (after SEC-BATCH-2).
+
+## ADR-022 | 2026-06-15 | SEC-BATCH-4: money-dup — ledger double-post + payout double-pay (T3)
+STATUS: Accepted (T3 money; via PR). Closes audit SEC-10 + SEC-11 (HIGH).
+SEC-10 (ledger double-post on Kafka redelivery): the capture/refund idempotency was check-then-act
+(existsByPaymentReferenceAndDescription) with no DB backstop → a duplicate delivery / DLT-replay racing the
+check double-posted the journal. FIX: V4028 adds UNIQUE(payment_reference, description) on journal_entries
+(pre-dedup existing rows first, L-041); CreateJournalEntryUseCase now saveAndFlush-es (the @Id is pre-assigned
+so plain save() defers the INSERT past the catch — L-041) and catches the duplicate-key violation NARROWED to
+uq_journal_entries_payment_ref_desc as a NO-OP return (not a throw → no retry/DLT). The SERIALIZABLE tx means
+the loser's balance increments roll back with the duplicate row (no double-credit). existsBy stays the fast path.
+SEC-11 (payout double-pay on multi-replica): PayoutScheduler had no distributed lock + whole-batch tx → both
+replicas disbursed the same PENDING payouts. FIX: inlined MarketplaceSchedulerLock (fail-CLOSED, ADR-006; the
+B-022 GatewaySchedulerLock precedent — marketplace can't reach billing's/gateway's lock and lifting to common
+is forbidden, so inline + add the redis starter) wrapping processPendingPayouts; AND the REAL guarantee — an
+atomic per-payout claim `UPDATE payouts SET status=PROCESSING WHERE id=? AND status=PENDING` (rows==1; only the
+winner disburses), so even a lock failure can't double-pay (L-018/B-009 precedent). No migration (existing status).
+CONSEQUENCES: the journal posts once under redelivery; a payout is disbursed by exactly one replica.
+LedgerDoublePostRedeliveryRedteamTest + PayoutDoublePayRedteamTest flipped from @Tag(redteam) report-only INTO
+the gate (SEC-10/SEC-11 permanent guards). T3 review (money-once / migration+concurrency / test-adequacy): all
+SHIP_WITH_NITS, 0 blockers. MERGE-ORDER: V4028 > V4027. RESIDUAL (SEC-25): the payout disburse-before-commit
+window (a crash after claim PROCESSING but before disbursement leaves a stuck PROCESSING payout) — needs a
+payout reconciler like B-022's for refunds (the atomic claim prevents double-pay, not the stuck state).

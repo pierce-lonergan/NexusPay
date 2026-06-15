@@ -134,6 +134,8 @@ class PayoutServiceTest {
         Payout payout = Payout.create("ca_acc1", TENANT, 5000, "USD", PayoutMethod.BANK_TRANSFER);
         payout.schedule(Instant.now().minusSeconds(60));
         when(repository.findPendingPayoutsDueBefore(any())).thenReturn(List.of(payout));
+        // SEC-11: this replica wins the atomic PENDING -> PROCESSING claim, so it disburses.
+        when(repository.claimPayoutForProcessing(payout.getId())).thenReturn(true);
         when(repository.savePayout(any())).thenAnswer(inv -> inv.getArgument(0));
         when(payoutExecution.execute(any())).thenReturn(
                 new PayoutExecutionPort.PayoutExecutionResult(true, "pex_ref123", null));
@@ -149,6 +151,8 @@ class PayoutServiceTest {
         Payout payout = Payout.create("ca_acc1", TENANT, 5000, "USD", PayoutMethod.BANK_TRANSFER);
         payout.schedule(Instant.now().minusSeconds(60));
         when(repository.findPendingPayoutsDueBefore(any())).thenReturn(List.of(payout));
+        // SEC-11: this replica wins the atomic claim, so it disburses (and then records the failure).
+        when(repository.claimPayoutForProcessing(payout.getId())).thenReturn(true);
         when(repository.savePayout(any())).thenAnswer(inv -> inv.getArgument(0));
         when(payoutExecution.execute(any())).thenReturn(
                 new PayoutExecutionPort.PayoutExecutionResult(false, null, "Insufficient funds"));
@@ -156,6 +160,22 @@ class PayoutServiceTest {
         service.processPendingPayouts();
 
         verify(eventPublisher).publishEvent(eq("Payout"), any(), eq("PayoutFailed"), any(), eq(TENANT));
+    }
+
+    @Test
+    void processPendingPayouts_loserOfAtomicClaim_doesNotDisburse() {
+        // SEC-11: a payout that was already claimed by another replica/cycle (claim UPDATE affected 0
+        // rows -> false) must NEVER reach payoutExecution.execute — no double-pay.
+        Payout payout = Payout.create("ca_acc1", TENANT, 5000, "USD", PayoutMethod.BANK_TRANSFER);
+        payout.schedule(Instant.now().minusSeconds(60));
+        when(repository.findPendingPayoutsDueBefore(any())).thenReturn(List.of(payout));
+        when(repository.claimPayoutForProcessing(payout.getId())).thenReturn(false);
+
+        service.processPendingPayouts();
+
+        verify(payoutExecution, never()).execute(any());
+        verify(repository, never()).savePayout(any());
+        verify(eventPublisher, never()).publishEvent(eq("Payout"), any(), eq("PayoutPaid"), any(), any());
     }
 
     @Test

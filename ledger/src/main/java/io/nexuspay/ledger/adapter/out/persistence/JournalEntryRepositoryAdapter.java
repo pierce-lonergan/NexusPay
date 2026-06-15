@@ -45,6 +45,17 @@ public class JournalEntryRepositoryAdapter implements JournalEntryRepository {
     }
 
     @Override
+    public JournalEntry saveAndFlush(JournalEntry journalEntry) {
+        // SEC-10: saveAndFlush (inherited from JpaRepository) forces the INSERT + constraint check at
+        // this call, so a uq_journal_entries_payment_ref_desc violation surfaces synchronously inside
+        // the use-case try/catch rather than deferred to commit (where it would propagate to the
+        // Kafka consumer -> retry/DLT). Mirrors FraudAssessmentService's saveAndFlush race backstop.
+        var entity = toEntity(journalEntry);
+        var saved = jpaRepository.saveAndFlush(entity);
+        return toDomain(saved);
+    }
+
+    @Override
     public boolean existsByPaymentReferenceAndDescription(String paymentReference, String description) {
         return jpaRepository.existsByPaymentReferenceAndDescription(paymentReference, description);
     }

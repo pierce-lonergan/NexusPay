@@ -41,6 +41,12 @@ public interface MarketplaceRepository {
     /** SEC-BATCH-1: tenant-scoped list — drops the previously-ignored-tenant leak on getPayout list. */
     List<Payout> findPayoutsByAccountId(String connectedAccountId, String tenantId);
     List<Payout> findPendingPayoutsDueBefore(Instant cutoff);
+    /**
+     * SEC-11: atomically claim a payout for disbursement (PENDING -> PROCESSING). Returns true only
+     * for the single winner whose conditional UPDATE affected exactly one row; every concurrent
+     * replica/cycle gets false and must NOT disburse. This is the exactly-once-disbursement guarantee.
+     */
+    boolean claimPayoutForProcessing(String id);
 
     // --- PlatformFee ---
     PlatformFee savePlatformFee(PlatformFee fee);

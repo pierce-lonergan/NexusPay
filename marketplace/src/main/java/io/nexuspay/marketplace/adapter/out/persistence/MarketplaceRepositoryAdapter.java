@@ -3,6 +3,7 @@ package io.nexuspay.marketplace.adapter.out.persistence;
 import io.nexuspay.marketplace.application.port.out.MarketplaceRepository;
 import io.nexuspay.marketplace.domain.*;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -146,6 +147,14 @@ public class MarketplaceRepositoryAdapter implements MarketplaceRepository {
     public List<Payout> findPendingPayoutsDueBefore(Instant cutoff) {
         return payoutRepo.findByStatusAndScheduledAtBefore("PENDING", cutoff).stream()
                 .map(this::toDomain).toList();
+    }
+
+    @Override
+    @Transactional
+    public boolean claimPayoutForProcessing(String id) {
+        // SEC-11: @Modifying needs an active tx (supplied by the scheduler's @SystemTransactional).
+        // rows-affected==1 means this replica/cycle won the PENDING -> PROCESSING transition.
+        return payoutRepo.claimForProcessing(id) == 1;
     }
 
     // --- PlatformFee ---

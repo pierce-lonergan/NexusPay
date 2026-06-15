@@ -12,6 +12,12 @@ dependencies {
     implementation(rootProject.libs.spring.kafka)
     implementation(rootProject.libs.flyway.core)
 
+    // SEC-11: Valkey/Redis for the fail-CLOSED payout-scheduler lock (MarketplaceSchedulerLock).
+    // Raw coordinate (as billing build.gradle.kts:12 and gateway-api build.gradle.kts:25 do) — the
+    // version catalog has no redis alias. Lifting the lock to :common stays forbidden (it would force
+    // spring-data-redis onto the foundational :common module — see GatewaySchedulerLock javadoc).
+    implementation("org.springframework.boot:spring-boot-starter-data-redis")
+
     runtimeOnly(rootProject.libs.postgresql)
 
     testImplementation(rootProject.libs.spring.boot.starter.security)

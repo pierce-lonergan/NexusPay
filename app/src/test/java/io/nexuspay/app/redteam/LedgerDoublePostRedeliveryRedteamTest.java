@@ -8,7 +8,6 @@ import io.nexuspay.ledger.application.port.JournalEntryRepository;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
@@ -22,10 +21,11 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
 /**
- * RED-TEAM (report-only, {@code @Tag("redteam")}): ledger double-post on Kafka
- * redelivery (B-010). This is the representative MONEY-INVARIANT red-team scenario.
+ * SEC-10 GATE (permanent guard, formerly {@code @Tag("redteam")}): ledger double-post on Kafka
+ * redelivery (B-010). This is the representative MONEY-INVARIANT scenario.
  *
  * <p><strong>Attack / fault:</strong> Kafka at-least-once delivery (or a forged
  * replay) delivers the SAME capture event ({@code aggregate_id} + {@code event_id})
@@ -37,18 +37,18 @@ import static org.assertj.core.api.Assertions.assertThat;
  * the check-then-act race. It asserts {@code findByPaymentReference(paymentId)}
  * returns exactly ONE entry.</p>
  *
- * <p><strong>Why this FAILS on current main (excluded + report-only):</strong>
- * {@code PaymentEventConsumer} guards with
- * {@code existsByPaymentReferenceAndDescription(...)} — a check-then-act in
- * auto-commit BEFORE the SERIALIZABLE insert, with NO DB unique constraint behind
- * it. A redelivery that races the first insert (or simply arrives after the read
- * but before commit visibility) double-posts. When the SEC fix lands (a UNIQUE
- * constraint on {@code (payment_reference, description)} behind the check), drop
- * {@code @Tag("redteam")} to gate this.</p>
+ * <p><strong>Why it is now GATED (SEC-10):</strong> {@code PaymentEventConsumer}
+ * still uses {@code existsByPaymentReferenceAndDescription(...)} as the cheap fast
+ * path, but the UNIQUE index {@code uq_journal_entries_payment_ref_desc} on
+ * {@code (payment_reference, description)} (V4028) is now the race backstop, and
+ * {@code CreateJournalEntryUseCase} uses {@code saveAndFlush} + a narrowed dup-key
+ * no-op so a losing redelivery returns cleanly (no second post, no DLT) instead of
+ * double-posting. The {@code @Tag("redteam")} exclusion has been removed so this
+ * runs in the default gate as a permanent SEC-10 guard; it would FAIL on the old
+ * (no-constraint, plain-{@code save}) behavior.</p>
  */
-@Tag("redteam")
 @Import(TestSecurityConfig.class)
-@DisplayName("RED-TEAM: ledger double-post on redelivery (B-010)")
+@DisplayName("SEC-10 GATE: ledger books exactly once on redelivery (B-010)")
 class LedgerDoublePostRedeliveryRedteamTest extends IntegrationTestBase {
 
     @Autowired
@@ -83,7 +83,12 @@ class LedgerDoublePostRedeliveryRedteamTest extends IntegrationTestBase {
         String eventId = "evt_" + UUID.randomUUID();
 
         consumer.onPaymentEvent(captureEvent(paymentId, eventId, 10000L));
-        consumer.onPaymentEvent(captureEvent(paymentId, eventId, 10000L)); // redelivery
+        // SEC-10: the redelivery must be a SILENT no-op — the dup-key no-op returns cleanly rather
+        // than throwing (a throw would propagate to the consumer -> retry/DLT), so a true redelivery
+        // does not surface as an error.
+        assertThatCode(() -> consumer.onPaymentEvent(captureEvent(paymentId, eventId, 10000L)))
+                .as("a redelivered capture must be a silent no-op, never a thrown error -> DLT")
+                .doesNotThrowAnyException();
 
         assertThat(journalEntryRepository.findByPaymentReference(paymentId))
                 .as("a redelivered capture must not double-post the ledger")

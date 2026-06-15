@@ -69,7 +69,9 @@ class CreateJournalEntryUseCaseTest {
                 .thenReturn(Optional.of(account("la_customer_liab_usd", -2000, 4)));
         when(ledgerAccountRepository.updateBalanceWithVersion(anyString(), anyLong(), anyLong()))
                 .thenReturn(true);
-        when(journalEntryRepository.save(org.mockito.ArgumentMatchers.any(JournalEntry.class)))
+        // SEC-10: the write path now flushes synchronously (saveAndFlush) so a unique-violation race
+        // surfaces inside the dup-key no-op rather than being deferred to commit.
+        when(journalEntryRepository.saveAndFlush(org.mockito.ArgumentMatchers.any(JournalEntry.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
         JournalEntry result = useCase.execute(balancedCommand());
@@ -87,7 +89,7 @@ class CreateJournalEntryUseCaseTest {
         assertThat(merchantLeg.id()).startsWith("post_");
         assertThat(merchantLeg.amount()).isEqualTo(10000L);
         assertThat(merchantLeg.currency()).isEqualTo("USD");
-        verify(journalEntryRepository).save(org.mockito.ArgumentMatchers.any(JournalEntry.class));
+        verify(journalEntryRepository).saveAndFlush(org.mockito.ArgumentMatchers.any(JournalEntry.class));
     }
 
     @Test
@@ -100,7 +102,7 @@ class CreateJournalEntryUseCaseTest {
 
         // Nothing was persisted because the first balance update failed.
         verify(journalEntryRepository, org.mockito.Mockito.never())
-                .save(org.mockito.ArgumentMatchers.any(JournalEntry.class));
+                .saveAndFlush(org.mockito.ArgumentMatchers.any(JournalEntry.class));
     }
 
     @Test
@@ -114,7 +116,7 @@ class CreateJournalEntryUseCaseTest {
                 .thenReturn(false, true);
         when(ledgerAccountRepository.updateBalanceWithVersion(eq("la_customer_liab_usd"), anyLong(), anyLong()))
                 .thenReturn(true);
-        when(journalEntryRepository.save(org.mockito.ArgumentMatchers.any(JournalEntry.class)))
+        when(journalEntryRepository.saveAndFlush(org.mockito.ArgumentMatchers.any(JournalEntry.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
         JournalEntry result = useCase.execute(balancedCommand());
@@ -147,7 +149,7 @@ class CreateJournalEntryUseCaseTest {
         verify(ledgerAccountRepository, times(3))
                 .updateBalanceWithVersion(eq("la_merchant_recv_usd"), anyLong(), anyLong());
         verify(journalEntryRepository, org.mockito.Mockito.never())
-                .save(org.mockito.ArgumentMatchers.any(JournalEntry.class));
+                .saveAndFlush(org.mockito.ArgumentMatchers.any(JournalEntry.class));
     }
 
     @Test
@@ -167,7 +169,7 @@ class CreateJournalEntryUseCaseTest {
         verify(ledgerAccountRepository, org.mockito.Mockito.never())
                 .updateBalanceWithVersion(anyString(), anyLong(), anyLong());
         verify(journalEntryRepository, org.mockito.Mockito.never())
-                .save(org.mockito.ArgumentMatchers.any(JournalEntry.class));
+                .saveAndFlush(org.mockito.ArgumentMatchers.any(JournalEntry.class));
     }
 
     @Test
@@ -187,6 +189,6 @@ class CreateJournalEntryUseCaseTest {
         verify(ledgerAccountRepository, org.mockito.Mockito.never())
                 .updateBalanceWithVersion(anyString(), anyLong(), anyLong());
         verify(journalEntryRepository, org.mockito.Mockito.never())
-                .save(org.mockito.ArgumentMatchers.any(JournalEntry.class));
+                .saveAndFlush(org.mockito.ArgumentMatchers.any(JournalEntry.class));
     }
 }

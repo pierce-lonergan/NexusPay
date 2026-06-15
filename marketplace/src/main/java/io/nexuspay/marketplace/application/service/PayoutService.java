@@ -122,9 +122,20 @@ public class PayoutService implements SchedulePayoutUseCase {
         List<Payout> pendingPayouts = repository.findPendingPayoutsDueBefore(Instant.now());
 
         for (Payout payout : pendingPayouts) {
+            // SEC-11: atomically claim this payout BEFORE any disbursement. Only the winner of the
+            // conditional UPDATE (PENDING -> PROCESSING, rows-affected==1) proceeds; a concurrent
+            // replica/cycle that selected the same PENDING row gets false here and NEVER calls
+            // payoutExecution.execute(...). This is the exactly-once-disbursement guarantee and holds
+            // even if the scheduler lock ever fails open (the lock only reduces contention). The blind
+            // markProcessing()+savePayout() it replaces was last-write-wins and did NOT arbitrate.
+            if (!repository.claimPayoutForProcessing(payout.getId())) {
+                log.debug("Payout {} already claimed by another replica/cycle; skipping", payout.getId());
+                continue;
+            }
             try {
+                // Reflect the DB-side PENDING -> PROCESSING transition (done by the claim UPDATE) on the
+                // in-memory aggregate before the terminal markPaid/markFailed write below.
                 payout.markProcessing();
-                repository.savePayout(payout);
 
                 var result = payoutExecution.execute(
                         new PayoutExecutionPort.PayoutExecutionRequest(
