@@ -49,12 +49,38 @@ public class DisputeLifecycleService {
 
     /**
      * Opens a new dispute, creates chargeback reserve ledger entry.
+     *
+     * <p>IDEMPOTENT on {@code (tenantId, externalDisputeId)} (SEC-BATCH-2 / SEC-01):
+     * a PSP redelivery or a replayed webhook for an already-opened dispute is a
+     * no-op — it returns the existing dispute WITHOUT minting a second dispute or
+     * re-posting the chargeback reserve (the money-moving line below). This mirrors
+     * the transition-guard precedent in {@link #expire} (post to the ledger only
+     * when a real change occurred). The {@code uq_disputes_tenant_external} UNIQUE
+     * constraint (Flyway V4026) is the in-transaction race backstop for two
+     * concurrent first-deliveries; because it is enforced at COMMIT inside this
+     * same {@code @Transactional} as the ledger posting, a rolled-back transaction
+     * leaves no durable suppression mark and a legitimate retry stays
+     * reprocessable (avoids the B-015 pre-commit-mark-vs-rollback defect).</p>
      */
     @Transactional
     public Dispute openDispute(String tenantId, String paymentId, String externalDisputeId,
                                String reasonCode, String reasonDescription,
                                long amount, String currency, String network,
                                Instant evidenceDueDate) {
+
+        // Idempotency guard: a dispute is uniquely identified by (tenant,
+        // externalDisputeId). On a replay, no-op and return the existing dispute
+        // so the chargeback reserve is posted EXACTLY ONCE.
+        if (externalDisputeId != null && !externalDisputeId.isBlank()) {
+            Optional<Dispute> existing =
+                    disputeRepository.findByTenantIdAndExternalDisputeId(tenantId, externalDisputeId);
+            if (existing.isPresent()) {
+                Dispute prior = existing.get();
+                log.info("duplicate dispute.opened ignored: tenant={}, external_id={}, existing_dispute={}",
+                        tenantId, externalDisputeId, prior.getId());
+                return prior;
+            }
+        }
 
         Dispute dispute = Dispute.open(tenantId, paymentId, externalDisputeId,
                 reasonCode, reasonDescription, amount, currency, network, evidenceDueDate);
@@ -199,6 +225,14 @@ public class DisputeLifecycleService {
 
     public Optional<Dispute> findById(String id) {
         return disputeRepository.findById(id);
+    }
+
+    /**
+     * Idempotency lookup used by the webhook handler to distinguish a first
+     * delivery from a replay (so it can return {@code created} vs {@code duplicate}).
+     */
+    public Optional<Dispute> findByTenantIdAndExternalDisputeId(String tenantId, String externalDisputeId) {
+        return disputeRepository.findByTenantIdAndExternalDisputeId(tenantId, externalDisputeId);
     }
 
     public List<Dispute> listByTenant(String tenantId, int limit, int offset) {

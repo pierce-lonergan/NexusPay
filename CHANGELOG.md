@@ -4,6 +4,18 @@ All notable changes to NexusPay are documented here. Format follows [Keep a Chan
 
 ## [Unreleased] — Phase 4 (v0.4.0)
 
+### Security
+
+**SEC-BATCH-2 — dispute webhook authentication, replay dedup, server-authoritative tenant (SEC-01 / B-001, CRITICAL)**
+- Closed the unauthenticated money-moving hole on `POST /internal/webhooks/disputes` (`DisputeWebhookHandler`). The endpoint drove real chargeback ledger postings (`dispute.opened` → `DisputeLifecycleService.openDispute` → `LedgerPort.createChargebackReserve`, DR chargeback_reserve / CR merchant_receivables) with NO signature check, NO replay dedup, and a CLIENT-supplied `X-Tenant-Id` — anyone reachable could forge or replay to drain a merchant's receivables.
+- **Fail-closed HMAC-SHA512 verification** over the RAW body, mirroring `HyperSwitchWebhookController` (same `x-webhook-signature` header + algorithm) but dropping its dev fail-open branch: a missing secret, missing signature, OR invalid signature ALL return 401 BEFORE any parse or state change. Constant-time compare via `MessageDigest.isEqual` (L-007). The handler is now `@Transactional`.
+- **Replay idempotency** on `(tenantId, externalDisputeId)`: `openDispute` does a lookup-then-no-op (returns the existing dispute, posts NO second reserve), backstopped by a DB UNIQUE constraint enforced at commit inside the same transaction as the ledger posting (no pre-commit Valkey mark → no B-015 rolled-back-mark-suppresses-retry defect; no new module dependency). New port finder `findByTenantIdAndExternalDisputeId` on `DisputeRepository` + derived query on the JPA adapter.
+- **Server-authoritative tenant**: `X-Tenant-Id` removed entirely; tenant is read from the HMAC-verified payload `tenant_id` (a missing tenant rejects 400), never a client header (SEC-BATCH-1 / L-048). A client-sent header is ignored.
+- **Flyway `V4026__dispute_external_id_unique.sql`** (next free GLOBAL version; global max was V4025): adds `uq_disputes_tenant_external UNIQUE (tenant_id, external_dispute_id)` + an `external_dispute_id` index, with an L-041 pre-flight duplicate-assertion so a dirty table fails loudly instead of bricking baseline-on-migrate. Matching `@UniqueConstraint` documented on `DisputeEntity`.
+- **Config**: `nexuspay.dispute.webhook-secret` (`${DISPUTE_WEBHOOK_SECRET:dispute_webhook_secret_for_local}`) in `application.yml` (+ bound on `DisputeProperties`); `nexuspay.dispute.webhook-secret: test_webhook_secret` in `application-test.yml`.
+- **Regression guard flipped into the gate**: `DisputeWebhookAuthReplayRedteamTest` de-tagged from `@Tag("redteam")` (report-only) into the default `./gradlew test` gate. Test 2 rewritten to sign BOTH deliveries with real HMAC and assert exactly-one persisted dispute via `JdbcTemplate` (proving the reserve posts once); Test 1 asserts unsigned→401 with no row created. `test_count_floor` 700→702.
+- **Open risk (out of scope, flagged)**: `LedgerChargebackAdapter` still posts under `EnsureAccountsExistUseCase.DEFAULT_TENANT`, so server-authoritative tenant fixes the persisted Dispute row + RLS key + idempotency key but does NOT yet redirect the ledger DR/CR to a named tenant (AUDITS.md B-001). RLS remains dormant (`rls.enforce=false`).
+
 ### Added
 
 **DX-1 — checkout-sdk CI + security/verifier foundation**

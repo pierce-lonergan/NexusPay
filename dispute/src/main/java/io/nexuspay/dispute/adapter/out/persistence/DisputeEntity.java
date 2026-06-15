@@ -9,7 +9,16 @@ import java.time.Instant;
  * @since 0.2.4 (Sprint 2.4)
  */
 @Entity
-@Table(name = "disputes")
+@Table(
+        name = "disputes",
+        // SEC-BATCH-2 (SEC-01): mirrors the authoritative DB UNIQUE added in
+        // Flyway V4026 (uq_disputes_tenant_external). The DB constraint is the
+        // source of truth; this is Hibernate-side documentation only (ddl-auto
+        // is `validate`, so Hibernate does not create it).
+        uniqueConstraints = @UniqueConstraint(
+                name = "uq_disputes_tenant_external",
+                columnNames = {"tenant_id", "external_dispute_id"})
+)
 public class DisputeEntity {
 
     @Id

@@ -27,7 +27,17 @@ Fix program (each batch = its own T3 PR via the fusion topology; diverse impleme
   (CallerTenant.require() + findByIdAndTenantId + TenantOwnership). Also: extend TenantIsolationIntegrationTest
   with real-SQL cross-tenant cases for the money + cryptogram paths (vendor approve, vault cryptogram, payout/
   split get). T3 PR. (chip task_b4c7fd92.)
-- **SEC-BATCH-2 (CRIT) dispute webhook** — SEC-01: add HMAC verify + replay dedup + tenant-from-payload + idempotent openDispute (mirror HyperSwitchWebhookController).
+- ~~**SEC-BATCH-2 (CRIT) dispute webhook**~~ — DONE 2026-06-15 (T3 PR). SEC-01 closed: fail-CLOSED HMAC-SHA512
+  (constant-time, 401 on missing secret/sig) + idempotent openDispute on (tenant, external_dispute_id)
+  (lookup-no-op + V4026 UNIQUE backstop; blank external id → 400) + server-authoritative tenant from the
+  VERIFIED payload (X-Tenant-Id dropped) + the new dispute secret registered in StartupSecretsValidator
+  (L-051). DisputeWebhookAuthReplayRedteamTest flipped into the gate (permanent SEC-01 guard). ADR-020.
+- **SEC-24 (HIGH) dispute chargeback ledger posts under DEFAULT_TENANT** — found in the SEC-BATCH-2 money
+  review: LedgerChargebackAdapter posts the DR chargeback_reserve / CR merchant_receivables under
+  EnsureAccountsExistUseCase.DEFAULT_TENANT, not the dispute's (now server-authoritative) tenant — so a
+  legitimate chargeback for merchant X reduces the DEFAULT tenant's receivables (money mis-attribution). Thread
+  the dispute tenantId into the ledger posting (cross-module: dispute→ledger; verify per-tenant chargeback
+  accounts + RLS). T3.
 - **SEC-BATCH-3 (CRIT/HIGH) PCI/PAN** — SEC-03 (checkout iframe forged postMessage / STYLE_UPDATE overrides apiBase+sessionToken; frame-ancestors *) [origin half DONE in DX-1; residual: never accept apiBase/sessionToken via message + tighten frame-ancestors] + SEC-04 (full PAN persisted base64 in payment_tokens → route SDK tokenize through encrypted vault).
 - **SEC-BATCH-4 (HIGH) money-dup/SSRF/reliability** — SEC-10 (ledger double-post: DB unique on idempotency) + SEC-11 (payout scheduler no lock → double-pay) + SEC-14 (outbound webhook SSRF allowlist) + SEC-16 (dead-letter stuck RETRYING) + SEC-13 (iframe-manager token leak — DONE in DX-1).
 - **SEC-BATCH-5 (MED/LOW)** — SEC-12 (server-derived idempotency key for capture/void/refund) + SEC-15 (webhook dedup-before-commit) + SEC-17 (recon run.fail durable) + SEC-18 (analytics rollup idempotency) + SEC-21 (3DS origin — DONE in DX-1) + SEC-22 (float fee math, split idempotency, static master key, api-key prefix collision, /internal rate-limit bypass).

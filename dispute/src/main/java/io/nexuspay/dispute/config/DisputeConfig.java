@@ -39,11 +39,21 @@ public class DisputeConfig {
          */
         private boolean autoRepresentmentEnabled = true;
 
+        /**
+         * HMAC-SHA512 secret for the money-moving dispute webhook (SEC-BATCH-2 /
+         * SEC-01). Bound here so {@code nexuspay.dispute.webhook-secret} is a
+         * recognised property; the {@code DisputeWebhookHandler} also reads it
+         * via {@code @Value} for fail-closed signature verification.
+         */
+        private String webhookSecret = "";
+
         public long getAutoSubmitThreshold() { return autoSubmitThreshold; }
         public void setAutoSubmitThreshold(long autoSubmitThreshold) { this.autoSubmitThreshold = autoSubmitThreshold; }
         public int getDefaultEvidenceDeadlineDays() { return defaultEvidenceDeadlineDays; }
         public void setDefaultEvidenceDeadlineDays(int days) { this.defaultEvidenceDeadlineDays = days; }
         public boolean isAutoRepresentmentEnabled() { return autoRepresentmentEnabled; }
         public void setAutoRepresentmentEnabled(boolean enabled) { this.autoRepresentmentEnabled = enabled; }
+        public String getWebhookSecret() { return webhookSecret; }
+        public void setWebhookSecret(String webhookSecret) { this.webhookSecret = webhookSecret; }
     }
 }

@@ -97,6 +97,25 @@ class StartupSecretsValidatorTest {
     }
 
     @Test
+    void throwsWhenDisputeWebhookSecretDefaultUsedUnderProdProfile() {
+        // SEC-BATCH-2: the money-moving dispute webhook HMAC key is guarded too —
+        // a prod deploy that forgets DISPUTE_WEBHOOK_SECRET (so the source-controlled
+        // default is in effect) must REFUSE TO BOOT. Otherwise an attacker reads the
+        // repo default, signs a forged dispute.opened, and posts a chargeback reserve.
+        Map<String, String> onlyDisputeDefault = new HashMap<>();
+        StartupSecretsValidator.KNOWN_DEFAULTS.keySet()
+                .forEach(k -> onlyDisputeDefault.put(k, "managed-" + k.hashCode()));
+        onlyDisputeDefault.put("nexuspay.dispute.webhook-secret", "dispute_webhook_secret_for_local");
+
+        assertThatThrownBy(() ->
+                StartupSecretsValidator.validate(new String[]{"prod"}, onlyDisputeDefault::get, false))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Refusing to start")
+                .hasMessageContaining("nexuspay.dispute.webhook-secret")
+                .hasMessageContaining("DISPUTE_WEBHOOK_SECRET");
+    }
+
+    @Test
     void detectsExactlyTheDefaultedKeys() {
         // One managed, two still default -> only the two are flagged.
         Map<String, String> mixed = new HashMap<>(StartupSecretsValidator.KNOWN_DEFAULTS);

@@ -449,3 +449,30 @@ RESIDUALS (tracked, not this PR): B-022-async (a getRefund-poll/webhook settle p
 so a long-pending refund eventually pages); a Docker-gated @DataJpaTest proving the conditional-UPDATE SQL
 invariants (mark-once / discovery filters) — folds into B-016. The original ApprovalController path now also
 stamps executed_at on success so the common case never enters the reconciler.
+
+## ADR-020 | 2026-06-15 | SEC-BATCH-2: dispute-webhook auth + replay + idempotency (T3)
+STATUS: Accepted (T3 — money/webhook auth; via PR). Closes audit SEC-01 (CRITICAL).
+CONTEXT: POST /internal/webhooks/disputes was permitAll, unsigned, non-idempotent, and trusted a client
+X-Tenant-Id — so anyone reaching it could forge/replay events that drive real chargeback-ledger reserves
+(DR chargeback_reserve / CR merchant_receivables), draining a victim merchant.
+DECISION (mirror HyperSwitchWebhookController, but fail-CLOSED):
+ - HMAC-SHA512 over the RAW body, constant-time MessageDigest.isEqual, FAIL-CLOSED 401 on missing secret /
+   missing / invalid signature (drop HyperSwitch's dev fail-open branch — money endpoint).
+ - Tenant is SERVER-AUTHORITATIVE from the HMAC-VERIFIED payload (drop the X-Tenant-Id header; the signed
+   body is trustworthy because only the PSP holds the secret) — never a client header (SEC-BATCH-1/L-048).
+ - openDispute IDEMPOTENT on (tenantId, externalDisputeId): lookup-then-no-op so createChargebackReserve
+   fires exactly once; V4026 adds UNIQUE(tenant_id, external_dispute_id) as the race backstop (pre-dedup
+   asserted, NULL-safe). A dispute.opened with a blank external_dispute_id is REJECTED 400 (Postgres treats
+   NULLs as distinct, so a blank id would bypass the unique dedup).
+ - The new nexuspay.dispute.webhook-secret default is registered in StartupSecretsValidator.KNOWN_DEFAULTS
+   (+ prod env-var guidance + drift-guard test) so prod refuses to boot on the public default (B-004/L-017).
+ - Flipped DisputeWebhookAuthReplayRedteamTest from @Tag(redteam) report-only INTO the default gate — now a
+   permanent regression guard (unsigned→401, replay→single reserve, forged X-Tenant-Id ignored vs the signed
+   body tenant).
+CONSEQUENCES: the chargeback ledger can no longer be moved by a forged/replayed/cross-tenant webhook. T3
+review: auth-correctness + test-adequacy SHIP_WITH_NITS; money-safety BLOCK→fixed (the KNOWN_DEFAULTS gap +
+the blank-id bypass + the test that didn't prove header-ignored). See L-051.
+RESIDUAL (tracked, NOT this PR — SEC-24): LedgerChargebackAdapter posts under DEFAULT_TENANT, so even a
+legitimate dispute's DR/CR lands on the default tenant's accounts, not the dispute's tenant — a money
+mis-attribution correctness bug separate from the auth/replay fix. Needs the dispute tenant threaded into
+the ledger posting (cross-module; its own T3 change).

@@ -37,6 +37,11 @@ nexuspay:
     base-url: http://localhost:${wiremock.server.port:18080}
     api-key: test_api_key
     webhook-secret: test_webhook_secret
+  dispute:
+    # SEC-BATCH-2: known secret so the in-gate dispute webhook red-team test can
+    # sign requests (HMAC-SHA512) and the fail-closed unsigned path rejects (401).
+    # Mirrors the hyperswitch webhook-secret pattern above.
+    webhook-secret: test_webhook_secret
   iam:
     refund-approval-threshold: 50000
   rate-limit:

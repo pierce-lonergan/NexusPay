@@ -49,6 +49,12 @@ public class JpaDisputeRepositoryAdapter implements DisputeRepository {
     }
 
     @Override
+    public Optional<Dispute> findByTenantIdAndExternalDisputeId(String tenantId, String externalDisputeId) {
+        return jpaDisputeRepo.findByTenantIdAndExternalDisputeId(tenantId, externalDisputeId)
+                .map(this::toDomain);
+    }
+
+    @Override
     public List<Dispute> findByTenant(String tenantId, int limit, int offset) {
         return jpaDisputeRepo.findByTenantIdOrderByCreatedAtDesc(tenantId, PageRequest.of(offset / limit, limit))
                 .stream().map(this::toDomain).toList();
@@ -207,6 +213,7 @@ public class JpaDisputeRepositoryAdapter implements DisputeRepository {
         List<DisputeEntity> findByTenantIdOrderByCreatedAtDesc(String tenantId, PageRequest page);
         List<DisputeEntity> findByPaymentId(String paymentId);
         List<DisputeEntity> findByTenantIdAndStatusOrderByCreatedAtDesc(String tenantId, String status, PageRequest page);
+        Optional<DisputeEntity> findByTenantIdAndExternalDisputeId(String tenantId, String externalDisputeId);
     }
 
     interface JpaEvidenceRepo extends JpaRepository<DisputeEvidenceEntity, String> {

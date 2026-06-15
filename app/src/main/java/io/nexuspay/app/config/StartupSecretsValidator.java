@@ -37,7 +37,8 @@ public class StartupSecretsValidator {
     static final Map<String, String> KNOWN_DEFAULTS = Map.of(
             "nexuspay.session.jwt-secret", "dev-session-secret-minimum-32-chars!!",
             "nexuspay.hyperswitch.webhook-secret", "webhook_secret_for_local",
-            "nexuspay.vault.encryption.master-key", "ZGV2LXZhdWx0LWtleS1iYXNlNjQtbWluLTMyLWNoYXJzIQ=="
+            "nexuspay.vault.encryption.master-key", "ZGV2LXZhdWx0LWtleS1iYXNlNjQtbWluLTMyLWNoYXJzIQ==",
+            "nexuspay.dispute.webhook-secret", "dispute_webhook_secret_for_local"
     );
 
     private static final Set<String> PROD_PROFILES = Set.of("prod", "production", "staging", "stg", "prd");
@@ -77,8 +78,8 @@ public class StartupSecretsValidator {
             throw new IllegalStateException(
                     "Refusing to start: built-in DEV default secret(s) are in effect under a production "
                     + "profile: " + offenders + ". Provide managed secrets via the matching env vars "
-                    + "(NEXUSPAY_SESSION_JWT_SECRET, HYPERSWITCH_WEBHOOK_SECRET, NEXUSPAY_VAULT_MASTER_KEY) "
-                    + "before deploying.");
+                    + "(NEXUSPAY_SESSION_JWT_SECRET, HYPERSWITCH_WEBHOOK_SECRET, NEXUSPAY_VAULT_MASTER_KEY, "
+                    + "DISPUTE_WEBHOOK_SECRET) before deploying.");
         }
         LOG.warn("Using built-in DEV default secret(s): {} — acceptable for local/test only, NEVER production. "
                 + "Set the matching env vars (and a prod profile, or NEXUSPAY_REQUIRE_MANAGED_SECRETS=true) "

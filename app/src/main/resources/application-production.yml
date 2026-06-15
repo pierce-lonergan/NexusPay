@@ -1,6 +1,7 @@
 # Production profile (SPRING_PROFILES_ACTIVE=production).
 # Intentionally provides NO secret values — they MUST come from managed env vars
-# (NEXUSPAY_SESSION_JWT_SECRET, HYPERSWITCH_WEBHOOK_SECRET, NEXUSPAY_VAULT_MASTER_KEY).
+# (NEXUSPAY_SESSION_JWT_SECRET, HYPERSWITCH_WEBHOOK_SECRET, NEXUSPAY_VAULT_MASTER_KEY,
+# DISPUTE_WEBHOOK_SECRET).
 # With require-managed-secrets=true, StartupSecretsValidator (B-004) refuses to
 # boot if any built-in DEV default is still in effect — closing the "prod ran
 # with default secrets" gap even if no other prod-specific config is set.
