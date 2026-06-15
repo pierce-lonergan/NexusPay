@@ -218,7 +218,6 @@ nexuspay:
     max-expiry: PT24H
     token-expiry: PT15M
     max-tokenize-attempts: 10
-    multi-use-token-expiry: P365D
   checkout:
     cors-allowed-origins: ${NEXUSPAY_CHECKOUT_CORS_ORIGINS:*}
     cors-max-age: 86400

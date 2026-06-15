@@ -60,6 +60,11 @@ claims: (none — single instance)
   idempotency key (fold into B-002/outbox work). Score (4×4)/4 +2 = **6**.
 
 ## Done
+- **Dead-code: TokenizationService multi-use path** (2026-06-14, FF) — removed the provably-dead
+  `multiUseTokenExpiry` field + `@Value` ctor param + unreachable ternary branch (`singleUse=true` was
+  hardcoded) and the now-unused `nexuspay.session.multi-use-token-expiry` key from application.yml.
+  No request surface (TokenizeCommand) or caller expressed multi-use intent → REMOVE over WIRE (§7
+  subtraction; re-add cleanly when SDK multi-use tokens are actually built). Single-use 15m tests intact.
 - **B-002 | RLS enforced at runtime** (machinery 2026-06-13) — the two-part bug (pre-tx SET LOCAL
   no-op + owner bypasses RLS) is fixed: non-owner nexuspay_app role + in-tx set_config GUC, all
   dormant behind rls.enforce=false and proven by RlsDormancyIT/RlsEnforceIT. RUNTIME enforcement

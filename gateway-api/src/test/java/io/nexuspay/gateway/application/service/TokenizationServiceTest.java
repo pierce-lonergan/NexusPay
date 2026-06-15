@@ -36,7 +36,6 @@ class TokenizationServiceTest {
 
     private static final int MAX_ATTEMPTS = 10;
     private static final Duration SINGLE_USE_EXPIRY = Duration.ofMinutes(15);
-    private static final Duration MULTI_USE_EXPIRY = Duration.ofDays(365);
 
     private PaymentSessionRepository sessionRepository;
     private PaymentTokenRepository tokenRepository;
@@ -47,7 +46,7 @@ class TokenizationServiceTest {
         sessionRepository = mock(PaymentSessionRepository.class);
         tokenRepository = mock(PaymentTokenRepository.class);
         service = new TokenizationService(sessionRepository, tokenRepository,
-                MAX_ATTEMPTS, SINGLE_USE_EXPIRY, MULTI_USE_EXPIRY);
+                MAX_ATTEMPTS, SINGLE_USE_EXPIRY);
     }
 
     private static PaymentSession session(String status, Instant expiresAt) {

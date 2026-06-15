@@ -35,19 +35,16 @@ public class TokenizationService implements TokenizePaymentMethodUseCase {
     private final PaymentTokenRepository tokenRepository;
     private final int maxTokenizeAttempts;
     private final Duration singleUseTokenExpiry;
-    private final Duration multiUseTokenExpiry;
 
     public TokenizationService(
             PaymentSessionRepository sessionRepository,
             PaymentTokenRepository tokenRepository,
             @Value("${nexuspay.session.max-tokenize-attempts:10}") int maxTokenizeAttempts,
-            @Value("${nexuspay.session.token-expiry:PT15M}") Duration singleUseTokenExpiry,
-            @Value("${nexuspay.session.multi-use-token-expiry:P365D}") Duration multiUseTokenExpiry) {
+            @Value("${nexuspay.session.token-expiry:PT15M}") Duration singleUseTokenExpiry) {
         this.sessionRepository = sessionRepository;
         this.tokenRepository = tokenRepository;
         this.maxTokenizeAttempts = maxTokenizeAttempts;
         this.singleUseTokenExpiry = singleUseTokenExpiry;
-        this.multiUseTokenExpiry = multiUseTokenExpiry;
     }
 
     @Override
@@ -82,8 +79,8 @@ public class TokenizationService implements TokenizePaymentMethodUseCase {
         // Create token
         String id = PrefixedId.paymentToken();
         Instant now = Instant.now();
-        boolean singleUse = true; // SDK tokens are single-use by default
-        Instant expiresAt = now.plus(singleUse ? singleUseTokenExpiry : multiUseTokenExpiry);
+        // SDK tokens are single-use by default.
+        Instant expiresAt = now.plus(singleUseTokenExpiry);
 
         var token = new PaymentToken(
                 id, command.tenantId(), command.sessionId(), command.type(),
@@ -91,7 +88,7 @@ public class TokenizationService implements TokenizePaymentMethodUseCase {
                 command.cardExpMonth(), command.cardExpYear(),
                 null, // cardFingerprint — computed server-side from full card data
                 command.tokenData(), null, // encryptionKeyId — set by encryption layer
-                singleUse, false, expiresAt, now
+                true, false, expiresAt, now
         );
 
         tokenRepository.save(token);
