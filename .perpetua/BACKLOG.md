@@ -53,14 +53,8 @@ claims: (none — single instance)
   signal should force LEAN regardless of the 5h line. ccusage can report it.
   Score (2×3)/2 = **3**.
 
-- **B-022 | Reconcile approved-but-unexecuted refunds (stuck APPROVED)** | T3 money (RFC-first)
-  Discovered in B-009 dual review (pre-existing, not introduced): `approve()`
-  commits APPROVED in its own tx, then `executeApprovedRefund` runs outside it;
-  if the gateway throws, the approval is APPROVED-forever and a retry's approve()
-  throws "not pending" → the legitimate refund never executes, needs manual
-  recovery. The deterministic idempotency key (B-009) now makes a re-drive safe.
-  Fix: an outbox/reconciler over APPROVED-unexecuted refunds keyed on the same
-  idempotency key (fold into B-002/outbox work). Score (4×4)/4 +2 = **6**.
+- ~~**B-022 | Reconcile approved-but-unexecuted refunds (stuck APPROVED)**~~ | DONE 2026-06-14 (T3 via PR; branch perpetua/B-022, CI-green). A @Scheduled RefundReconciler (gateway-api) discovers APPROVED-but-unexecuted refunds (new executed_at marker, migration iam/V4025) and RE-DRIVES executeApprovedRefund (never approve()) under the SAME deterministic refund-approval-<id> — the PSP Idempotency-Key collapses N submits to ONE refund (no double-pay). Fail-CLOSED Valkey lock (ADR-006; GatewaySchedulerLock since gateway-api can't depend on :billing); @SystemTransactional discovery + per-item TenantWorkRunner.callInTenant write (RLS WITH CHECK, L-035); bounded attempts + exponential backoff + locked operator-signal sweep; PSP `pending` is benign (no attempt increment, no false-page). T3 review 3 lenses all SHIP_WITH_NITS (0 blockers); nits fixed (V4024→V4025 collision, pending-handling, signal lock). See ADR-018, L-046.
+- **B-022-async | async-refund settle path + max-pending-age signal** | T2 money | MEDIUM. The B-022 reconciler re-drives a `pending` PSP refund benignly (no attempt increment) and a later re-drive marks it executed once the PSP reports `succeeded` — but a refund stuck `pending` FOREVER is re-checked indefinitely without paging. Add a getRefund-poll (the adapter already has getRefund) or a refund webhook to flip executed_at on settle, + a max-pending-age operator signal so a never-settling refund is surfaced. Also fold in the Docker-gated @DataJpaTest proving the conditional-UPDATE SQL invariants (mark-once / discovery filters) — folds into B-016.
 
 ## Done
 - **Dead-code: TokenizationService multi-use path** (2026-06-14, FF) — removed the provably-dead

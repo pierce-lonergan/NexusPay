@@ -354,3 +354,37 @@ enabled — branch protection on main (Q-002), without which L2 push authority r
 the agent's discipline + the CI ratchets rather than on the structural §18.3 enforcement
 that would make it robust against a degenerated future session. The human still owns
 CHARTER.md; future edits to it require explicit human instruction (recorded as here).
+
+## ADR-018 | 2026-06-14 | B-022: stuck-APPROVED refund reconciler (T3, via PR)
+STATUS: Accepted (lands via PR — T3 money, always via PR even at L2; human merges). MERGE-ORDER NOTE:
+this PR's migration is iam/V4025; the fraud-fingerprint PR (#3) owns fraud/V4024. Out-of-order is
+DISABLED — on a persistent DB merge fraud V4024 BEFORE this V4025 (CI uses a fresh DB so both are green
+independently; the gap at V4024 is intentional). See L-046.
+CONTEXT: refund approve() commits APPROVED in its own tx; executeApprovedRefund then runs OUTSIDE it.
+A gateway failure leaves the refund stuck APPROVED-forever (a retry of approve() throws "not pending"),
+needing manual recovery (B-009 review finding). B-009's deterministic key (refund-approval-<id>) makes a
+re-drive safe.
+DECISION: a @Scheduled reconciler (gateway-api) that discovers APPROVED-but-unexecuted refunds and
+RE-DRIVES executeApprovedRefund (never approve()) under the SAME idempotency key.
+ - No-double-pay (the money backstop): every execute path sends the byte-identical refund-approval-<id>
+   as the HyperSwitch Idempotency-Key; the PSP collapses N submits to ONE refund. The executed_at marker
+   is only a "stop re-driving" optimization, set ONLY after RefundResponse.isSuccessful() and conditional
+   on executed_at IS NULL — correctness does not depend on it winning a race.
+ - Concurrency: fail-CLOSED Valkey lock (ADR-006 pattern; inlined as GatewaySchedulerLock since gateway-api
+   must not depend on :billing) — replicas never both run a cycle; NOT the OutboxRelay fail-OPEN lock.
+ - Tenant-safety: @SystemTransactional discovery (BYPASSRLS, sees all tenants) + per-item
+   TenantWorkRunner.callInTenant write so RLS WITH CHECK scopes the marker to the row's own tenant
+   (L-034/L-035). The gateway call + marker write stay SYNCHRONOUS on the bound thread (no async callback).
+ - Failure handling: a gateway FAILURE leaves executed_at NULL (re-drivable next cycle) + bounded
+   reconcile_attempts + exponential backoff; an exhausted refund is loudly surfaced (operator-signal sweep,
+   ERROR log) — never silently stranded, never flipped to a terminal state. A PSP `pending` response is
+   BENIGN (re-checkable, does NOT increment attempts) so a normally-settling async refund never false-pages.
+ - Migration iam/V4025: executed_at + reconcile_attempts + next_reconcile_at + last_reconcile_error +
+   partial index, all additive/nullable (no new status; chk_approval_status untouched), safe on a non-empty DB.
+CONSEQUENCES: a gateway failure mid-execute self-heals within ~1 min, no manual recovery, no double-pay.
+T3 review (3 lenses): double-pay/money-safety, concurrency/tenant, test-adequacy — all SHIP_WITH_NITS, 0
+blockers; the pending-false-page + lockless-signal nits were fixed; V4024 collision renumbered to V4025.
+RESIDUALS (tracked, not this PR): B-022-async (a getRefund-poll/webhook settle path + max-pending-age signal
+so a long-pending refund eventually pages); a Docker-gated @DataJpaTest proving the conditional-UPDATE SQL
+invariants (mark-once / discovery filters) — folds into B-016. The original ApprovalController path now also
+stamps executed_at on success so the common case never enters the reconciler.

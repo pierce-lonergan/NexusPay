@@ -7,6 +7,7 @@ import io.nexuspay.iam.adapter.out.persistence.PendingApprovalEntity;
 import io.nexuspay.iam.domain.PendingApproval;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -127,12 +128,106 @@ public class ApprovalService {
         return approvalRepository.findById(id).map(this::toDomain);
     }
 
+    // ----------------------------------------------------------------------------
+    // B-022: stuck-APPROVED refund reconciler support.
+    //
+    // These methods are the iam-owned seam the gateway-api RefundReconciler drives:
+    // discovery runs SYSTEM (cross-tenant) under the scheduler's @SystemTransactional
+    // pin; the per-item re-check / mark / failure writes run inside the reconciler's
+    // tenantWork.callInTenant(...) tenant-bound REQUIRES_NEW tx, so RLS WITH CHECK on
+    // pending_approvals scopes each write to the row's own tenant.
+    // ----------------------------------------------------------------------------
+
+    /**
+     * SYSTEM discovery: the stuck "APPROVED + action=refund + executed_at NULL + attempts<max +
+     * backoff-due" set, across ALL tenants, oldest first. MUST be called from a
+     * {@code @SystemTransactional} (BYPASSRLS) context so RLS does not hide other tenants' rows.
+     */
+    @Transactional(readOnly = true)
+    public List<PendingApproval> findStuckApprovedRefunds(Instant now, int maxAttempts, int batch) {
+        return approvalRepository
+                .findApprovedUnexecutedRefunds(now, maxAttempts, PageRequest.of(0, batch))
+                .stream().map(this::toDomain).toList();
+    }
+
+    /**
+     * SYSTEM operator-signal query: APPROVED refunds that exhausted reconcile attempts and are still
+     * unexecuted (need a human). Cross-tenant; call under {@code @SystemTransactional}.
+     */
+    @Transactional(readOnly = true)
+    public List<PendingApproval> findExhaustedRefunds(int maxAttempts) {
+        return approvalRepository.findExhaustedRefunds(maxAttempts).stream()
+                .map(this::toDomain).toList();
+    }
+
+    /**
+     * Re-loads the row FOR UPDATE inside the (caller-provided) tenant-bound tx and returns it as a
+     * domain object ONLY IF it is still unexecuted — the secondary intra-cycle guard. Returns empty
+     * if another writer/the original already set {@code executed_at} (skip the redundant re-drive) or
+     * the row vanished. Must be invoked inside {@code tenantWork.callInTenant(tenantId, ...)}.
+     */
+    @Transactional
+    public Optional<PendingApproval> reloadUnexecutedForUpdate(String approvalId) {
+        return approvalRepository.findByIdForUpdate(approvalId)
+                .filter(e -> e.getExecutedAt() == null)
+                .map(this::toDomain);
+    }
+
+    /**
+     * Marks a refund EXECUTED (executed_at = now), conditional on executed_at IS NULL and bound to
+     * the row's tenant. Returns {@code true} iff THIS call flipped it (so the caller can tell a real
+     * mark from a no-op when a concurrent writer won). Call inside the row's tenant via callInTenant.
+     */
+    @Transactional
+    public boolean markRefundExecuted(String approvalId, String tenantId) {
+        int updated = approvalRepository.markRefundExecuted(approvalId, tenantId, Instant.now());
+        if (updated == 1) {
+            log.info("Refund marked executed: approval={}, tenant={}", approvalId, tenantId);
+        }
+        return updated == 1;
+    }
+
+    /**
+     * Records a reconcile FAILURE: increments reconcile_attempts, sets the backoff gate
+     * ({@code nextReconcileAt}) and last error, and LEAVES executed_at NULL so the row re-drives next
+     * cycle (never a terminal/stranding state). Bound to the row's tenant; call inside callInTenant.
+     * The backoff value is computed by the caller (the reconciler owns the policy, like
+     * DeadLetterReprocessor).
+     */
+    @Transactional
+    public void recordReconcileFailure(String approvalId, String tenantId,
+                                       Instant nextReconcileAt, String error) {
+        approvalRepository.recordReconcileFailure(approvalId, tenantId, nextReconcileAt, truncateError(error));
+    }
+
+    /**
+     * Records a BENIGN PSP {@code pending} re-check (B-022 FIX 2): sets the next re-check gate WITHOUT
+     * incrementing reconcile_attempts and WITHOUT treating it as a failure — the PSP accepted the
+     * refund and is settling it async (it dedups the key, so money moves once). Leaves executed_at NULL
+     * so a later cycle re-drives the SAME key and marks it once the PSP reports {@code succeeded}.
+     * Because attempts is untouched, a perpetually-pending refund never reaches the exhausted tail and
+     * so never false-pages the operator-signal sweep. Bound to the row's tenant; call inside callInTenant.
+     */
+    @Transactional
+    public void recordPendingRecheck(String approvalId, String tenantId,
+                                     Instant nextReconcileAt, String note) {
+        approvalRepository.recordPendingRecheck(approvalId, tenantId, nextReconcileAt, truncateError(note));
+    }
+
+    /** Keeps last_reconcile_error bounded so a verbose stack/message can't bloat the row. */
+    private static String truncateError(String error) {
+        if (error == null) return null;
+        return error.length() <= 1000 ? error : error.substring(0, 1000);
+    }
+
     private PendingApproval toDomain(PendingApprovalEntity entity) {
         return new PendingApproval(
                 entity.getId(), entity.getAction(), entity.getResourceType(),
                 entity.getResourceId(), entity.getPayload(), entity.getStatus(),
                 entity.getRequestedBy(), entity.getReviewedBy(), entity.getTenantId(),
-                entity.getCreatedAt(), entity.getReviewedAt()
+                entity.getCreatedAt(), entity.getReviewedAt(),
+                entity.getExecutedAt(), entity.getReconcileAttempts(),
+                entity.getNextReconcileAt(), entity.getLastReconcileError()
         );
     }
 }
