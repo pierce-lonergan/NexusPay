@@ -28,16 +28,16 @@ jobs:
           --health-cmd "pg_isready -U nexuspay -d nexuspay"
           --health-interval 5s --health-timeout 3s --health-retries 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Java 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:
           java-version: '21'
           distribution: 'temurin'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@d9c87d481d55275bb5441eef3fe0e46805f9ef70 # v3
 
       - name: Build + test + coverage
         run: ./gradlew build test jacocoTestReport --no-daemon
@@ -77,7 +77,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: perpetua-test-results
           path: '**/build/reports/tests/'
@@ -88,7 +88,7 @@ jobs:
   secret-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with: { fetch-depth: 0 }
       - name: gitleaks (pinned binary)
         run: |
@@ -106,7 +106,7 @@ jobs:
   dependency-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: OSV-Scanner (pinned binary, report-only)
         run: |
           curl -sSL https://github.com/google/osv-scanner/releases/download/v2.3.8/osv-scanner_linux_amd64 -o /tmp/osv-scanner
@@ -118,26 +118,35 @@ jobs:
   # action, matching the gitleaks/osv "pinned binary, no marketplace action"
   # convention. The image is a Linux container so semgrep-core runs cleanly
   # (the OCaml RPC needs Unix socketpair, which is unavailable on native
-  # Windows but fine here). First run is REPORT-ONLY (§15.3): the `|| echo
-  # ::warning` swallows semgrep's non-zero exit so findings can be triaged into
-  # security/AUDITS.md before the gate is flipped (mirrors dependency-scan).
-  # Rulesets: p/java (core Java SAST), p/owasp-top-ten (injection/SSRF/XXE),
+  # Windows but fine here). BLOCKING (B-006 flip, L-043): the first CI run
+  # confirmed a REAL scan (100 rules / 703 files / 0 findings), so the gate is
+  # now enforced — the exit-code branch below FAILS on findings (1) AND on a
+  # broken scan (>=2), passing only on a genuine clean (0). SARIF is still
+  # uploaded for triage. Rulesets: p/java (core Java SAST), p/owasp-top-ten (injection/SSRF/XXE),
   # p/secrets (defense-in-depth vs gitleaks). Excludes: build/ + every module's
   # build/ (jacoco + generated avro classes), generated sources, all test trees,
   # gatling, and checkout-sdk (Node/TS, out of Java SAST scope).
   sast-scan:
     runs-on: ubuntu-latest
     container:
-      image: semgrep/semgrep:1.166.0  # pin the tag; TODO(B-012) also pin @sha256 digest
+      image: semgrep/semgrep@sha256:c180f0c93a17b420c0af5006214a29d3c747c5459c732b740191adf657dd0068  # 1.166.0
     steps:
-      - uses: actions/checkout@v4
-      - name: Semgrep Java SAST (pinned image, report-only)
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Semgrep Java SAST (pinned image, blocking)
         run: |
           # Pre-create the SARIF so the upload step never fails on a missing file even if
           # semgrep crashes before writing (registry/rule-fetch failure, core error). The
-          # `|| echo` below only swallows the SCAN step's exit, not the separate upload step.
+          # exit-code branch below gates the SCAN step's exit; the upload is a separate step.
           : > semgrep.sarif
           semgrep --version
+          # BLOCKING gate (B-006 flip, L-043). semgrep exit codes: 0=clean / 1=findings / >=2=error.
+          # Branch on the exit code so the build FAILS on real findings (1) AND on a broken scan
+          # (>=2: registry unreachable, 0 rules, all files unparsed) but PASSES only on a genuine
+          # clean (0). The GitHub `run:` shell is `bash -eo pipefail`, so we `set +e` around the
+          # scan (otherwise -e aborts the step at semgrep's non-zero BEFORE rc is captured and the
+          # branch/diagnostics never run), capture rc, then restore -e. Do NOT revert to a bare
+          # `|| echo`: it swallows ANY non-zero, hiding a green-but-scanned-nothing broken scan.
+          set +e
           semgrep scan \
             --config p/java --config p/owasp-top-ten --config p/secrets \
             --metrics off \
@@ -146,11 +155,21 @@ jobs:
             --exclude '**/generated/**' --exclude '**/test/**' \
             --exclude gatling --exclude checkout-sdk \
             --error \
-            --sarif --output semgrep.sarif . \
-            || echo "::warning::Semgrep findings above are report-only (B-006 triage pending); not blocking yet"
+            --sarif --output semgrep.sarif .
+          rc=$?
+          set -e
+          if [ "$rc" -eq 0 ]; then
+            echo "Semgrep clean (0 findings)."
+          elif [ "$rc" -eq 1 ]; then
+            echo "::error::Semgrep found SAST findings (exit 1) — blocking the build."
+            exit 1
+          else
+            echo "::error::Semgrep scan ERROR (exit $rc >=2: registry/rules/parse failure) — blocking, NOT green-but-scanned-nothing."
+            exit "$rc"
+          fi
       - name: Upload SARIF
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: semgrep-sarif
           path: semgrep.sarif
@@ -158,15 +177,13 @@ jobs:
 
   # PENDING gates (enable as the tooling lands; do not fake-pass):
   #  - scoped mutation on changed modules         -> B-005 (PIT)
-  #  - SAST gate flip (report-only -> blocking)   -> B-006: once the first CI run
-  #      is triaged clean, add a semgrep ratchet. DO NOT just drop the `|| echo`:
-  #      it swallows ANY non-zero exit, so a BROKEN scan (registry unreachable, 0
-  #      rules loaded, all files unparsed) exits non-zero and is swallowed too —
-  #      green-but-scanned-nothing. semgrep exit codes are 0=clean / 1=findings /
-  #      >=2=error; the flip must distinguish them (e.g. `|| { rc=$?; [ "$rc" = 1 ]
-  #      && exit 1 || exit $rc; }`, i.e. fail the build on real findings AND on a
-  #      broken scan, never on neither). Java surface is already 0-finding under
-  #      p/java+owasp+secrets, so it can gate at high/error severity once the
-  #      runner confirms the scan actually executed (non-zero file/rule count).
+  #  - SAST gate flip (report-only -> blocking)   -> B-006: DONE. The first CI run
+  #      confirmed a REAL scan (100 rules / 703 files / 0 findings), so the sast-scan
+  #      step now GATES (blocking, 0-findings) per L-043: it branches on semgrep's exit
+  #      code (0=clean / 1=findings / >=2=error) to FAIL on real findings AND on a broken
+  #      scan, passing only on a genuine clean — it does NOT use a bare `|| echo` swallow
+  #      (which would hide a green-but-scanned-nothing broken scan). ratchets.json
+  #      tooling.sast records the blocking gate; high_vulns_max=0 encodes the numeric gate.
   #  - benchmark smoke vs ratchets.benchmarks     -> ROADMAP Later (JMH)
-  # TODO(B-012): pin all third-party actions by commit SHA.
+  # B-012: DONE — all third-party actions are pinned by 40-hex commit SHA (with a # <tag>
+  # comment) in BOTH workflow files; the semgrep image is pinned by @sha256 digest.

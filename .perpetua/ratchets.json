@@ -36,7 +36,7 @@
     "mutation": "RECOMMENDED info.solidsoft.pitest — not yet wired (B-005)",
     "property": "RECOMMENDED net.jqwik:jqwik — not yet wired",
     "bench": "RECOMMENDED JMH (me.champeau.jmh) — not yet wired",
-    "sast": "WIRED (B-006): semgrep (p/java+owasp-top-ten+secrets) in CI as the perpetua-gates sast-scan job, pinned semgrep/semgrep:1.166.0, report-only first run; 0 Java findings pre-triaged. FLIP to blocking + add semgrep ratchet after first CI run confirms (L-043)",
+    "sast": "GATES (B-006 flip DONE, L-043): semgrep (p/java+owasp-top-ten+secrets) in CI as the perpetua-gates sast-scan job, pinned semgrep/semgrep@sha256:c180f0c93a17b420c0af5006214a29d3c747c5459c732b740191adf657dd0068 (1.166.0). NOW BLOCKING at 0 findings: the first CI run confirmed a REAL scan (100 rules / 703 files / 0 findings), so the gate was flipped from report-only -> blocking. The step branches on semgrep's exit code (0=clean / 1=findings / >=2=error) to FAIL on real findings AND on a broken scan, passing only on a genuine clean (NOT a bare `|| echo` swallow). high_vulns_max=0 encodes the numeric gate.",
     "secrets": "RECOMMENDED gitleaks — not yet run (B-006)",
     "deps": "RECOMMENDED google/osv-scanner + OWASP dependency-check — not yet run (B-006)"
   }

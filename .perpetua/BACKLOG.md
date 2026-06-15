@@ -8,21 +8,24 @@ claims: (none — single instance)
 
 ## Ready (sorted by score)
 
-- **B-006 | Run + record baseline security scans** | security — PARTIAL
-  DONE: real local secret-pattern baseline (clean); gitleaks + OSV-Scanner wired
-  into CI as gating jobs; semgrep java SAST wired into CI (sast-scan job, pinned
-  semgrep/semgrep:1.166.0 image, REPORT-ONLY first run per §15.3); pre-triaged via
-  real semgrep run in WSL2 — 0 Java findings across p/java+owasp+secrets and
-  p/security-audit+sql/cmd-injection+xss (703 files, ~100% parse); L-007/008/009
-  re-verified intact; AUDITS recorded. REMAINING: confirm same on the CI runner,
-  then FLIP semgrep gate to blocking (drop `|| echo`, add semgrep ratchet);
-  first CI run's OSV findings triaged (needs push, Q-001) or local tools (Q-003).
-  Score (4×5)/2 = **10**.
+- ~~**B-006 | Run + record baseline security scans**~~ | DONE 2026-06-14 (CI-green).
+  gitleaks + OSV-Scanner wired as CI jobs; semgrep Java SAST wired (sast-scan,
+  pinned semgrep image) — REPORT-ONLY first (§15.3), CI runner CONFIRMED a real
+  scan (100 rules / 703 files / 0 findings), then FLIPPED to BLOCKING with
+  exit-code branching (fail on findings(1) AND broken scan(>=2), pass only on
+  clean(0); set +e so the branch fires under bash -e — L-045). L-007/008/009
+  re-verified; AUDITS recorded. See L-043/L-045. Residual: OSV is still
+  report-only (`|| echo`) pending a triage of the first runner findings — flip
+  to gating (high_vulns_max=0) once triaged.
 
 - ~~**B-014 | Raise coverage on the lowest money/security modules**~~ | DONE 2026-06-14 (CI-green; commits 3b30bcc..ce2ff8d). ~272 MEANINGFUL behavior tests across billing (Price/Invoice/Proration/SmartRetry/InvoiceGeneration/Dunning), ledger (CreateJournalEntry/CreateFxConversion/GetBalance/BalanceReconciliation/FxGainLoss), gateway-api (RateLimit/Idempotency/WebhookDelivery/PaymentSession/Tokenization), common (Money/avro/exceptions) — hand-computed money math, full state machines, edge/error paths (not padding). Aggregate line coverage 16%->35% (5090/14530); test_count_floor 408->680, coverage_floor_pct 16->33. 7 CI iterations caught agent-test bugs + a REAL ledger NPE-on-null-event-type bug (now guarded). See L-042.
 
-- **B-012 | CI hardening: pin actions by SHA, add OSV + secret scan** | build-health
-  Existing `.github/workflows/ci.yml` + new perpetua-gates. Score (3×4)/2 = **6**.
+- ~~**B-012 | CI hardening: pin actions by SHA, add OSV + secret scan**~~ | DONE 2026-06-14 (CI-green).
+  OSV + gitleaks were already gating jobs (B-006). This pinned ALL 12 `uses:` action
+  refs across ci.yml + perpetua-gates.yml to full 40-hex commit SHAs (`# vX` comment),
+  each independently re-resolved via `gh api .../commits/<tag>` (PIN-OK); the semgrep
+  container is now DIGEST-pinned (`@sha256:...`), not just tag-pinned; gitleaks/osv
+  binaries stay version-pinned. No floating tag/branch remains.
 
 - ~~**B-015 | StripeCsvParser RFC-4180 violation**~~ | DONE 2026-06-14 (a36d10f..e1ecbeb, CI-green; ultracode workflow + adversarial review). Jackson CsvMapper RFC-4180 parse (quoted commas, "" escapes, embedded newlines, BOM); SettlementParserPort.parse() → ParseResult(records, failures); every unparseable/invalid row → a PERSISTED PARSE_ERROR ReconciliationException (no silent drop). Review caught + fixed: lone-quote no longer aborts the whole file (tokenizer error → recorded ParseFailure, records preserved); parse-failures persist in a REQUIRES_NEW tx (ParseFailureRecorder) so a downstream rollback can't erase them (L-039); column-count validation; logical-record-index lineNumber. ~33 aggressive tests. See L-039.
 
