@@ -14,11 +14,7 @@ claims: (none — single instance)
   first CI run's OSV findings triaged (needs push, Q-001) or local tools (Q-003).
   Score (4×5)/2 = **10**.
 
-- **B-014 | Raise coverage on the lowest money/security modules** | test-strength
-  IN PROGRESS. Done so far: fraud + payment-orchestration now have money-math
-  tests; FX exponent bug fixed (see Done). Still thin: gateway-api 2%, billing
-  4%, common 7%, ledger 10%, iam now ~? (rose w/ ApprovalServiceTest). Continue
-  on those; ratchet coverage_floor_pct up as it rises. Score (4×4)/3 = **5.3**.
+- ~~**B-014 | Raise coverage on the lowest money/security modules**~~ | DONE 2026-06-14 (CI-green; commits 3b30bcc..ce2ff8d). ~272 MEANINGFUL behavior tests across billing (Price/Invoice/Proration/SmartRetry/InvoiceGeneration/Dunning), ledger (CreateJournalEntry/CreateFxConversion/GetBalance/BalanceReconciliation/FxGainLoss), gateway-api (RateLimit/Idempotency/WebhookDelivery/PaymentSession/Tokenization), common (Money/avro/exceptions) — hand-computed money math, full state machines, edge/error paths (not padding). Aggregate line coverage 16%->35% (5090/14530); test_count_floor 408->680, coverage_floor_pct 16->33. 7 CI iterations caught agent-test bugs + a REAL ledger NPE-on-null-event-type bug (now guarded). See L-042.
 
 - **B-012 | CI hardening: pin actions by SHA, add OSV + secret scan** | build-health
   Existing `.github/workflows/ci.yml` + new perpetua-gates. Score (3×4)/2 = **6**.
