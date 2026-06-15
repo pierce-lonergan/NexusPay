@@ -10,7 +10,6 @@ import io.nexuspay.gateway.domain.PaymentToken;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
@@ -25,39 +24,39 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * RED-TEAM (report-only, {@code @Tag("redteam")}): full PAN recoverable at rest in
- * the gateway SDK tokenize path (audit B-004 / "SEC-04").
+ * REGRESSION GATE (SEC-BATCH-3 — de-tagged from {@code @Tag("redteam")} into the default
+ * {@code ./gradlew test} gate): the full PAN must NOT be recoverable at rest from the gateway
+ * SDK tokenize path (audit B-004 / "SEC-04").
  *
- * <p><strong>Attack:</strong> drive the SDK {@code tokenize} flow with a KNOWN PAN
- * (the checkout frame base64-encodes the raw card number into {@code token_data}),
- * then read the raw {@code payment_tokens.token_data} bytes straight from the
- * database (modelling a stolen DB dump / read-only SQLi). A SECURE tokenize path
- * routes the card through the encrypted vault (AES-256-GCM behind a KMS key) and
- * sets {@code encryption_key_id}, so the cleartext PAN is NOT recoverable from the
- * stored bytes as ASCII or by base64-decoding them.</p>
+ * <p><strong>Attack it guards:</strong> drive the SDK {@code tokenize} flow with a KNOWN PAN
+ * (the checkout frame base64-encodes the raw card number into {@code token_data}), then read
+ * the raw {@code payment_tokens.token_data} bytes straight from the database (modelling a
+ * stolen DB dump / read-only SQLi). The SECURE tokenize path encrypts {@code token_data} with
+ * AES-256-GCM via the {@code EncryptionPort} and sets {@code encryption_key_id}, so the
+ * cleartext PAN is NOT recoverable from the stored bytes as ASCII or by base64-decoding
+ * them.</p>
  *
- * <p><strong>This is the REAL audit finding, not the vault path.</strong> An
- * earlier version of this test attacked {@code vaulted_cards.encrypted_pan} — but
- * the vault already uses real AES-256-GCM ({@code AesGcmEncryptionAdapter}), so
- * that assertion PASSED on main and was vacuous (false assurance). The genuine
- * B-004 hole is a DIFFERENT path: {@code CheckoutController.tokenize}
- * ({@code request.token_data().getBytes(UTF_8)}) hands the raw, base64-PAN bytes to
- * {@code TokenizationService}, which persists them verbatim into
- * {@code payment_tokens.token_data} with a null {@code encryption_key_id} — no
- * encryption at all. We drive the use case directly (mirroring how the SDK frame
- * supplies {@code token_data}) and assert on the stored column, so this FAILS on
- * current main (the base64 PAN IS the stored content).</p>
+ * <p><strong>This is the REAL audit finding, not the vault path.</strong> An earlier version
+ * of this test attacked {@code vaulted_cards.encrypted_pan} — but the vault already uses real
+ * AES-256-GCM ({@code AesGcmEncryptionAdapter}), so that assertion PASSED on main and was
+ * vacuous (false assurance). The genuine B-004 hole was a DIFFERENT path:
+ * {@code CheckoutController.tokenize} ({@code request.token_data().getBytes(UTF_8)}) handed the
+ * raw, base64-PAN bytes to {@code TokenizationService}, which persisted them verbatim into
+ * {@code payment_tokens.token_data} with a null {@code encryption_key_id} — no encryption at
+ * all. We drive the use case directly (mirroring how the SDK frame supplies
+ * {@code token_data}) and assert on the stored column.</p>
  *
- * <p><strong>Why this FAILS on current main (excluded + report-only):</strong>
- * {@code token_data} is the unencrypted base64 of the PAN, so {@code base64Decode}
- * of the stored bytes yields the full PAN and the literal base64(PAN) IS the stored
- * value. When the SEC fix lands (route SDK tokenize through the encrypted vault and
- * set {@code encryption_key_id}; reject null-key tokens), drop {@code @Tag("redteam")}
- * to gate it.</p>
+ * <p><strong>Why this now PASSES (and is in the gate):</strong> after SEC-BATCH-3,
+ * {@code TokenizationService} encrypts the inbound bytes (AES-256-GCM, IV-prefixed +
+ * GCM-authenticated) and stores the ciphertext with a non-null {@code encryption_key_id}.
+ * The stored bytes contain neither the PAN nor base64(PAN), and best-effort base64-decoding
+ * random ciphertext does not yield the PAN. This test FAILED on vulnerable main (the base64
+ * PAN WAS the stored content) and PASSES once the fix lands (L-049) — so it is de-tagged to
+ * run as the permanent SEC-04 regression guard. It self-skips without Docker
+ * (Testcontainers), so adding it to the gate cannot red a Docker-less runner.</p>
  */
-@Tag("redteam")
 @Import(TestSecurityConfig.class)
-@DisplayName("RED-TEAM: full PAN recoverable at rest in payment_tokens.token_data (B-004/SEC-04)")
+@DisplayName("REGRESSION (SEC-04): full PAN not recoverable at rest in payment_tokens.token_data (B-004)")
 class PanPersistenceRedteamTest extends IntegrationTestBase {
 
     // A canonical test PAN (Visa test number). Must NOT be recoverable from storage.
@@ -138,6 +137,20 @@ class PanPersistenceRedteamTest extends IntegrationTestBase {
                     .as("base64-decoding token_data must NOT yield the cleartext PAN")
                     .doesNotContain(KNOWN_PAN);
         }
+
+        // (4) HARDENING (locks in the secure invariant): the card token MUST carry a
+        //     non-null encryption_key_id. This is the contract that makes the stored bytes
+        //     ciphertext rather than plaintext — without it, some future encoding could dodge
+        //     the three string checks above (e.g. a different reversible transform) while
+        //     still leaving the PAN recoverable. Asserting the key id is set fails the gate on
+        //     any regression back to the null-key (unencrypted) path.
+        Object encryptionKeyId = rows.get(0).get("encryption_key_id");
+        org.assertj.core.api.Assertions.assertThat(encryptionKeyId)
+                .as("encryption_key_id must be non-null for a card token — the at-rest secure invariant")
+                .isNotNull();
+        org.assertj.core.api.Assertions.assertThat(encryptionKeyId.toString())
+                .as("encryption_key_id must be a real key id, not blank")
+                .isNotBlank();
     }
 
     /** Best-effort base64 decode; returns null if the bytes are not valid base64. */

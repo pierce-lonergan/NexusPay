@@ -1,6 +1,6 @@
 package io.nexuspay.vault.adapter.out.encryption;
 
-import io.nexuspay.vault.application.port.out.EncryptionPort;
+import io.nexuspay.common.crypto.EncryptionPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;

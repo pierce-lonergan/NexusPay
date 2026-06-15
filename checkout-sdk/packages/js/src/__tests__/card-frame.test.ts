@@ -117,19 +117,22 @@ describe('card-frame B-006 receive-side origin gate', () => {
     expect(state.sessionToken).toBe('legit-token');
   });
 
-  it('subsequent messages from the pinned origin continue to be accepted', () => {
+  it('subsequent messages from the pinned origin continue to be accepted (but apiBase/sessionToken are latched)', () => {
     handleParentMessage(
       styleUpdateEvent('https://merchant.example.com', {
         apiBase: 'https://api.nexuspay.com',
         sessionToken: 'legit-token',
       }),
     );
+    // SEC-03 residual: apiBase is pinned at the first handshake. A later
+    // STYLE_UPDATE from the SAME pinned origin can no longer repoint it — even
+    // though the message itself is accepted (the origin gate passes).
     handleParentMessage(
       styleUpdateEvent('https://merchant.example.com', {
         apiBase: 'https://api2.nexuspay.com',
       }),
     );
-    expect(state.apiBase).toBe('https://api2.nexuspay.com');
+    expect(state.apiBase).toBe('https://api.nexuspay.com');
   });
 
   it('pins parentOrigin to event.origin (browser-attested), never to the payload value', () => {
@@ -151,6 +154,87 @@ describe('card-frame B-006 receive-side origin gate', () => {
       }),
     );
     expect(state.apiBase).toBe('https://api.nexuspay.com');
+  });
+
+  /**
+   * SEC-03 residual: apiBase + sessionToken are pinned ONCE at the first handshake
+   * and ignored thereafter, so even a same-origin script that passes the origin
+   * gate cannot repoint where the raw PAN is POSTed. appearance is OUTSIDE the
+   * latch and must keep applying on every STYLE_UPDATE.
+   */
+  describe('apiBase/sessionToken init pin (SEC-03 residual)', () => {
+    it('a second STYLE_UPDATE cannot change apiBase (the PAN POST target) once pinned', () => {
+      handleParentMessage(
+        styleUpdateEvent('https://merchant.example.com', {
+          apiBase: 'https://api.nexuspay.com',
+          sessionToken: 'legit-token',
+        }),
+      );
+      expect(state.apiBase).toBe('https://api.nexuspay.com');
+      expect(state.sessionToken).toBe('legit-token');
+
+      // Same (pinned) origin, but now trying to repoint the tokenize POST to an
+      // attacker host and swap the bearer credential — both must be dropped.
+      handleParentMessage(
+        styleUpdateEvent('https://merchant.example.com', {
+          apiBase: 'https://evil.example.com',
+          sessionToken: 'attacker-token',
+        }),
+      );
+
+      // The PAN is still sent to the original apiBase with the original token. The
+      // tokenize fetch interpolates `${state.apiBase}/v1/checkout/tokenize`, so an
+      // unchanged state.apiBase means an unchanged POST URL.
+      expect(state.apiBase).toBe('https://api.nexuspay.com');
+      expect(state.sessionToken).toBe('legit-token');
+    });
+
+    it('a later STYLE_UPDATE still applies appearance even though apiBase is latched', () => {
+      handleParentMessage(
+        styleUpdateEvent('https://merchant.example.com', {
+          apiBase: 'https://api.nexuspay.com',
+          sessionToken: 'legit-token',
+          appearance: { variables: { colorPrimary: '#111111' } },
+        }),
+      );
+      expect(
+        document.documentElement.style.getPropertyValue('--nxp-color-primary'),
+      ).toBe('#111111');
+
+      // A second message: attempt to repoint apiBase AND restyle. apiBase stays
+      // pinned; appearance still updates.
+      handleParentMessage(
+        styleUpdateEvent('https://merchant.example.com', {
+          apiBase: 'https://evil.example.com',
+          appearance: { variables: { colorPrimary: '#222222' } },
+        }),
+      );
+
+      expect(state.apiBase).toBe('https://api.nexuspay.com');
+      expect(
+        document.documentElement.style.getPropertyValue('--nxp-color-primary'),
+      ).toBe('#222222');
+    });
+
+    it('apiBase can still be set by a FIRST handshake that carries only appearance earlier', () => {
+      // An appearance-only STYLE_UPDATE must NOT consume the latch (it supplies no
+      // apiBase/sessionToken), so the genuine config handshake that follows still pins.
+      handleParentMessage(
+        styleUpdateEvent('https://merchant.example.com', {
+          appearance: { variables: { colorPrimary: '#333333' } },
+        }),
+      );
+      expect(state.apiBase).toBe('');
+
+      handleParentMessage(
+        styleUpdateEvent('https://merchant.example.com', {
+          apiBase: 'https://api.nexuspay.com',
+          sessionToken: 'legit-token',
+        }),
+      );
+      expect(state.apiBase).toBe('https://api.nexuspay.com');
+      expect(state.sessionToken).toBe('legit-token');
+    });
   });
 
   describe('isExpectedParentOrigin', () => {

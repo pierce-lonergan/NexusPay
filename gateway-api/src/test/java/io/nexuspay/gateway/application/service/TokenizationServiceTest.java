@@ -1,5 +1,6 @@
 package io.nexuspay.gateway.application.service;
 
+import io.nexuspay.common.crypto.EncryptionPort;
 import io.nexuspay.gateway.application.port.in.TokenizePaymentMethodUseCase.TokenizeCommand;
 import io.nexuspay.gateway.application.port.out.PaymentSessionRepository;
 import io.nexuspay.gateway.application.port.out.PaymentTokenRepository;
@@ -29,24 +30,51 @@ import static org.mockito.Mockito.when;
  * B-014: {@link TokenizationService} is the per-session anti-card-testing gate. It must (a) reject
  * unknown/expired/non-open sessions, (b) lock the session when the tokenize-attempt cap is exceeded
  * (the trip is {@code attempts > max}, NOT {@code >=}), and (c) mint a single-use token on the happy
- * path with server-side fields left null. A regression here lets attackers probe cards or wrongly
- * locks legitimate checkouts.
+ * path.
+ *
+ * <p>SEC-04 / B-004: the happy path must NEVER persist a recoverable PAN. The inbound
+ * {@code token_data} (the SDK's base64-of-PAN bytes) is encrypted via the {@link EncryptionPort}
+ * before storage and {@code encryption_key_id} is set non-null for card-bearing tokens. A regression
+ * here lets attackers probe cards, wrongly locks legitimate checkouts, OR re-opens the cleartext-PAN-
+ * at-rest hole.
  */
 class TokenizationServiceTest {
 
     private static final int MAX_ATTEMPTS = 10;
     private static final Duration SINGLE_USE_EXPIRY = Duration.ofMinutes(15);
+    private static final String KEY_ID = "key-tokenize-001";
 
     private PaymentSessionRepository sessionRepository;
     private PaymentTokenRepository tokenRepository;
+    private EncryptionPort encryption;
     private TokenizationService service;
 
     @BeforeEach
     void setUp() {
         sessionRepository = mock(PaymentSessionRepository.class);
         tokenRepository = mock(PaymentTokenRepository.class);
-        service = new TokenizationService(sessionRepository, tokenRepository,
+        encryption = mock(EncryptionPort.class);
+        // Reversible XOR "cipher" — NOT real crypto, just enough for the unit test to prove
+        // (a) the service replaces token_data with whatever the EncryptionPort returns and
+        // (b) the original plaintext is recoverable ONLY by applying the key (round-trip),
+        // never directly from the stored bytes. The real AES-256-GCM round-trip lives in
+        // AesGcmEncryptionAdapterTest + the PanPersistenceRedteamTest integration gate.
+        when(encryption.currentKeyId()).thenReturn(KEY_ID);
+        when(encryption.encrypt(org.mockito.ArgumentMatchers.any(byte[].class),
+                org.mockito.ArgumentMatchers.eq(KEY_ID)))
+                .thenAnswer(inv -> new EncryptionPort.EncryptionResult(
+                        xorMask(inv.getArgument(0)), KEY_ID));
+        service = new TokenizationService(sessionRepository, tokenRepository, encryption,
                 MAX_ATTEMPTS, SINGLE_USE_EXPIRY);
+    }
+
+    /** Symmetric, reversible byte transform standing in for encrypt/decrypt in the unit test. */
+    private static byte[] xorMask(byte[] in) {
+        byte[] out = new byte[in.length];
+        for (int i = 0; i < in.length; i++) {
+            out[i] = (byte) (in[i] ^ 0x5A);
+        }
+        return out;
     }
 
     private static PaymentSession session(String status, Instant expiresAt) {
@@ -59,10 +87,15 @@ class TokenizationServiceTest {
                 0, expiresAt, created, created);
     }
 
+    // Mirrors the on-the-wire shape: the SDK posts base64(PAN) as token_data bytes.
+    private static final byte[] SDK_TOKEN_DATA =
+            java.util.Base64.getEncoder().encodeToString("4242424242424242".getBytes())
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
     private static TokenizeCommand cardCommand() {
         return new TokenizeCommand(
                 "ps_1", "t1", PaymentToken.TYPE_CARD,
-                new byte[]{1, 2, 3}, "4242", "visa", 12, 2030);
+                SDK_TOKEN_DATA, "4242", "visa", 12, 2030);
     }
 
     @Test
@@ -135,7 +168,7 @@ class TokenizationServiceTest {
     }
 
     @Test
-    void happyPath_savesSingleUseToken_withExpiryAndCopiedCardFields_serverSideFieldsNull() {
+    void happyPath_savesSingleUseToken_withExpiryAndCopiedCardFields() {
         PaymentSession open = session(PaymentSession.STATUS_OPEN, Instant.now().plus(Duration.ofMinutes(10)));
         when(sessionRepository.findById("ps_1")).thenReturn(Optional.of(open));
         when(sessionRepository.incrementTokenizeAttempts("ps_1")).thenReturn(1);
@@ -166,12 +199,68 @@ class TokenizationServiceTest {
         assertThat(saved.getCardExpMonth()).isEqualTo(12);
         assertThat(saved.getCardExpYear()).isEqualTo(2030);
 
-        // Server-side fields are NOT set by tokenize (computed/applied downstream).
+        // Fingerprint is still computed downstream from full card data (option-a does
+        // not handle the raw PAN server-side), so it stays null on the SDK path.
         assertThat(saved.getCardFingerprint()).isNull();
-        assertThat(saved.getEncryptionKeyId()).isNull();
 
         // ID is the prefixed payment-token id.
         assertThat(saved.getId()).startsWith("ptok_");
+    }
+
+    @Test
+    void happyPath_encryptsTokenData_andSetsEncryptionKeyId_neverStoresRawPan() {
+        // SEC-04 / B-004: the inbound token_data (the SDK's base64(PAN) bytes) must be
+        // run through the EncryptionPort before persistence and the key id recorded, so
+        // a DB read yields only ciphertext.
+        PaymentSession open = session(PaymentSession.STATUS_OPEN, Instant.now().plus(Duration.ofMinutes(10)));
+        when(sessionRepository.findById("ps_1")).thenReturn(Optional.of(open));
+        when(sessionRepository.incrementTokenizeAttempts("ps_1")).thenReturn(1);
+
+        service.tokenize(cardCommand());
+
+        ArgumentCaptor<PaymentToken> cap = ArgumentCaptor.forClass(PaymentToken.class);
+        verify(tokenRepository).save(cap.capture());
+        PaymentToken saved = cap.getValue();
+
+        // The encryption layer was consulted and the stored value is the ciphertext.
+        verify(encryption).encrypt(org.mockito.ArgumentMatchers.any(byte[].class),
+                org.mockito.ArgumentMatchers.eq(KEY_ID));
+        assertThat(saved.getEncryptionKeyId())
+                .as("encryption_key_id must be set for a card-bearing token (the secure invariant)")
+                .isEqualTo(KEY_ID);
+
+        // The stored bytes are NOT the raw inbound bytes.
+        assertThat(saved.getTokenData())
+                .as("token_data must be transformed (encrypted), not the verbatim SDK bytes")
+                .isNotEqualTo(SDK_TOKEN_DATA);
+
+        // Encryption round-trip: applying the key recovers the original plaintext, but only
+        // via the key — the stored bytes alone are not the cleartext.
+        assertThat(xorMask(saved.getTokenData()))
+                .as("decrypting the stored ciphertext recovers the original token_data")
+                .isEqualTo(SDK_TOKEN_DATA);
+    }
+
+    @Test
+    void emptyTokenData_isNotEncrypted_andKeyIdStaysNull() {
+        // bank_redirect / empty token_data carries no secret — leave it as-is with a null
+        // key id (no spurious encryption, no key-id on a non-secret).
+        PaymentSession open = session(PaymentSession.STATUS_OPEN, Instant.now().plus(Duration.ofMinutes(10)));
+        when(sessionRepository.findById("ps_1")).thenReturn(Optional.of(open));
+        when(sessionRepository.incrementTokenizeAttempts("ps_1")).thenReturn(1);
+
+        service.tokenize(new TokenizeCommand(
+                "ps_1", "t1", PaymentToken.TYPE_BANK_REDIRECT,
+                new byte[0], null, null, null, null));
+
+        ArgumentCaptor<PaymentToken> cap = ArgumentCaptor.forClass(PaymentToken.class);
+        verify(tokenRepository).save(cap.capture());
+        PaymentToken saved = cap.getValue();
+
+        verify(encryption, never()).encrypt(org.mockito.ArgumentMatchers.any(byte[].class),
+                org.mockito.ArgumentMatchers.anyString());
+        assertThat(saved.getEncryptionKeyId()).isNull();
+        assertThat(saved.getTokenData()).isEmpty();
     }
 
     @Test

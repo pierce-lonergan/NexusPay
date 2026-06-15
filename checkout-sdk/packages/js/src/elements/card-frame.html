@@ -369,6 +369,14 @@
       parentOrigin: authoritativeParentOrigin || deriveInitialParentOrigin()
     };
 
+    // SEC-03 residual: apiBase/sessionToken determine WHERE the raw PAN is POSTed
+    // and with WHAT bearer credential. Pin them ONCE at the first handshake and
+    // ignore later attempts to change them — the origin gate does not stop a
+    // SAME-origin hostile script from slipping a later STYLE_UPDATE that repoints
+    // apiBase to an attacker host. Scoped to these two fields only; appearance
+    // (the legitimate repeated payload) still updates on every STYLE_UPDATE.
+    let apiConfigPinned = false;
+
     // B-006: post replies to the parent's EXACT origin, never "*". A wildcard
     // target would leak card metadata / tokenization results to any document
     // that currently occupies the parent frame.
@@ -555,8 +563,14 @@
         // Do NOT let the payload set/override the origin. If present it must
         // AGREE with the browser-attested event.origin, else drop the message.
         if (p.parentOrigin && event.origin && p.parentOrigin !== event.origin) return;
-        if (p.sessionToken) state.sessionToken = p.sessionToken;
-        if (p.apiBase) state.apiBase = p.apiBase;
+        // SEC-03 residual: pin apiBase/sessionToken ONCE; drop later changes (a
+        // same-origin hostile script must not repoint where the PAN is POSTed).
+        // appearance stays OUTSIDE the latch and still updates on every message.
+        if (!apiConfigPinned && (p.sessionToken || p.apiBase)) {
+          if (p.sessionToken) state.sessionToken = p.sessionToken;
+          if (p.apiBase) state.apiBase = p.apiBase;
+          apiConfigPinned = true;
+        }
         // TODO (spec P3 — deferred): appearance.fonts[] passthrough — inject
         // merchant custom @font-face into this iframe. Not yet implemented.
         if (p.appearance?.variables) {

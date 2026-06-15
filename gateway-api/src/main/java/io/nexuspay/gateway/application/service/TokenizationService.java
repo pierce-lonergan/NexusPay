@@ -1,5 +1,6 @@
 package io.nexuspay.gateway.application.service;
 
+import io.nexuspay.common.crypto.EncryptionPort;
 import io.nexuspay.common.id.PrefixedId;
 import io.nexuspay.gateway.application.port.in.TokenizePaymentMethodUseCase;
 import io.nexuspay.gateway.application.port.out.PaymentSessionRepository;
@@ -33,16 +34,19 @@ public class TokenizationService implements TokenizePaymentMethodUseCase {
 
     private final PaymentSessionRepository sessionRepository;
     private final PaymentTokenRepository tokenRepository;
+    private final EncryptionPort encryption;
     private final int maxTokenizeAttempts;
     private final Duration singleUseTokenExpiry;
 
     public TokenizationService(
             PaymentSessionRepository sessionRepository,
             PaymentTokenRepository tokenRepository,
+            EncryptionPort encryption,
             @Value("${nexuspay.session.max-tokenize-attempts:10}") int maxTokenizeAttempts,
             @Value("${nexuspay.session.token-expiry:PT15M}") Duration singleUseTokenExpiry) {
         this.sessionRepository = sessionRepository;
         this.tokenRepository = tokenRepository;
+        this.encryption = encryption;
         this.maxTokenizeAttempts = maxTokenizeAttempts;
         this.singleUseTokenExpiry = singleUseTokenExpiry;
     }
@@ -82,12 +86,35 @@ public class TokenizationService implements TokenizePaymentMethodUseCase {
         // SDK tokens are single-use by default.
         Instant expiresAt = now.plus(singleUseTokenExpiry);
 
+        // SEC-04 / B-004: NEVER persist a recoverable PAN. The SDK card frame
+        // base64-encodes the raw PAN into token_data; CheckoutController forwards
+        // those bytes verbatim. Storing them as-is left a reversible cleartext PAN
+        // at rest (a DB dump / read-only SQLi / backup / insider read could
+        // base64-decode it back to the live card number). Encrypt the inbound
+        // bytes with AES-256-GCM via the (common) EncryptionPort — the same
+        // contract the vault uses — so the stored value is IV-prefixed, GCM-
+        // authenticated ciphertext that is non-reversible without the master key,
+        // and record the key id so the secure invariant (encryption_key_id NOT
+        // NULL) is observable. Any non-empty token_data is encrypted uniformly;
+        // wallet network tokens (apple_pay/google_pay) are not PANs, but encrypting
+        // them too is harmless and avoids a PAN-vs-wallet branch that could leak a
+        // reversible value through the wrong path. Empty token_data (e.g.
+        // bank_redirect) carries no secret, so it is left as-is with a null key.
+        byte[] storedTokenData = command.tokenData();
+        String encryptionKeyId = null;
+        if (storedTokenData != null && storedTokenData.length > 0) {
+            String keyId = encryption.currentKeyId();
+            EncryptionPort.EncryptionResult enc = encryption.encrypt(storedTokenData, keyId);
+            storedTokenData = enc.ciphertext();
+            encryptionKeyId = enc.keyId();
+        }
+
         var token = new PaymentToken(
                 id, command.tenantId(), command.sessionId(), command.type(),
                 command.cardLastFour(), command.cardBrand(),
                 command.cardExpMonth(), command.cardExpYear(),
                 null, // cardFingerprint — computed server-side from full card data
-                command.tokenData(), null, // encryptionKeyId — set by encryption layer
+                storedTokenData, encryptionKeyId, // SEC-04: ciphertext + non-null key id for card-bearing tokens
                 true, false, expiresAt, now
         );
 

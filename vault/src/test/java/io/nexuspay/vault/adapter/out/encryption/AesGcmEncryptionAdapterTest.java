@@ -1,6 +1,6 @@
 package io.nexuspay.vault.adapter.out.encryption;
 
-import io.nexuspay.vault.application.port.out.EncryptionPort;
+import io.nexuspay.common.crypto.EncryptionPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

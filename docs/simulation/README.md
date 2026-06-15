@@ -85,13 +85,15 @@ Docker the Testcontainers attacks self-skip (report all-skipped, not all-fail).
 
 Red-team inventory (`app/src/test/java/io/nexuspay/app/redteam/`):
 
+IN-GATE (flipped — fix landed; now a permanent regression guard in the default `test` task):
+- `PanPersistenceRedteamTest` (B-004 / "SEC-04") — full PAN must not be recoverable from **`payment_tokens.token_data`** after the gateway SDK **tokenize** path. SEC-BATCH-3 landed the fix (`TokenizationService` AES-256-GCM-encrypts `token_data` via the `:common` `EncryptionPort` and sets `encryption_key_id`; V4027 purges legacy null-key base64-PAN rows), so the three doesNotContain(PAN/base64(PAN)/decoded) checks pass and a `encryption_key_id IS NOT NULL` hardening assertion was added. De-tagged from `@Tag("redteam")` into the gate.
+
 ACTIVE (genuinely FAIL on current main; PASS once the named fix lands):
 - `CrossTenantIdorRedteamTest` (B-002/B-005/B-006) — X-Tenant-Id IDOR on vault/payout/virtual-card. **Seeds a real victim-owned resource and asserts attacker→404 WHILE a same-tenant control read→200**, so a not-found→404 fix alone cannot green it; only a real ownership check does.
 - `DisputeWebhookAuthReplayRedteamTest` (B-001) — unsigned dispute webhook + replay (no double chargeback reserve).
 - `LedgerDoublePostRedeliveryRedteamTest` (B-010) — same capture delivered twice → journal count must stay 1.
 - `PayoutDoublePayRedteamTest` — concurrent identical payouts → exactly one payout.
 - `OutboundWebhookSsrfRedteamTest` — internal/link-local webhook target must be refused.
-- `PanPersistenceRedteamTest` (B-004 / "SEC-04") — full PAN must not be recoverable from **`payment_tokens.token_data`** after the gateway SDK **tokenize** path. NOTE: this is the REAL audit finding. The vault (`vaulted_cards.encrypted_pan`) already uses real AES-256-GCM, so the old vault-targeted assertion PASSED on main (vacuous). The genuine hole is the SDK tokenize path persisting base64(PAN) unencrypted into `payment_tokens.token_data` with a null `encryption_key_id`.
 
 @Disabled (cannot be made fail-on-main in THIS harness without a stub PSP — see reason strings; do NOT replace with a vacuous assertion):
 - `IdempotencyReuseRedteamTest` (B-012) — two keyless identical payments must not double-charge. Needs a stub PSP minting DISTINCT payment ids per call to demonstrate the double-charge; the app harness has no WireMock PSP, so both calls fail identically downstream (422) → indistinguishable on vulnerable vs fixed. `@Disabled(B-012/SEC-BATCH-5)`.
@@ -165,7 +167,7 @@ Per-PR mapping:
 | Payout lock/idempotency | `PayoutDoublePayRedteamTest` | ACTIVE (fail-on-main) |
 | B-012 (mandatory/server-derived idempotency key) | `IdempotencyReuseRedteamTest` | `@Disabled` — needs stub PSP first (SEC-BATCH-5) |
 | SSRF egress filter | `OutboundWebhookSsrfRedteamTest` | ACTIVE (fail-on-main) |
-| B-004 / "SEC-04" (route SDK tokenize through encrypted vault; reject null `encryption_key_id`) | `PanPersistenceRedteamTest` (now targets `payment_tokens.token_data`, NOT `vaulted_cards`) | ACTIVE (fail-on-main) |
+| B-004 / "SEC-04" (encrypt SDK tokenize `token_data` via the `EncryptionPort`; set `encryption_key_id`; purge legacy null-key rows via V4027) | `PanPersistenceRedteamTest` (targets `payment_tokens.token_data`, NOT `vaulted_cards`) | **FLIPPED INTO GATE** (SEC-BATCH-3): `@Tag("redteam")` removed + `encryption_key_id IS NOT NULL` hardening added |
 
 > For the two `@Disabled` rows: the fix-merged-first / un-tag-second rule is unchanged,
 > but FIRST the app harness must gain a stub PSP (WireMock) so these can be made genuine

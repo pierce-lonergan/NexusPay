@@ -38,7 +38,12 @@ Fix program (each batch = its own T3 PR via the fusion topology; diverse impleme
   legitimate chargeback for merchant X reduces the DEFAULT tenant's receivables (money mis-attribution). Thread
   the dispute tenantId into the ledger posting (cross-module: dispute→ledger; verify per-tenant chargeback
   accounts + RLS). T3.
-- **SEC-BATCH-3 (CRIT/HIGH) PCI/PAN** — SEC-03 (checkout iframe forged postMessage / STYLE_UPDATE overrides apiBase+sessionToken; frame-ancestors *) [origin half DONE in DX-1; residual: never accept apiBase/sessionToken via message + tighten frame-ancestors] + SEC-04 (full PAN persisted base64 in payment_tokens → route SDK tokenize through encrypted vault).
+- ~~**SEC-BATCH-3 (CRIT/HIGH) PCI/PAN**~~ — DONE 2026-06-15 (T3 PR). SEC-04: the SDK tokenize path now
+  encrypts token_data via AES-256-GCM (EncryptionPort lifted to :common, L-048; encryption_key_id set;
+  non-reversible without the master key) — no more base64 PAN at rest; V4027 purges legacy base64 rows.
+  SEC-03 residual: the card iframe pins apiBase/sessionToken ONCE at init (ignores later message changes) +
+  frame-ancestors tightened off '*'. PanPersistenceRedteamTest flipped into the gate. ADR-021, L-052.
+  (SEC-03 origin half was DX-1.)
 - **SEC-BATCH-4 (HIGH) money-dup/SSRF/reliability** — SEC-10 (ledger double-post: DB unique on idempotency) + SEC-11 (payout scheduler no lock → double-pay) + SEC-14 (outbound webhook SSRF allowlist) + SEC-16 (dead-letter stuck RETRYING) + SEC-13 (iframe-manager token leak — DONE in DX-1).
 - **SEC-BATCH-5 (MED/LOW)** — SEC-12 (server-derived idempotency key for capture/void/refund) + SEC-15 (webhook dedup-before-commit) + SEC-17 (recon run.fail durable) + SEC-18 (analytics rollup idempotency) + SEC-21 (3DS origin — DONE in DX-1) + SEC-22 (float fee math, split idempotency, static master key, api-key prefix collision, /internal rate-limit bypass).
 

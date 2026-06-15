@@ -1,6 +1,6 @@
 package io.nexuspay.vault.adapter.out.encryption;
 
-import io.nexuspay.vault.application.port.out.EncryptionPort;
+import io.nexuspay.common.crypto.EncryptionPort;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
  *
  * @since 0.4.0 (Sprint 4.1)
  * @see io.nexuspay.vault.adapter.out.encryption.AesGcmEncryptionAdapter
+ * @see io.nexuspay.common.crypto.EncryptionPort
  */
 @Component
 @ConditionalOnProperty(name = "nexuspay.vault.encryption.provider", havingValue = "hsm")

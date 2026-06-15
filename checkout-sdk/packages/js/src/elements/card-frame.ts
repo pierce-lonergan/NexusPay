@@ -103,6 +103,22 @@ const state: FrameState = {
 };
 
 /**
+ * SEC-03 residual (defense-in-depth on top of the B-006/L-047 origin pinning):
+ * apiBase + sessionToken determine WHERE the raw PAN is POSTed and with WHAT
+ * bearer credential. They are configuration that the parent supplies ONCE in its
+ * initial STYLE_UPDATE handshake; there is no legitimate reason for them to change
+ * afterwards. The origin gate proves a message came FROM the pinned parent origin,
+ * but it does NOT defend against a SAME-ORIGIN hostile script on the merchant page
+ * slipping a later STYLE_UPDATE that repoints apiBase to an attacker host (L-047:
+ * "no origin-based defense against a same-origin hostile script"). So we LATCH:
+ * the first STYLE_UPDATE that supplies these fields pins them, and every later
+ * attempt to change apiBase/sessionToken is dropped. The latch is scoped to these
+ * two fields ONLY — appearance is a legitimately-repeated payload and keeps
+ * updating on every STYLE_UPDATE.
+ */
+let apiConfigPinned = false;
+
+/**
  * Posts a message to the parent window.
  * B-006: targets the parent's exact origin (never "*"). A wildcard target would
  * leak card metadata (last four, brand, completion state, tokenization results)
@@ -487,11 +503,19 @@ function handleParentMessage(event: MessageEvent): void {
       ) {
         return; // spoofed payload origin — drop the whole message
       }
-      if (payload?.sessionToken) {
-        state.sessionToken = payload.sessionToken as string;
-      }
-      if (payload?.apiBase) {
-        state.apiBase = payload.apiBase as string;
+      // SEC-03 residual: pin apiBase/sessionToken ONCE. The first STYLE_UPDATE that
+      // supplies them sets them and latches; later attempts to change either are
+      // dropped (a same-origin hostile script must not be able to repoint where the
+      // PAN is sent). appearance is intentionally OUTSIDE the latch — it is the
+      // legitimate repeated payload and still applies on every STYLE_UPDATE.
+      if (!apiConfigPinned && (payload?.sessionToken || payload?.apiBase)) {
+        if (payload?.sessionToken) {
+          state.sessionToken = payload.sessionToken as string;
+        }
+        if (payload?.apiBase) {
+          state.apiBase = payload.apiBase as string;
+        }
+        apiConfigPinned = true;
       }
       if (payload?.appearance) {
         applyAppearance(payload.appearance as Record<string, unknown>);
@@ -652,6 +676,7 @@ export const __test__ = {
     state.parentOrigin = parentOrigin;
     state.apiBase = '';
     state.sessionToken = '';
+    apiConfigPinned = false;
     state.pan = '';
     state.expMonth = '';
     state.expYear = '';

@@ -476,3 +476,28 @@ RESIDUAL (tracked, NOT this PR — SEC-24): LedgerChargebackAdapter posts under 
 legitimate dispute's DR/CR lands on the default tenant's accounts, not the dispute's tenant — a money
 mis-attribution correctness bug separate from the auth/replay fix. Needs the dispute tenant threaded into
 the ledger posting (cross-module; its own T3 change).
+
+## ADR-021 | 2026-06-15 | SEC-BATCH-3: encrypt PAN-at-rest on the SDK tokenize path (T3, PCI)
+STATUS: Accepted (T3 — PCI/crypto; via PR). Closes audit SEC-04 + the SEC-03 residual.
+CONTEXT: the SDK tokenize path stored the full PAN base64-encoded (reversible, unencrypted) in
+payment_tokens.token_data with a null encryption_key_id — a PCI-DSS at-rest violation (a DB dump/SQLi/
+backup/insider base64-decodes back to the live PAN). The vault module already encrypts (AES-256-GCM) but
+gateway-api could not reach its EncryptionPort.
+DECISION: encrypt token_data in place via AES-256-GCM + set encryption_key_id (option a — minimal PAN
+footprint; option b "store a vault ref" was rejected because it would send the cleartext PAN gateway→vault
+and add a gateway→vault edge). Wiring (L-048, zero new module edges): LIFT EncryptionPort into
+io.nexuspay.common.crypto (common is Type.OPEN); vault AesGcm/Hsm adapters implement the common interface
+(vault→common already legal); gateway-api TokenizationService injects the common EncryptionPort; the single
+@Component adapter bean resolves at the :app composition root (which depends on both vault + gateway-api) —
+no gateway→vault dependency. Stored = [12-byte IV][ciphertext+GCM tag], non-reversible without the
+master key (B-004-guarded, fail-closed). Safe display fields (last4/brand/exp) unchanged.
+MIGRATION V4027 (gateway schema, DATA not DDL — token_data BYTEA + encryption_key_id already exist): PURGES
+existing base64 token_data rows (encryption_key_id IS NULL) — they are cleartext PAN at rest and CANNOT be
+re-encrypted in-migration (no key in SQL), so the only safe action is to remove the recoverable PAN; the
+token rows are re-creatable on the next tokenize. Safe on a non-empty DB (L-041).
+SEC-03 RESIDUAL: the card iframe pins apiBase/sessionToken ONCE at init and ignores later message attempts to
+change them (defense-in-depth beyond the DX-1 origin pin); CheckoutSecurityHeadersFilter frame-ancestors
+tightened off '*'.
+CONSEQUENCES: no recoverable PAN persists anywhere on this path. PanPersistenceRedteamTest flipped from
+@Tag(redteam) report-only INTO the default gate (SEC-04 permanent guard). T3 review (PCI / regression+modulith
+/ test-adequacy): all SHIP, 0 blockers. See L-052. MERGE-ORDER: V4027 > V4026 (after SEC-BATCH-2).

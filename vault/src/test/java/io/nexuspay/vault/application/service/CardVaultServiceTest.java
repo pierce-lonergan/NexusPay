@@ -1,12 +1,12 @@
 package io.nexuspay.vault.application.service;
 
+import io.nexuspay.common.crypto.EncryptionPort;
+import io.nexuspay.common.crypto.EncryptionPort.EncryptionResult;
 import io.nexuspay.common.exception.ResourceNotFoundException;
 import io.nexuspay.vault.application.port.in.VaultCardUseCase;
 import io.nexuspay.vault.application.port.in.VaultCardUseCase.VaultCardCommand;
 import io.nexuspay.vault.application.port.in.VaultCardUseCase.VaultCardResult;
 import io.nexuspay.vault.application.port.in.VaultCardUseCase.VaultedCardInfo;
-import io.nexuspay.vault.application.port.out.EncryptionPort;
-import io.nexuspay.vault.application.port.out.EncryptionPort.EncryptionResult;
 import io.nexuspay.vault.application.port.out.VaultEventPublisher;
 import io.nexuspay.vault.application.port.out.VaultRepository;
 import io.nexuspay.vault.domain.CardBrand;
