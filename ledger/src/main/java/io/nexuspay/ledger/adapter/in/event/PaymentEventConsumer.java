@@ -47,6 +47,13 @@ public class PaymentEventConsumer {
 
         log.debug("Received payment event: type={}, aggregateId={}", eventType, aggregateId);
 
+        // Robustness (B-014): a malformed event with no event_type must be ignored gracefully, NOT
+        // NPE on switch(null) (which would propagate -> retry -> DLT). Skip before binding/work.
+        if (eventType == null || eventType.isBlank()) {
+            log.debug("Ignoring payment event with no event_type: aggregateId={}", aggregateId);
+            return;
+        }
+
         // B-002: bind the tenant on the APP role for the duration, but DO NOT open an enclosing
         // transaction — bindTenant lets each inner use case open its OWN transaction at its OWN
         // isolation (CreateJournalEntryUseCase is @Transactional(SERIALIZABLE); an enclosing
