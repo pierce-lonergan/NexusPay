@@ -16,6 +16,8 @@ operating L2: push branch, open PRs, may merge to main when ALL CI gates pass
 EXCEPT tier-3 changes (auth/crypto/ledger/vault/money/migrations) which always go
 via PR review (§3/§17.3). NOTE: CHARTER.md still reads `level: L1` (human-owned —
 agent may not edit); please update it to L2 to match.
+UPDATE 2026-06-14: CHARTER.md updated to level: L2 to match — done (ADR-016).
+CLAUDE.md operating core also synced from the hardcoded L1.
 
 ### Q-002 | Branch protection on main
 PERPETUA's external-enforcement model (§18.3) wants `main` protected: require the

@@ -3,7 +3,8 @@
 PHASE: session 0 (bootstrap + 6 shipped items) → clean stopping point
 BRANCH: perpetua/bootstrap (off main @ 6281809; NOT pushed; ~10 commits ahead)
 AUTONOMY: L2 (push + PR; may merge non-T3 when CI green; T3 always via PR) — set by
-  human 2026-06-10 (Q-001). CHARTER.md still says L1 (human to update). Pushing enabled.
+  human 2026-06-10 (Q-001). CHARTER.md updated to L2 to match (2026-06-14, ADR-016);
+  CLAUDE.md core synced. Pushing enabled.
 
 BUILD: green (Gradle, JDK 21). TESTS: 245 pass / 13 skip (Docker integration), 0 fail.
 COVERAGE: ~17% aggregate line (JaCoCo, complete denominator); floor 16%, CI-enforced.
@@ -12,7 +13,7 @@ APP: boots through full bean wiring (fails only on missing Postgres — expected
 SHIPPED (PERPETUA loop): B-010, B-001, B-019, B-004, B-008, B-009, B-013, B-005, B-014a,
   B-018, B-014b; B-007 escalated (stats locked). 16 commits ahead of main.
 ACTIVE ITEM: none in-flight. Next: B-014 cont. (thin-module coverage) / B-006 (scans) / B-002/B-003 RFCs.
-BLOCKERS: Q-001 (ratify/push), Q-004 (no Docker → RLS B-002 / Flyway B-011 unverifiable),
+BLOCKERS: Q-004 (no Docker → RLS B-002 / Flyway B-011 unverifiable),
   Q-006 (coverage-floor correction), Q-007 (A/B wire-vs-delete).
 OPEN money residual: B-022 (stuck-APPROVED refund recovery, pre-existing).
 

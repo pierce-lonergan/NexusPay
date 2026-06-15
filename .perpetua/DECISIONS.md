@@ -296,3 +296,61 @@ Decision (ultracode design + security review, security dimension PASSED):
   uq_fraud_assessments_tenant_idem violation so unrelated integrity errors propagate. Velocity is
   separately protected by the SET-NX first-seen marker.
 Residual: B-029-hardening (request-fingerprint match on a dedup hit) deferred — needs a schema column.
+
+## ADR-016 | 2026-06-14 | Sync CHARTER to L2 (Q-001 ratification) — provenance + human-gated carve-outs
+Context: Q-001 was RESOLVED by the human owner on 2026-06-10 — they chose **L2 +
+push + allow merge** (`.perpetua/QUESTIONS.md:14-18`): the agent may merge to main
+when ALL CI gates pass, EXCEPT tier-3 changes (auth/crypto/ledger/vault/money/
+migrations) which always go via PR review (§3 / §17.3). Q-001 explicitly instructed:
+"CHARTER.md still reads `level: L1` (human-owned — agent may not edit); please update
+it to L2 to match." STATE.md has tracked AUTONOMY: L2 since 2026-06-10. In the current
+session (2026-06-14) the human RE-AUTHORIZED push-to-main and explicitly listed
+"CHARTER L1→L2" as a task. PROVENANCE (recorded honestly): CHARTER.md is HUMAN-OWNED;
+the agent applied this edit ONLY under that explicit human instruction — the HUMAN
+ratified (Q-001 + this-session re-authorization). The agent is NOT self-elevating.
+The L2 wording is grounded in PERPETUA.md §3 (Autonomy Levels) and §17.3 (risk tiers),
+not invented. The evidence dossier justifies the trust in context: a clean track
+record on main — 6 tier-3 features shipped with adversarial + dedicated security review
+(ADR-009/011/012/013/014/015), a tier-3 change correctly routed through PR #2, ratchets
+raised honestly (test_count_floor → 680; coverage_floor_pct → 33 — corrected DOWN once,
+23→16, as a Q-006 denominator fix flagged for human ratification, not a silent lowering,
+then ratcheted up to 33 as modules gained tests), and
+self-disclosed mistakes (L-038). CI independently blocks any merge that drops coverage/
+test-count or leaks a secret (`perpetua-gates.yml`), so L2 does NOT make the agent the
+sole guardian of its own discipline (§18.3).
+
+Decision: sync the human-owned CHARTER.md to the already-ratified L2 autonomy.
+Concretely: `level: L1` → `level: L2`; STATUS DRAFT/"operates at L1" banner →
+RATIFIED/L2-operating-rule banner with an explicit provenance line; the obsolete
+"Never push or open PRs until ratified" clause → the L2 operating rule (push freely
+on `perpetua/**`; merge to main only when all CI gates pass; tier-3 ALWAYS via PR even
+at L2); the stale North-star "(baseline 201)" → a pointer at `ratchets.json` →
+`test_count_floor` (currently 680) as the source of truth so it cannot drift again.
+L2 is DEFINED as: merge non-tier-3 to main when every CI gate passes; tier-3
+(ratchets.json risk_map.t3_globs: auth/authz, crypto, parsing/deserialization,
+SQL/shell/path, network boundary, concurrency, money/data-integrity, migrations)
+ALWAYS via PR review (§17.3 "always via PR even at L2"). Human-gated carve-outs that
+this ADR explicitly does NOT weaken: (1) tier-3-always-via-PR; (2) the production RLS
+cutover B-002-cutover — the irreversible/high-blast-radius `rls.enforce=true` flip and
+its MANDATORY Step 0 (stamp the real tenant on `nexuspay.payments`) — `rls.enforce`
+defaults false (dormant), the flip stays with the human; (3) L3 / external actions —
+`whitelisted_external_actions` stays `[]` (deploys, releases, enabling branch
+protection, any side effect outside the repo); (4) branch protection on main (require
+the CI workflow, forbid force-push) — the §18.3 structural backstop — remains OPEN,
+Q-002 UNANSWERED. The verbatim-in-spirit controls "never weaken a test/assertion/add a
+coverage-or-scan exclusion to go green", "never commit a real secret", "no new runtime
+dep without a BLOCKING question + supply-chain check", and "do not touch
+docs/gaps/known-gaps.md history" are PRESERVED. Also syncs the auto-loaded operating
+core CLAUDE.md (its HARD RULES line hardcoded L1, which would override the ratified
+charter at runtime — the env-override class of bug).
+
+Consequences: operationally, the agent now pushes `perpetua/**` and merges
+non-tier-3 changes to main on its own once CI is green, while tier-3 work continues
+to flow through PR review (PR #2 was the live proof). ADR-001's "operate L1 until
+ratified" is SUPERSEDED by this ADR (ADR-001 is append-only history — NOT edited).
+Residual human gates remain the real backstops: tier-3-via-PR, the B-002-cutover flip
+(+ its Step 0), `whitelisted_external_actions: []`, and — most importantly until it is
+enabled — branch protection on main (Q-002), without which L2 push authority rests on
+the agent's discipline + the CI ratchets rather than on the structural §18.3 enforcement
+that would make it robust against a degenerated future session. The human still owns
+CHARTER.md; future edits to it require explicit human instruction (recorded as here).

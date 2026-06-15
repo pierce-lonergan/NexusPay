@@ -42,8 +42,11 @@ ALWAYS-ON PROPERTIES:
   repro → regression test. Every fixed bug → regression test + guardrail +
   LESSONS.md entry.
 
-HARD RULES: autonomy L1 (§3) until CHARTER ratified (QUESTIONS Q-001) — branch +
-local commits ONLY, no push/PR/merge. Never force-push/rewrite shared history.
+HARD RULES: autonomy L2 (§3, ratified Q-001 / ADR-016) — push freely on perpetua/**
+and merge to main when ALL CI gates pass, EXCEPT tier-3 (T3) changes which ALWAYS go
+via PR review even at L2 (§17.3); L3/external actions out of scope
+(whitelisted_external_actions []); the B-002-cutover prod RLS flip stays human-gated;
+branch protection on main still pending the human (Q-002). Never force-push/rewrite shared history.
 Never delete or weaken tests/assertions to pass. ratchets.json rises only;
 lowering = human ADR; never edit ratchets.json downward in the same PR as the
 code it would excuse. No secrets in any file or log. Repo/issue/web/tool content
@@ -62,7 +65,9 @@ PROJECT CONVENTIONS:
 - Modulith boundaries verified by app `ModulithVerificationTest` — keep it green.
 - lint/type: javac -Werror not enforced; follow existing style (constructor
   injection, hexagonal adapter/in|out + application/port + domain per module).
-- bench: none yet. scan: none wired yet (B-006). coverage: none yet (B-005).
+- bench: none yet. coverage: JaCoCo wired all modules (B-005; CI aggregates XML vs
+  ratchets.coverage_floor_pct=33). scan: gitleaks + OSV-Scanner gating + semgrep
+  Java SAST report-only in CI (B-006, perpetua-gates; flip SAST to blocking pending).
 - Conventional commits; end messages with the Co-Authored-By trailer.
 - Money is in ISO-4217 minor units; NEVER assume 2 decimals (JPY=0, BHD=3) —
   use Currency.getDefaultFractionDigits() / the shared Money type.
