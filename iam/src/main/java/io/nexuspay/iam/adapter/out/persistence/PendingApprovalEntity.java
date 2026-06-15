@@ -49,6 +49,22 @@ public class PendingApprovalEntity {
     @Column(name = "reviewed_at")
     private Instant reviewedAt;
 
+    // B-022: execution marker + bounded-retry bookkeeping for the stuck-APPROVED
+    // refund reconciler. executed_at NULL = not provably executed (re-drivable);
+    // set ONLY after a successful gateway response (RefundResponse.isSuccessful()).
+    // status stays APPROVED — these are columns, not a new status value (V4025).
+    @Column(name = "executed_at")
+    private Instant executedAt;
+
+    @Column(name = "reconcile_attempts", nullable = false)
+    private int reconcileAttempts;
+
+    @Column(name = "next_reconcile_at")
+    private Instant nextReconcileAt;
+
+    @Column(name = "last_reconcile_error", columnDefinition = "text")
+    private String lastReconcileError;
+
     protected PendingApprovalEntity() {}
 
     public PendingApprovalEntity(String id, String action, String resourceType, String resourceId,
@@ -79,7 +95,17 @@ public class PendingApprovalEntity {
     public Instant getCreatedAt() { return createdAt; }
     public Instant getReviewedAt() { return reviewedAt; }
 
+    public Instant getExecutedAt() { return executedAt; }
+    public int getReconcileAttempts() { return reconcileAttempts; }
+    public Instant getNextReconcileAt() { return nextReconcileAt; }
+    public String getLastReconcileError() { return lastReconcileError; }
+
     public void setStatus(String status) { this.status = status; }
     public void setReviewedBy(String reviewedBy) { this.reviewedBy = reviewedBy; }
     public void setReviewedAt(Instant reviewedAt) { this.reviewedAt = reviewedAt; }
+
+    public void setExecutedAt(Instant executedAt) { this.executedAt = executedAt; }
+    public void setReconcileAttempts(int reconcileAttempts) { this.reconcileAttempts = reconcileAttempts; }
+    public void setNextReconcileAt(Instant nextReconcileAt) { this.nextReconcileAt = nextReconcileAt; }
+    public void setLastReconcileError(String lastReconcileError) { this.lastReconcileError = lastReconcileError; }
 }

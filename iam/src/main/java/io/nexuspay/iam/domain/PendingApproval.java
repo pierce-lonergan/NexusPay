@@ -21,9 +21,26 @@ public class PendingApproval {
     private final Instant createdAt;
     private Instant reviewedAt;
 
+    // B-022: refund-reconciler execution state. executedAt == null means "not provably executed"
+    // (re-drivable). These are read-only on the domain object; the marker writes happen on the entity
+    // via the atomic conditional UPDATEs in ApprovalService/JpaPendingApprovalRepository.
+    private final Instant executedAt;
+    private final int reconcileAttempts;
+    private final Instant nextReconcileAt;
+    private final String lastReconcileError;
+
     public PendingApproval(String id, String action, String resourceType, String resourceId,
                             Map<String, Object> payload, String status, String requestedBy,
                             String reviewedBy, String tenantId, Instant createdAt, Instant reviewedAt) {
+        this(id, action, resourceType, resourceId, payload, status, requestedBy, reviewedBy,
+                tenantId, createdAt, reviewedAt, null, 0, null, null);
+    }
+
+    public PendingApproval(String id, String action, String resourceType, String resourceId,
+                            Map<String, Object> payload, String status, String requestedBy,
+                            String reviewedBy, String tenantId, Instant createdAt, Instant reviewedAt,
+                            Instant executedAt, int reconcileAttempts, Instant nextReconcileAt,
+                            String lastReconcileError) {
         this.id = id;
         this.action = action;
         this.resourceType = resourceType;
@@ -35,6 +52,10 @@ public class PendingApproval {
         this.tenantId = tenantId;
         this.createdAt = createdAt;
         this.reviewedAt = reviewedAt;
+        this.executedAt = executedAt;
+        this.reconcileAttempts = reconcileAttempts;
+        this.nextReconcileAt = nextReconcileAt;
+        this.lastReconcileError = lastReconcileError;
     }
 
     public void approve(String reviewerId) {
@@ -64,4 +85,10 @@ public class PendingApproval {
     public String getTenantId() { return tenantId; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getReviewedAt() { return reviewedAt; }
+
+    public Instant getExecutedAt() { return executedAt; }
+    public boolean isExecuted() { return executedAt != null; }
+    public int getReconcileAttempts() { return reconcileAttempts; }
+    public Instant getNextReconcileAt() { return nextReconcileAt; }
+    public String getLastReconcileError() { return lastReconcileError; }
 }

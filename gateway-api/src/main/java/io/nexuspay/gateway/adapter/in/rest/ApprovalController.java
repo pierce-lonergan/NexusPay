@@ -50,6 +50,16 @@ public class ApprovalController {
         // If this was a refund approval, execute the refund
         if ("refund".equals(approval.getAction())) {
             var refundResponse = refundOrchestration.executeApprovedRefund(approval);
+            // B-022: stamp executed_at on the success path so the common case never enters the
+            // reconciler. This is bound to the caller's tenant (the request already runs under
+            // TenantContext) and is conditional on executed_at IS NULL, so it is consistent with
+            // the reconciler's marker. If the gateway call above THREW, we never reach here and the
+            // row stays APPROVED/executed_at NULL — exactly the stuck state the reconciler re-drives
+            // (keyed on the same "refund-approval-<id>", which the PSP dedups). Additive: does not
+            // change the no-double-pay proof (the PSP key is the money backstop, not this marker).
+            if (refundResponse.isSuccessful()) {
+                approvalService.markRefundExecuted(approval.getId(), principal.tenantId());
+            }
             return ResponseEntity.ok(ResponseMapper.toRefundResponse(refundResponse));
         }
 
