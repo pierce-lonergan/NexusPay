@@ -63,6 +63,11 @@ public class FraudAssessmentEntity {
     @Column(name = "latency_ms", nullable = false)
     private int latencyMs;
 
+    // B-029-hardening: keyed HMAC-SHA256 hex (VARCHAR(64)) of the canonical request tuple. Nullable
+    // (no nullable=false) so legacy pre-migration rows stay NULL. Plain varchar — NOT @JdbcTypeCode.
+    @Column(name = "request_fingerprint")
+    private String requestFingerprint;
+
     // --- Getters & Setters ---
 
     public UUID getId() { return id; }
@@ -95,4 +100,6 @@ public class FraudAssessmentEntity {
     public void setAssessedAt(Instant assessedAt) { this.assessedAt = assessedAt; }
     public int getLatencyMs() { return latencyMs; }
     public void setLatencyMs(int latencyMs) { this.latencyMs = latencyMs; }
+    public String getRequestFingerprint() { return requestFingerprint; }
+    public void setRequestFingerprint(String requestFingerprint) { this.requestFingerprint = requestFingerprint; }
 }

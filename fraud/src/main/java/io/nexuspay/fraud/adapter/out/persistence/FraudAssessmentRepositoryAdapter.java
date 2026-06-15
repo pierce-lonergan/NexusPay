@@ -89,6 +89,7 @@ public class FraudAssessmentRepositoryAdapter implements FraudAssessmentReposito
         e.setReviewedAt(a.getReviewedAt());
         e.setAssessedAt(a.getAssessedAt());
         e.setLatencyMs(a.getLatencyMs());
+        e.setRequestFingerprint(a.getRequestFingerprint()); // B-029-hardening: persist on write
         return e;
     }
 
@@ -115,6 +116,7 @@ public class FraudAssessmentRepositoryAdapter implements FraudAssessmentReposito
         a.setReviewedAt(e.getReviewedAt());
         a.setAssessedAt(e.getAssessedAt());
         a.setLatencyMs(e.getLatencyMs());
+        a.setRequestFingerprint(e.getRequestFingerprint()); // B-029-hardening: available on dedup-hit read
         return a;
     }
 }

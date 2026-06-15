@@ -30,6 +30,11 @@ public class RiskAssessment {
     private Instant reviewedAt;
     private Instant assessedAt;
     private int latencyMs;
+    // B-029-hardening: keyed HMAC-SHA256 (hex) of the canonical request tuple (amount/currency/
+    // customer/cardToken). Set by the service right before persistence; nullable so legacy/bypass
+    // paths leave it null (matching the nullable DB column and the "legacy NULL -> return prior"
+    // dedup-hit branch). Never reversible, never a raw PAN.
+    private String requestFingerprint;
 
     public RiskAssessment() {
         this.id = UUID.randomUUID();
@@ -121,4 +126,7 @@ public class RiskAssessment {
 
     public int getLatencyMs() { return latencyMs; }
     public void setLatencyMs(int latencyMs) { this.latencyMs = latencyMs; }
+
+    public String getRequestFingerprint() { return requestFingerprint; }
+    public void setRequestFingerprint(String requestFingerprint) { this.requestFingerprint = requestFingerprint; }
 }

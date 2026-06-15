@@ -9,9 +9,11 @@ import io.nexuspay.fraud.domain.model.RiskAssessment;
 import io.nexuspay.fraud.domain.model.RiskDecision;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
 
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -35,8 +37,18 @@ import static org.mockito.Mockito.when;
  * request. These tests pin: dedup-hit short-circuits the pipeline + event; a genuinely-new key
  * runs the full pipeline; a concurrent unique-index violation re-reads instead of double-writing;
  * a dedup-store error fails OPEN (assesses); and the disabled bypass is untouched.
+ *
+ * <p>B-029-hardening: the dedup hit now also verifies a KEYED request fingerprint. Same key + same
+ * fingerprint short-circuits; same key + DIFFERENT fingerprint RE-ASSESSES (without persisting a
+ * second row / publishing a second event) and warns; a legacy NULL-fingerprint hit returns prior.
+ * A REAL {@link RequestFingerprinter} (fixed test master key) is used so the actual canonicalization
+ * + HMAC is exercised, not a mock.</p>
  */
 class FraudAssessmentServiceTest {
+
+    /** Fixed base64 of a 32-byte key so fingerprints are deterministic and real across the suite. */
+    private static final String TEST_MASTER_KEY =
+            Base64.getEncoder().encodeToString("0123456789abcdef0123456789abcdef".getBytes());
 
     private RuleEvaluationPipeline pipeline;
     private RiskScoringAggregator scoringAggregator;
@@ -46,6 +58,7 @@ class FraudAssessmentServiceTest {
     private FraudAssessmentRepository repository;
     private FraudEventPublisher eventPublisher;
     private FraudProperties properties;
+    private RequestFingerprinter fingerprinter;
     private FraudAssessmentService service;
 
     @BeforeEach
@@ -58,6 +71,7 @@ class FraudAssessmentServiceTest {
         repository = mock(FraudAssessmentRepository.class);
         eventPublisher = mock(FraudEventPublisher.class);
         properties = new FraudProperties(); // enabled=true by default
+        fingerprinter = new RequestFingerprinter(TEST_MASTER_KEY); // REAL HMAC, not a mock
 
         // Default healthy pipeline: ALLOW, no rules/signals triggered.
         lenient().when(ruleManager.getActiveRulesForTenant(anyString())).thenReturn(List.of());
@@ -78,27 +92,40 @@ class FraudAssessmentServiceTest {
                 .thenReturn(Optional.empty());
 
         service = new FraudAssessmentService(pipeline, scoringAggregator, deviceMatcher,
-                fallbackChain, ruleManager, repository, eventPublisher, properties);
+                fallbackChain, ruleManager, repository, eventPublisher, properties, fingerprinter);
     }
 
     private static PaymentContext ctx(String tenant, String key) {
-        return new PaymentContext(key, tenant, 5000, "USD", "cust_1", "a@b.com",
-                "411111", "hash", "1.1.1.1", "US", "dev", Map.of(), Map.of(), key);
+        return ctx(tenant, key, 5000, "USD", "cust_1", "hash");
+    }
+
+    private static PaymentContext ctx(String tenant, String key, long amount, String currency,
+                                      String customerId, String cardHash) {
+        return new PaymentContext(key, tenant, amount, currency, customerId, "a@b.com",
+                "411111", cardHash, "1.1.1.1", "US", "dev", Map.of(), Map.of(), key);
+    }
+
+    /** Builds a stored prior assessment carrying the fingerprint of the given context. */
+    private RiskAssessment priorWithFingerprintOf(String tenant, String key, PaymentContext fpSource) {
+        RiskAssessment prior = RiskAssessment.create(tenant, key);
+        prior.applyDecision(0, null, "NATIVE_ONLY", 0, RiskDecision.ALLOW);
+        prior.setRequestFingerprint(fpSource == null ? null : fingerprinter.fingerprint(fpSource));
+        return prior;
     }
 
     @Test
-    void duplicateKey_returnsPriorAssessment_noPipeline_noSave_noEvent() {
-        // First call runs and saves; thereafter the repo returns the prior row → a retry with the
-        // SAME (tenant, key) MUST short-circuit: no pipeline, no second save, no second event.
-        FraudAssessmentResult first = service.assess(ctx("T", "idem-1"));
-        assertThat(first.decision()).isEqualTo(RiskDecision.ALLOW);
+    void sameKey_sameFingerprint_shortCircuits_noPipeline_noSave_noEvent() {
+        // First call runs and saves; thereafter the repo returns the prior row (carrying the SAME
+        // fingerprint) → a retry with the SAME (tenant, key) + SAME request MUST short-circuit.
+        PaymentContext first = ctx("T", "idem-1");
+        FraudAssessmentResult firstResult = service.assess(first);
+        assertThat(firstResult.decision()).isEqualTo(RiskDecision.ALLOW);
         verify(pipeline, times(1)).evaluate(any(), any());
         verify(repository, times(1)).saveAndFlush(any());
         verify(eventPublisher, times(1)).publishEvent(any(), any(), any(), any(), any());
 
-        // Simulate the row now existing for the dedup read.
-        RiskAssessment saved = RiskAssessment.create("T", "idem-1");
-        saved.applyDecision(0, null, "NATIVE_ONLY", 0, RiskDecision.ALLOW);
+        // The row now exists for the dedup read, carrying the fingerprint of the identical request.
+        RiskAssessment saved = priorWithFingerprintOf("T", "idem-1", ctx("T", "idem-1"));
         when(repository.findByTenantIdAndPaymentId("T", "idem-1")).thenReturn(Optional.of(saved));
 
         FraudAssessmentResult retry = service.assess(ctx("T", "idem-1"));
@@ -106,11 +133,45 @@ class FraudAssessmentServiceTest {
         assertThat(retry.decision()).isEqualTo(RiskDecision.ALLOW);
         verify(pipeline, times(1)).evaluate(any(), any());   // STILL 1 — retry did not run the pipeline
         verify(repository, times(1)).saveAndFlush(any());    // STILL 1 — no duplicate row
-        verify(eventPublisher, times(1)).publishEvent(any(), any(), any(), any(), any()); // STILL 1 — no duplicate event
+        verify(eventPublisher, times(1)).publishEvent(any(), any(), any(), any(), any()); // STILL 1
     }
 
     @Test
-    void genuinelyNewKey_runsFullPipeline_andPersistsAndPublishes() {
+    void sameKey_differentFingerprint_reAssesses_noSecondRow_noSecondEvent() {
+        // Prior row carries the fingerprint of amount=5000; a retry reuses the SAME key for a
+        // DIFFERENT charge (amount=9999). The service MUST re-run the pipeline (never serve the stale
+        // decision) but MUST NOT write a second row (would violate the unique key) nor publish a
+        // second event — the reuse is recorded only via the WARN log.
+        RiskAssessment prior = priorWithFingerprintOf("T", "idem-1",
+                ctx("T", "idem-1", 5000, "USD", "cust_1", "hash"));
+        when(repository.findByTenantIdAndPaymentId("T", "idem-1")).thenReturn(Optional.of(prior));
+
+        FraudAssessmentResult result = service.assess(
+                ctx("T", "idem-1", 9999, "USD", "cust_1", "hash"));
+
+        assertThat(result.decision()).isEqualTo(RiskDecision.ALLOW); // freshly-computed decision
+        verify(pipeline, times(1)).evaluate(any(), any());           // RE-ASSESSED
+        verify(repository, never()).saveAndFlush(any());             // NO second row under the taken key
+        verify(eventPublisher, never()).publishEvent(any(), any(), any(), any(), any()); // NO second event
+    }
+
+    @Test
+    void legacyNullFingerprint_hitReturnsPrior_noPipeline_noSecondSaveOrEvent() {
+        // A pre-migration row has requestFingerprint == null. We cannot prove mismatch, so fall back
+        // to the prior (idempotent) behavior — return prior, no re-run, no second save/event.
+        RiskAssessment prior = priorWithFingerprintOf("T", "idem-1", null); // null fingerprint
+        when(repository.findByTenantIdAndPaymentId("T", "idem-1")).thenReturn(Optional.of(prior));
+
+        FraudAssessmentResult result = service.assess(ctx("T", "idem-1"));
+
+        assertThat(result.decision()).isEqualTo(RiskDecision.ALLOW);
+        verify(pipeline, never()).evaluate(any(), any());       // NOT re-run
+        verify(repository, never()).saveAndFlush(any());
+        verify(eventPublisher, never()).publishEvent(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void genuinelyNewKey_runsFullPipeline_andPersistsWithNonNullFingerprint_andPublishes() {
         // A different idempotency key is a genuinely-new charge → full assessment, one row, one event.
         when(repository.findByTenantIdAndPaymentId("T", "idem-A")).thenReturn(Optional.empty());
         when(repository.findByTenantIdAndPaymentId("T", "idem-B")).thenReturn(Optional.empty());
@@ -119,8 +180,16 @@ class FraudAssessmentServiceTest {
         service.assess(ctx("T", "idem-B"));
 
         verify(pipeline, times(2)).evaluate(any(), any());   // both ran (not deduped against each other)
-        verify(repository, times(2)).saveAndFlush(any());
         verify(eventPublisher, times(2)).publishEvent(any(), any(), any(), any(), any());
+
+        ArgumentCaptor<RiskAssessment> captor = ArgumentCaptor.forClass(RiskAssessment.class);
+        verify(repository, times(2)).saveAndFlush(captor.capture());
+        // Every persisted assessment carries a non-null 64-hex fingerprint (never the cleartext tuple).
+        for (RiskAssessment persisted : captor.getAllValues()) {
+            assertThat(persisted.getRequestFingerprint()).isNotNull();
+            assertThat(persisted.getRequestFingerprint()).matches("^[0-9a-f]{64}$");
+            assertThat(persisted.getRequestFingerprint()).doesNotContain("cust_1", "USD", "5000", "hash");
+        }
     }
 
     @Test
@@ -144,12 +213,6 @@ class FraudAssessmentServiceTest {
         // the try/catch). The service must NOT propagate the exception and must NOT publish a second
         // event (exactly one row + one event per (tenant, key) belongs to the winner). The loser
         // returns its deterministic locally-computed result.
-        //
-        // NOTE: this is a unit test with the flush stubbed — it pins the contract (flush throws ->
-        // swallowed -> deterministic result, no second event) but cannot prove the REAL Postgres
-        // unique index raises at flush. The fraud module has no Testcontainers/@DataJpaTest base
-        // (only the app module does), so the real-index integration test is a deliberate follow-up
-        // rather than a fabricated, semantically-empty IT here.
         when(repository.findByTenantIdAndPaymentId("T", "idem-1")).thenReturn(Optional.empty());
         when(repository.saveAndFlush(any()))
                 .thenThrow(new DuplicateKeyException(

@@ -14,6 +14,8 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -38,6 +40,7 @@ public class FraudAssessmentService implements AssessFraudRiskUseCase, ReviewFra
     private final FraudAssessmentRepository assessmentRepository;
     private final FraudEventPublisher eventPublisher;
     private final FraudProperties fraudProperties;
+    private final RequestFingerprinter requestFingerprinter;
 
     public FraudAssessmentService(RuleEvaluationPipeline ruleEvaluationPipeline,
                                    RiskScoringAggregator scoringAggregator,
@@ -46,7 +49,8 @@ public class FraudAssessmentService implements AssessFraudRiskUseCase, ReviewFra
                                    FraudRuleManager ruleManager,
                                    FraudAssessmentRepository assessmentRepository,
                                    FraudEventPublisher eventPublisher,
-                                   FraudProperties fraudProperties) {
+                                   FraudProperties fraudProperties,
+                                   RequestFingerprinter requestFingerprinter) {
         this.ruleEvaluationPipeline = ruleEvaluationPipeline;
         this.scoringAggregator = scoringAggregator;
         this.deviceMatcher = deviceMatcher;
@@ -55,6 +59,7 @@ public class FraudAssessmentService implements AssessFraudRiskUseCase, ReviewFra
         this.assessmentRepository = assessmentRepository;
         this.eventPublisher = eventPublisher;
         this.fraudProperties = fraudProperties;
+        this.requestFingerprinter = requestFingerprinter;
     }
 
     @Override
@@ -70,25 +75,59 @@ public class FraudAssessmentService implements AssessFraudRiskUseCase, ReviewFra
         // BEFORE the pipeline so the velocity INCR is skipped on a dup. A read-store error here is
         // fail-OPEN (run the assessment) so a Valkey/DB outage cannot silently drop fraud screening.
         String dedupKey = context.dedupKey();
+
+        // B-029-hardening: compute the KEYED request fingerprint ONCE, BEFORE the dedup lookup, so
+        // both the dedup-hit compare AND the write path use the same value. Computing it first means
+        // a key/compute failure fails CLOSED everywhere: FingerprintUnavailableException propagates
+        // out of assess() (rolls back the @Transactional, no half-fingerprinted row) and can NEVER be
+        // masked by a dedup hit returning a stale ALLOW.
+        String currentFingerprint = requestFingerprinter.fingerprint(context);
+
+        // B-029-hardening: set when an idempotency key was REUSED for a DIFFERENT charge (case (b)).
+        // It re-runs the pipeline (so the caller gets a correct, fresh decision — never the stale
+        // one) but gates OFF the persist + event publish, because the prior row legitimately occupies
+        // the unique (tenant, dedupKey) slot. Re-assessing-without-persist is what STRUCTURALLY avoids
+        // an unhandled uq_fraud_assessments_tenant_idem DataIntegrityViolation on this path.
+        boolean reuseDetected = false;
+
         try {
             Optional<RiskAssessment> existing =
                     assessmentRepository.findByTenantIdAndPaymentId(context.tenantId(), dedupKey);
             if (existing.isPresent()) {
-                // TODO (SHOULD_FIX C — request-fingerprint on dedup hit, DEFERRED): we return the prior
-                // assessment WITHOUT verifying the retried request matches the original (amount /
-                // customer / card). A mismatched-but-same-key retry (idempotency-key reuse across a
-                // DIFFERENT charge) would be served the stale decision. A proper guard needs a request
-                // fingerprint PERSISTED on the assessment row (a NEW fraud_assessments column + a
-                // migration) so it survives across processes; RiskAssessment/FraudAssessmentEntity do
-                // not currently carry the request amount/customer/card, so this cannot be done without
-                // a schema change. Deferred as a residual (see report) rather than half-implemented:
-                // on a hit, assert fingerprint == stored → on mismatch re-assess (or reject) instead of
-                // returning the prior decision.
-                log.info("Idempotent fraud assess HIT: tenant={}, key={} — returning prior assessment, "
-                        + "no pipeline / no velocity INCR / no duplicate event", context.tenantId(), dedupKey);
-                return FraudAssessmentResult.from(existing.get());
+                RiskAssessment prior = existing.get();
+                String storedFp = prior.getRequestFingerprint();
+                if (storedFp == null) {
+                    // (c) legacy pre-migration row: no fingerprint to compare. Fall back to the prior
+                    // (idempotent) behavior — intentional, bounded back-compat. New rows always carry
+                    // a non-null fingerprint, so an attacker cannot induce this branch on a new write.
+                    log.info("Idempotent fraud assess HIT (legacy null fingerprint): tenant={}, key={} "
+                            + "— returning prior assessment, no pipeline / no duplicate event",
+                            context.tenantId(), dedupKey);
+                    return FraudAssessmentResult.from(prior);
+                }
+                if (constantTimeEquals(storedFp, currentFingerprint)) {
+                    // (a) same key + same request: genuine retry — short-circuit, return prior. No
+                    // pipeline, no velocity INCR, no duplicate event (existing idempotent behavior).
+                    log.info("Idempotent fraud assess HIT (fingerprint matched): tenant={}, key={} "
+                            + "— returning prior assessment, no pipeline / no duplicate event",
+                            context.tenantId(), dedupKey);
+                    return FraudAssessmentResult.from(prior);
+                }
+                // (b) same key + DIFFERENT request: idempotency-key reuse across a different charge
+                // (client bug or attack). SECURITY-RELEVANT. Do NOT return the prior (stale) decision;
+                // RE-ASSESS. We never log the fingerprints (or their preimages). Fall through to run
+                // the pipeline with reuseDetected set so we do not write a second row under the taken
+                // unique key nor publish a duplicate event.
+                log.warn("Idempotency key REUSED for a DIFFERENT request: tenant={}, key={} — stored "
+                        + "fingerprint != current request fingerprint; NOT returning the prior "
+                        + "decision, RE-ASSESSING. (client bug or attack)", context.tenantId(), dedupKey);
+                reuseDetected = true;
             }
         } catch (RuntimeException e) {
+            // A dedup STORE/IO error is fail-OPEN (run the assessment) — unchanged. NOTE this is a
+            // store failure, distinct from a fingerprint MISMATCH (handled above) and a fingerprint
+            // COMPUTE failure (thrown before this try, so it does NOT reach here). A
+            // FingerprintUnavailableException would already have propagated out of assess().
             log.warn("Idempotency dedup lookup failed for tenant={}, key={} — failing OPEN (assessing)",
                     context.tenantId(), dedupKey, e);
         }
@@ -133,6 +172,24 @@ public class FraudAssessmentService implements AssessFraudRiskUseCase, ReviewFra
         nativeEval.triggeredRuleIds().forEach(id -> assessment.addTriggeredRule(UUID.fromString(id)));
         nativeEval.signals().forEach(assessment::addRiskSignal);
         if (deviceSignal != null) assessment.addRiskSignal(deviceSignal);
+
+        // B-029-hardening: stamp the keyed request fingerprint on every newly-built assessment so a
+        // genuinely-new key persists it and the next retry can verify the request matches.
+        assessment.setRequestFingerprint(currentFingerprint);
+
+        // B-029-hardening: idempotency-key reuse across a DIFFERENT charge (case (b)). The prior row
+        // legitimately owns the unique (tenant, dedupKey) slot, so we DO NOT persist a second row
+        // (would violate uq_fraud_assessments_tenant_idem) and DO NOT publish a duplicate event. We
+        // return the FRESHLY-computed decision for THIS charge — the security goal ("never serve the
+        // stale decision for a different charge") is met; the reuse is recorded via the WARN above.
+        // Because this branch NEVER calls saveAndFlush, the unique-violation path is STRUCTURALLY
+        // unreachable here (not merely caught).
+        if (reuseDetected) {
+            log.info("Fraud RE-ASSESSMENT (idempotency-key reuse) complete WITHOUT persist: "
+                    + "payment={}, score={}, decision={}, latency={}ms — prior row retained, no event",
+                    context.paymentId(), aggregatedScore, finalDecision, latencyMs);
+            return FraudAssessmentResult.from(assessment);
+        }
 
         // B-027b race backstop: a truly-concurrent retry can slip past the read-through dedup above
         // (both reads miss, both run the pipeline). The unique index on (tenant_id, payment_id)
@@ -244,6 +301,18 @@ public class FraudAssessmentService implements AssessFraudRiskUseCase, ReviewFra
                         "triggeredRules", assessment.getTriggeredRuleIds().size(),
                         "latencyMs", assessment.getLatencyMs()
                 ), context.tenantId());
+    }
+
+    /**
+     * B-029-hardening: constant-time comparison of two fingerprint hex strings via
+     * {@link MessageDigest#isEqual} on their UTF-8 bytes, so a partial-match timing leak cannot be
+     * leveraged to forge a matching fingerprint and coax a stale ALLOW. Both arguments are non-null
+     * at the call site (storedFp null is handled earlier; currentFingerprint never returns null).
+     */
+    private static boolean constantTimeEquals(String storedFp, String currentFingerprint) {
+        return MessageDigest.isEqual(
+                storedFp.getBytes(StandardCharsets.UTF_8),
+                currentFingerprint.getBytes(StandardCharsets.UTF_8));
     }
 
     /** Name of the unique index that enforces (tenant, idempotency-key) uniqueness (V4023). */

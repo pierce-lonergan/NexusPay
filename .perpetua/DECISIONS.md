@@ -354,3 +354,36 @@ enabled — branch protection on main (Q-002), without which L2 push authority r
 the agent's discipline + the CI ratchets rather than on the structural §18.3 enforcement
 that would make it robust against a degenerated future session. The human still owns
 CHARTER.md; future edits to it require explicit human instruction (recorded as here).
+
+## ADR-017 | 2026-06-14 | B-029-hardening: request-fingerprint guard on the fraud dedup-hit (T3, via PR)
+STATUS: Accepted (lands via PR — T3 always via PR even at L2, §3/§17.3; human merges).
+CONTEXT: FraudAssessmentService.assess() deduped retries on (tenantId, dedupKey) and on a HIT returned the
+prior decision WITHOUT checking the retried request matched the original. A reused idempotency key on a
+DIFFERENT charge would be served the stale fraud decision — an attacker could get a known-ALLOW decision
+applied to a high-risk transaction. Deferred from B-027b because the request fields weren't persisted.
+DECISION: persist a KEYED request fingerprint and verify it on every dedup hit.
+ - Crypto: HMAC-SHA256 (NOT a plain hash — the (amount,currency,customer,cardToken) tuple has catastrophically
+   low entropy and a plain digest in a leaked column is rainbow-tableable). Key = SHA-256(masterKey ||
+   "fraud-request-fingerprint") — domain-separated from the vault PAN-fingerprint key (L-009), same master key
+   (nexuspay.vault.encryption.master-key, guarded by StartupSecretsValidator/B-004). 64-hex, VARCHAR(64).
+ - Canonicalization = a SECURITY BOUNDARY: version byte + per-field [type-tag][null|present marker][8-byte BE
+   length][utf8 bytes]. Self-delimiting ⇒ injective ⇒ no in-band-delimiter forgery (the classic pipe-join
+   collision is structurally impossible). tenantId is folded in FIRST (TAG_VERSION 0x02) so the fingerprint is
+   self-binding and can never be honored cross-tenant even if a future refactor compares outside the scoped lookup.
+ - Dedup-hit branch: stored==current ⇒ short-circuit (retry); stored!=current ⇒ idempotency-key REUSE
+   (client bug or attack) ⇒ RE-ASSESS (never return prior) + WARN, and return the fresh decision WITHOUT
+   saveAndFlush/publish (the prior row legitimately belongs to the original charge; the unique key makes a 2nd
+   row impossible, so the violation path is STRUCTURALLY unreachable, not merely caught); stored==null (legacy
+   pre-migration row) ⇒ return prior (intentional, bounded back-compat; new writes always set a non-null fp).
+ - Fail-CLOSED everywhere: fingerprint computed BEFORE the dedup lookup, so a compute/key failure throws
+   FingerprintUnavailableException and rolls back assess() — it can never be masked by a hit returning a stale
+   ALLOW. Constant-time compare (MessageDigest.isEqual). Never stores/logs a raw PAN (cardHash folded one-way).
+ - Migration: fraud/V4024 (next free GLOBAL version; ADD COLUMN IF NOT EXISTS, nullable; safe on a non-empty DB).
+CONSEQUENCES: a reused key on a different charge is always re-assessed, never served the stale decision. T3
+adversarial review: crypto SHIP, migration SHIP, dedup-bypass SHIP; test-adequacy initially BLOCKED — the
+anti-collision tests were VACUOUS (a pipe-join mutant kept them green); fixed with real delimiter-shift
+collision pairs + an extended fuzz, self-verified by mutation (pass-on-real / fail-on-mutant) (L-044).
+RESIDUAL (tracked, NOT in this PR): velocity-counter evasion on the reuse path — the rule pipeline gates the
+velocity INCR behind a SET-NX first-seen marker keyed on (tenant, idempotency-key); the original request
+already set it, so N distinct charges under one reused key only count the first toward velocity. Separate T3
+follow-up (B-029-velocity): key velocity accounting on charge identity, not the idempotency key.
