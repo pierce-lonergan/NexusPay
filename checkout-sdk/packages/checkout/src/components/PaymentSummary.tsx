@@ -18,7 +18,7 @@ export function PaymentSummary({ amount, currency }: PaymentSummaryProps) {
       <h3 className="payment-summary__title">Order summary</h3>
       <div className="payment-summary__divider" />
       <div className="payment-summary__row payment-summary__row--total">
-        <span>Total</span>
+        <span className="payment-summary__label">Total</span>
         <span className="payment-summary__amount">{formatted}</span>
       </div>
     </div>

@@ -52,37 +52,50 @@ body {
   display: block;
   margin-bottom: calc(var(--nxp-spacing-unit, 4px) * 1.5);
   font-size: 0.875rem;
-  font-weight: var(--nxp-font-weight-bold, 600);
+  /* Seam parity: match the same-origin parent .Label (base-styles.ts) which uses
+     the medium weight, not bold — so the in-iframe label weight is identical. */
+  font-weight: var(--nxp-font-weight-medium, 500);
   color: var(--nxp-color-text, #1A1A2E);
 }
 
 .field__input {
   width: 100%;
-  padding: calc(var(--nxp-spacing-unit, 4px) * 3);
+  padding: var(--nxp-space-3, calc(var(--nxp-spacing-unit, 4px) * 3));
   font-family: inherit;
   font-size: 1rem;
   font-weight: var(--nxp-font-weight-normal, 400);
+  line-height: var(--nxp-font-line-height, 1.5);
   color: var(--nxp-color-text, #1A1A2E);
-  background-color: var(--nxp-color-background, #FFFFFF);
-  border: 1px solid var(--nxp-border-default, #E5E7EB);
+  background-color: var(--nxp-color-surface, var(--nxp-color-background, #FFFFFF));
+  border: 1px solid var(--nxp-color-border, var(--nxp-border-default, #E5E7EB));
   border-radius: var(--nxp-border-radius, 8px);
   outline: none;
-  transition: border-color 150ms ease, box-shadow 150ms ease;
+  transition:
+    border-color var(--nxp-dur-fast, 150ms) var(--nxp-ease-standard, ease),
+    box-shadow var(--nxp-dur-fast, 150ms) var(--nxp-ease-out, ease);
   -webkit-appearance: none;
   appearance: none;
 }
 
+.card-form__number .field__input {
+  font-variant-numeric: tabular-nums;
+}
+
 .field__input::placeholder {
-  color: #9CA3AF;
+  color: var(--nxp-color-text-placeholder, #9CA3AF);
 }
 
 .field__input:hover {
-  border-color: var(--nxp-border-hover, #D1D5DB);
+  border-color: var(--nxp-color-border-hover, var(--nxp-border-hover, #D1D5DB));
 }
 
+/* Two-layer focus ring — identical geometry to the parent (.Input) so the
+   iframe seam is invisible: 1px solid inner (>=3:1) + 3px translucent halo. */
 .field__input:focus {
   border-color: var(--nxp-color-primary, #0066FF);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--nxp-color-primary, #0066FF) 15%, transparent);
+  box-shadow:
+    0 0 0 1px var(--nxp-color-primary, #0066FF),
+    0 0 0 var(--nxp-focus-ring-width, 3px) color-mix(in srgb, var(--nxp-color-primary, #0066FF) 18%, transparent);
 }
 
 .field__input--error {
@@ -90,7 +103,9 @@ body {
 }
 
 .field__input--error:focus {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--nxp-color-danger, #DC2626) 15%, transparent);
+  box-shadow:
+    0 0 0 1px var(--nxp-color-danger, #DC2626),
+    0 0 0 var(--nxp-focus-ring-width, 3px) color-mix(in srgb, var(--nxp-color-danger, #DC2626) 18%, transparent);
 }
 
 .field__input:disabled {
@@ -100,7 +115,7 @@ body {
 
 /* Autofill override */
 .field__input:-webkit-autofill {
-  -webkit-box-shadow: 0 0 0 1000px var(--nxp-color-background, #FFFFFF) inset;
+  -webkit-box-shadow: 0 0 0 1000px var(--nxp-color-surface, var(--nxp-color-background, #FFFFFF)) inset;
   -webkit-text-fill-color: var(--nxp-color-text, #1A1A2E);
 }
 
@@ -114,11 +129,16 @@ body {
   width: 32px;
   height: 20px;
   pointer-events: none;
-  transition: opacity 150ms ease-out;
+  transition:
+    opacity var(--nxp-anim-brand-crossfade, 150ms) var(--nxp-ease-out, ease-out),
+    transform var(--nxp-anim-brand-crossfade, 150ms) var(--nxp-ease-out, ease-out);
 }
 
+/* Hidden state for the brand crossfade: fade + scale .9 (the incoming SVG
+   scales .9 -> 1), never a hard swap. */
 .brand-icon--hidden {
   opacity: 0;
+  transform: translateY(-50%) scale(0.9);
 }
 
 .brand-icon svg {
@@ -160,20 +180,20 @@ body {
 
   .field__input {
     color: var(--nxp-color-text, #E2E8F0);
-    background-color: var(--nxp-color-background, #0F172A);
-    border-color: var(--nxp-border-default, #334155);
+    background-color: var(--nxp-color-surface, var(--nxp-color-background, #1E293B));
+    border-color: var(--nxp-color-border, var(--nxp-border-default, #334155));
   }
 
   .field__input:hover {
-    border-color: var(--nxp-border-hover, #475569);
+    border-color: var(--nxp-color-border-hover, var(--nxp-border-hover, #475569));
   }
 
   .field__input::placeholder {
-    color: #64748B;
+    color: var(--nxp-color-text-placeholder, #64748B);
   }
 
   .field__input:-webkit-autofill {
-    -webkit-box-shadow: 0 0 0 1000px var(--nxp-color-background, #0F172A) inset;
+    -webkit-box-shadow: 0 0 0 1000px var(--nxp-color-surface, var(--nxp-color-background, #1E293B)) inset;
     -webkit-text-fill-color: var(--nxp-color-text, #E2E8F0);
   }
 }
@@ -204,5 +224,27 @@ body {
 
   .field__error {
     animation: none;
+  }
+}
+
+/* --- Forced colors (Windows High Contrast) --- */
+
+/*
+ * box-shadow focus rings are invisible in forced-colors mode, so fall back to a
+ * real outline using system colors. Mirrors the parent (base-styles.ts) so the
+ * seam stays invisible even in High Contrast.
+ */
+@media (forced-colors: active) {
+  .field__input {
+    border: 1px solid CanvasText;
+  }
+
+  .field__input:focus {
+    outline: 2px solid Highlight;
+    outline-offset: var(--nxp-focus-outline-offset, 2px);
+  }
+
+  .field__input--error {
+    border-color: LinkText;
   }
 }

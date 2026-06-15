@@ -145,10 +145,54 @@ function emitChange(): void {
   }
 }
 
+// --- Instructional error copy (state 2) ---
+// Incomplete vs invalid messages are instructional, never accusatory. They are
+// only surfaced on BLUR (not mid-type) so the field doesn't flash red while the
+// user is still typing a valid number.
+const MSG = {
+  panIncomplete: 'Your card number is incomplete.',
+  panInvalid: 'Your card number is invalid.',
+  expiryIncomplete: "Your card's expiration date is incomplete.",
+  expiryInvalidMonth: "Your card's expiration month is invalid.",
+  expiryExpired: "Your card's expiration date is in the past.",
+  cvcIncomplete: "Your card's security code is incomplete.",
+} as const;
+
+/**
+ * FIX 4: render a field's error state to the DOM — error text + the visual
+ * `field__input--error` class AND the programmatic `aria-invalid` so screen
+ * readers get the same state the sighted user sees. The error region already has
+ * aria-live="polite", so updating its text announces the change.
+ */
+function renderFieldError(
+  input: HTMLInputElement | null,
+  errorEl: HTMLElement | null,
+  message: string | null,
+): void {
+  if (input) {
+    input.className = message ? 'field__input field__input--error' : 'field__input';
+    input.setAttribute('aria-invalid', String(!!message));
+  }
+  if (errorEl) {
+    errorEl.textContent = message ?? '';
+    errorEl.className = message
+      ? 'field__error field__error--visible'
+      : 'field__error';
+  }
+}
+
 // --- Input Handlers ---
 
-/** Handles card number input with formatting and cursor preservation. */
-function handlePanInput(input: HTMLInputElement): void {
+/**
+ * Handles card number input with formatting and cursor preservation.
+ *
+ * FIX 5: brand/IIN detection + Luhn run LIVE on input (so the brand icon and the
+ * green success tick update as the user types), but the RED 'invalid' error is
+ * NOT set here — it is deferred to blur (see handlePanBlur). While typing we only
+ * CLEAR a previously-shown error once the number becomes valid, so a corrected
+ * number stops looking wrong immediately.
+ */
+function handlePanInput(input: HTMLInputElement, errorEl?: HTMLElement | null): void {
   const cursorPos = input.selectionStart ?? 0;
   const rawBefore = input.value;
   const digitsBeforeCursor = rawBefore.slice(0, cursorPos).replace(/\D/g, '').length;
@@ -173,33 +217,55 @@ function handlePanInput(input: HTMLInputElement): void {
   }
   input.setSelectionRange(newCursor, newCursor);
 
-  // Validate
-  if (digits.length >= 13) {
-    state.errors.pan = luhnCheck(digits) ? null : 'Invalid card number';
-  } else {
+  // Live: only clear a previously-surfaced error once the number is valid. Never
+  // SET a red error mid-type — that is deferred to blur.
+  if (luhnCheck(digits)) {
     state.errors.pan = null;
+    if (errorEl !== undefined) renderFieldError(input, errorEl, null);
   }
 
   emitChange();
 }
 
-/** Handles expiry input with auto-advance (MM/YY). */
+/** FIX 5: PAN red error is set on BLUR (incomplete vs invalid), not while typing. */
+function handlePanBlur(input: HTMLInputElement, errorEl?: HTMLElement | null): void {
+  const digits = state.pan;
+  if (digits.length === 0) {
+    state.errors.pan = null;
+  } else if (luhnCheck(digits)) {
+    state.errors.pan = null;
+  } else if (digits.length >= 13) {
+    // Complete-but-bad number: it's invalid.
+    state.errors.pan = MSG.panInvalid;
+  } else {
+    // Not enough digits yet: it's incomplete.
+    state.errors.pan = MSG.panIncomplete;
+  }
+  if (errorEl !== undefined) renderFieldError(input, errorEl, state.errors.pan);
+  emitChange();
+}
+
+/**
+ * Handles expiry input with auto-advance (MM/YY).
+ *
+ * FIX 5: month-range / expired RED errors are deferred to blur. On input we only
+ * auto-advance and CLEAR a stale error; we never flash red mid-type.
+ */
 function handleExpiryInput(
   monthInput: HTMLInputElement,
   yearInput: HTMLInputElement,
   which: 'month' | 'year',
+  errorEl?: HTMLElement | null,
 ): void {
   if (which === 'month') {
     const digits = monthInput.value.replace(/\D/g, '').slice(0, 2);
     monthInput.value = digits;
     state.expMonth = digits;
 
-    // Auto-advance to year after 2 digits
+    // Auto-advance to year after 2 valid digits; clear any stale error.
     if (digits.length === 2) {
       const month = parseInt(digits, 10);
-      if (month < 1 || month > 12) {
-        state.errors.expiry = 'Invalid month';
-      } else {
+      if (month >= 1 && month <= 12) {
         state.errors.expiry = null;
         yearInput.focus();
       }
@@ -211,29 +277,78 @@ function handleExpiryInput(
     yearInput.value = digits;
     state.expYear = digits;
 
+    // Clear a stale error once a complete, valid date is entered.
     if (digits.length === 2 && state.expMonth.length === 2) {
       const month = parseInt(state.expMonth, 10);
       const year = parseInt(digits, 10);
-      state.errors.expiry = isExpiryValid(month, year) ? null : 'Card expired';
+      if (isExpiryValid(month, year)) {
+        state.errors.expiry = null;
+      }
     }
   }
 
+  if (errorEl !== undefined && !state.errors.expiry) {
+    renderFieldError(monthInput, errorEl, null);
+    renderFieldError(yearInput, errorEl, null);
+  }
   emitChange();
 }
 
-/** Handles CVC input. */
-function handleCvcInput(input: HTMLInputElement): void {
+/** FIX 5: expiry red error is set on BLUR (incomplete / invalid month / expired). */
+function handleExpiryBlur(
+  monthInput: HTMLInputElement,
+  yearInput: HTMLInputElement,
+  errorEl?: HTMLElement | null,
+): void {
+  const mLen = state.expMonth.length;
+  const yLen = state.expYear.length;
+  if (mLen === 0 && yLen === 0) {
+    state.errors.expiry = null;
+  } else if (mLen < 2 || yLen < 2) {
+    state.errors.expiry = MSG.expiryIncomplete;
+  } else {
+    const month = parseInt(state.expMonth, 10);
+    const year = parseInt(state.expYear, 10);
+    if (month < 1 || month > 12) {
+      state.errors.expiry = MSG.expiryInvalidMonth;
+    } else if (!isExpiryValid(month, year)) {
+      state.errors.expiry = MSG.expiryExpired;
+    } else {
+      state.errors.expiry = null;
+    }
+  }
+  if (errorEl !== undefined) {
+    renderFieldError(monthInput, errorEl, state.errors.expiry);
+    renderFieldError(yearInput, errorEl, state.errors.expiry);
+  }
+  emitChange();
+}
+
+/** Handles CVC input. CVC error remains deferred to blur (unchanged behavior). */
+function handleCvcInput(input: HTMLInputElement, errorEl?: HTMLElement | null): void {
   const maxLen = cvcLength(state.brand);
   const digits = input.value.replace(/\D/g, '').slice(0, maxLen);
   input.value = digits;
   state.cvc = digits;
 
-  if (digits.length === maxLen) {
-    state.errors.cvc = null;
-  } else if (digits.length > 0) {
-    state.errors.cvc = null; // Don't show error while typing
-  }
+  // Never show a CVC error while typing; clear any stale one.
+  state.errors.cvc = null;
+  if (errorEl !== undefined) renderFieldError(input, errorEl, null);
 
+  emitChange();
+}
+
+/** FIX 5: CVC incomplete error is surfaced on blur (matches existing behavior). */
+function handleCvcBlur(input: HTMLInputElement, errorEl?: HTMLElement | null): void {
+  const maxLen = cvcLength(state.brand);
+  if (state.cvc.length === 0) {
+    state.errors.cvc = null;
+  } else if (state.cvc.length < maxLen) {
+    state.errors.cvc = MSG.cvcIncomplete;
+  } else {
+    state.errors.cvc = null;
+  }
+  if (errorEl !== undefined) renderFieldError(input, errorEl, state.errors.cvc);
   emitChange();
 }
 
@@ -395,6 +510,9 @@ function handleParentMessage(event: MessageEvent): void {
 }
 
 function applyAppearance(appearance: Record<string, unknown>): void {
+  // TODO (spec P3 — deferred): appearance.fonts[] passthrough. Inject merchant
+  // custom @font-face declarations into the iframe document so the in-frame card
+  // fields can render in the merchant's brand font. Not yet implemented.
   const variables = appearance.variables as Record<string, string | number> | undefined;
   if (!variables) return;
 
@@ -411,6 +529,16 @@ function applyAppearance(appearance: Record<string, unknown>): void {
     spacingUnit: '--nxp-spacing-unit',
     fontWeightNormal: '--nxp-font-weight-normal',
     fontWeightBold: '--nxp-font-weight-bold',
+    // P2/P3: extended tokens so the iframe consumes the same set as the parent.
+    colorTextSecondary: '--nxp-color-text-secondary',
+    colorTextPlaceholder: '--nxp-color-text-placeholder',
+    colorBorder: '--nxp-color-border',
+    colorBorderHover: '--nxp-color-border-hover',
+    colorWarning: '--nxp-color-warning',
+    colorSurface: '--nxp-color-surface',
+    onPrimary: '--nxp-on-primary',
+    fontWeightMedium: '--nxp-font-weight-medium',
+    buttonBorderRadius: '--nxp-button-border-radius',
   };
 
   for (const [key, cssVar] of Object.entries(mapping)) {
@@ -422,6 +550,31 @@ function applyAppearance(appearance: Record<string, unknown>): void {
 
 // --- Init ---
 
+/**
+ * FIX 6: observe the frame's content height and post a `resize` message to the
+ * parent so it can size the iframe element exactly — no reserved dead space, and
+ * no clipping when the inline error slide-in changes the body height. Reuses the
+ * established postToParent (pinned parent origin); the origin gate is unchanged.
+ */
+function observeBodyResize(): void {
+  if (typeof ResizeObserver === 'undefined' || typeof document === 'undefined') return;
+  const body = document.body;
+  if (!body) return;
+  let lastHeight = -1;
+  const post = (): void => {
+    // scrollHeight captures the full content box including the slid-in error.
+    const height = Math.ceil(body.scrollHeight);
+    if (height > 0 && height !== lastHeight) {
+      lastHeight = height;
+      postToParent('resize', { height });
+    }
+  };
+  const ro = new ResizeObserver(() => post());
+  ro.observe(body);
+  // Initial measurement after layout settles.
+  post();
+}
+
 /** Initializes the card frame when the DOM is ready. */
 export function initCardFrame(): void {
   window.addEventListener('message', handleParentMessage);
@@ -431,17 +584,28 @@ export function initCardFrame(): void {
   const monthInput = document.getElementById('card-exp-month') as HTMLInputElement | null;
   const yearInput = document.getElementById('card-exp-year') as HTMLInputElement | null;
   const cvcInput = document.getElementById('card-cvc') as HTMLInputElement | null;
+  const errorPan = document.getElementById('error-pan');
+  const errorExpiry = document.getElementById('error-expiry');
+  const errorCvc = document.getElementById('error-cvc');
 
   if (panInput) {
-    panInput.addEventListener('input', () => handlePanInput(panInput));
+    // FIX 5: brand/Luhn live on input; RED error deferred to blur.
+    panInput.addEventListener('input', () => handlePanInput(panInput, errorPan));
+    panInput.addEventListener('blur', () => handlePanBlur(panInput, errorPan));
   }
   if (monthInput && yearInput) {
-    monthInput.addEventListener('input', () => handleExpiryInput(monthInput, yearInput, 'month'));
-    yearInput.addEventListener('input', () => handleExpiryInput(monthInput, yearInput, 'year'));
+    monthInput.addEventListener('input', () => handleExpiryInput(monthInput, yearInput, 'month', errorExpiry));
+    yearInput.addEventListener('input', () => handleExpiryInput(monthInput, yearInput, 'year', errorExpiry));
+    monthInput.addEventListener('blur', () => handleExpiryBlur(monthInput, yearInput, errorExpiry));
+    yearInput.addEventListener('blur', () => handleExpiryBlur(monthInput, yearInput, errorExpiry));
   }
   if (cvcInput) {
-    cvcInput.addEventListener('input', () => handleCvcInput(cvcInput));
+    cvcInput.addEventListener('input', () => handleCvcInput(cvcInput, errorCvc));
+    cvcInput.addEventListener('blur', () => handleCvcBlur(cvcInput, errorCvc));
   }
+
+  // FIX 6: auto-resize the iframe to fit content (errors, brand row).
+  observeBodyResize();
 
   // Signal ready
   postToParent('FRAME_READY');
@@ -460,6 +624,15 @@ export const __test__ = {
   isExpectedParentOrigin,
   deriveInitialParentOrigin,
   deriveAuthoritativeParentOrigin,
+  // FIX 4/5: input/blur handlers + DOM error renderer for direct unit testing.
+  handlePanInput,
+  handlePanBlur,
+  handleExpiryInput,
+  handleExpiryBlur,
+  handleCvcInput,
+  handleCvcBlur,
+  renderFieldError,
+  MSG,
   /** The currently-pinned browser-attested parent origin ("" when none). */
   getAuthoritativeParentOrigin(): string {
     return authoritativeParentOrigin;
@@ -484,6 +657,7 @@ export const __test__ = {
     state.expYear = '';
     state.cvc = '';
     state.brand = 'unknown';
+    state.errors = { pan: null, expiry: null, cvc: null };
   },
 };
 

@@ -19,6 +19,25 @@ export interface AppearanceVariables {
   spacingUnit?: string;
   fontWeightNormal?: number;
   fontWeightBold?: number;
+  // --- P2: extended Stripe-class token set ---
+  /** Helper / secure-line / powered-by / placeholder ink. */
+  colorTextSecondary?: string;
+  /** Placeholder text inside inputs (promotes the hard-coded #9CA3AF). */
+  colorTextPlaceholder?: string;
+  /** Resting 1px field hairline (promotes INPUT_STATES.borderDefault to a real token). */
+  colorBorder?: string;
+  /** Field hairline on hover. */
+  colorBorderHover?: string;
+  /** Warning / caution accent. */
+  colorWarning?: string;
+  /** Card surface — may differ from the page colorBackground (enables the floating card). */
+  colorSurface?: string;
+  /** Button label / on-accent foreground color. */
+  onPrimary?: string;
+  /** Mid weight for labels and buttons (currently only normal/bold exist). */
+  fontWeightMedium?: number;
+  /** Pay-button radius; falls back to borderRadius when unset. */
+  buttonBorderRadius?: string;
 }
 
 export interface Appearance {

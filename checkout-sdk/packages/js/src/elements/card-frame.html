@@ -36,43 +36,55 @@
       display: block;
       margin-bottom: calc(var(--nxp-spacing-unit, 4px) * 1.5);
       font-size: 0.875rem;
-      font-weight: var(--nxp-font-weight-bold, 600);
+      /* Seam parity: match the same-origin parent .Label (base-styles.ts) which
+         uses the medium weight, not bold — so the label weight is identical. */
+      font-weight: var(--nxp-font-weight-medium, 500);
       color: var(--nxp-color-text, #1A1A2E);
     }
 
     .field__input {
       width: 100%;
-      padding: calc(var(--nxp-spacing-unit, 4px) * 3);
+      padding: var(--nxp-space-3, calc(var(--nxp-spacing-unit, 4px) * 3));
       font-family: inherit;
       font-size: 1rem;
       font-weight: var(--nxp-font-weight-normal, 400);
+      line-height: var(--nxp-font-line-height, 1.5);
       color: var(--nxp-color-text, #1A1A2E);
-      background-color: var(--nxp-color-background, #FFFFFF);
-      border: 1px solid var(--nxp-border-default, #E5E7EB);
+      background-color: var(--nxp-color-surface, var(--nxp-color-background, #FFFFFF));
+      border: 1px solid var(--nxp-color-border, var(--nxp-border-default, #E5E7EB));
       border-radius: var(--nxp-border-radius, 8px);
       outline: none;
-      transition: border-color 150ms ease, box-shadow 150ms ease;
+      transition:
+        border-color var(--nxp-dur-fast, 150ms) var(--nxp-ease-standard, ease),
+        box-shadow var(--nxp-dur-fast, 150ms) var(--nxp-ease-out, ease);
       -webkit-appearance: none;
       appearance: none;
     }
 
-    .field__input::placeholder { color: #9CA3AF; }
-    .field__input:hover { border-color: var(--nxp-border-hover, #D1D5DB); }
+    .card-form__number .field__input { font-variant-numeric: tabular-nums; }
 
+    .field__input::placeholder { color: var(--nxp-color-text-placeholder, #9CA3AF); }
+    .field__input:hover { border-color: var(--nxp-color-border-hover, var(--nxp-border-hover, #D1D5DB)); }
+
+    /* Two-layer focus ring — identical geometry to the parent so the seam is invisible. */
     .field__input:focus {
       border-color: var(--nxp-color-primary, #0066FF);
-      box-shadow: 0 0 0 3px color-mix(in srgb, var(--nxp-color-primary, #0066FF) 15%, transparent);
+      box-shadow:
+        0 0 0 1px var(--nxp-color-primary, #0066FF),
+        0 0 0 var(--nxp-focus-ring-width, 3px) color-mix(in srgb, var(--nxp-color-primary, #0066FF) 18%, transparent);
     }
 
     .field__input--error { border-color: var(--nxp-color-danger, #DC2626); }
 
     .field__input--error:focus {
-      box-shadow: 0 0 0 3px color-mix(in srgb, var(--nxp-color-danger, #DC2626) 15%, transparent);
+      box-shadow:
+        0 0 0 1px var(--nxp-color-danger, #DC2626),
+        0 0 0 var(--nxp-focus-ring-width, 3px) color-mix(in srgb, var(--nxp-color-danger, #DC2626) 18%, transparent);
     }
 
     /* Autofill */
     .field__input:-webkit-autofill {
-      -webkit-box-shadow: 0 0 0 1000px var(--nxp-color-background, #FFFFFF) inset;
+      -webkit-box-shadow: 0 0 0 1000px var(--nxp-color-surface, var(--nxp-color-background, #FFFFFF)) inset;
       -webkit-text-fill-color: var(--nxp-color-text, #1A1A2E);
     }
 
@@ -86,7 +98,7 @@
     .expiry-row input { text-align: center; }
     .expiry-separator {
       font-size: 1.125rem;
-      color: #9CA3AF;
+      color: var(--nxp-color-text-placeholder, #9CA3AF);
       flex-shrink: 0;
     }
 
@@ -115,10 +127,12 @@
       width: 32px;
       height: 20px;
       pointer-events: none;
-      transition: opacity 150ms ease-out;
+      transition:
+        opacity var(--nxp-anim-brand-crossfade, 150ms) var(--nxp-ease-out, ease-out),
+        transform var(--nxp-anim-brand-crossfade, 150ms) var(--nxp-ease-out, ease-out);
     }
 
-    .brand-icon--hidden { opacity: 0; }
+    .brand-icon--hidden { opacity: 0; transform: translateY(-50%) scale(0.9); }
     .brand-icon svg { width: 100%; height: 100%; }
 
     /* Dark mode */
@@ -129,15 +143,15 @@
 
       .field__input {
         color: var(--nxp-color-text, #E2E8F0);
-        background-color: var(--nxp-color-background, #0F172A);
-        border-color: var(--nxp-border-default, #334155);
+        background-color: var(--nxp-color-surface, var(--nxp-color-background, #1E293B));
+        border-color: var(--nxp-color-border, var(--nxp-border-default, #334155));
       }
 
-      .field__input:hover { border-color: var(--nxp-border-hover, #475569); }
-      .field__input::placeholder { color: #64748B; }
+      .field__input:hover { border-color: var(--nxp-color-border-hover, var(--nxp-border-hover, #475569)); }
+      .field__input::placeholder { color: var(--nxp-color-text-placeholder, #64748B); }
 
       .field__input:-webkit-autofill {
-        -webkit-box-shadow: 0 0 0 1000px var(--nxp-color-background, #0F172A) inset;
+        -webkit-box-shadow: 0 0 0 1000px var(--nxp-color-surface, var(--nxp-color-background, #1E293B)) inset;
         -webkit-text-fill-color: var(--nxp-color-text, #E2E8F0);
       }
     }
@@ -154,10 +168,18 @@
       .brand-icon { transition: none; }
       .field__error { animation: none; }
     }
+
+    /* Forced colors (Windows High Contrast): box-shadow rings are invisible, so
+       fall back to a real outline using system colors — mirrors the parent. */
+    @media (forced-colors: active) {
+      .field__input { border: 1px solid CanvasText; }
+      .field__input:focus { outline: 2px solid Highlight; outline-offset: var(--nxp-focus-outline-offset, 2px); }
+      .field__input--error { border-color: LinkText; }
+    }
   </style>
 </head>
 <body>
-  <form class="card-form" autocomplete="on" novalidate>
+  <form class="card-form" autocomplete="on" novalidate role="group" aria-label="Card information">
     <div class="card-form__number field">
       <label class="field__label" for="card-number">Card number</label>
       <div style="position: relative;">
@@ -174,7 +196,7 @@
         />
         <div id="brand-icon" class="brand-icon" aria-hidden="true"></div>
       </div>
-      <div id="error-pan" class="field__error" role="alert"></div>
+      <div id="error-pan" class="field__error" role="alert" aria-live="polite"></div>
     </div>
 
     <div class="card-form__expiry field">
@@ -204,7 +226,7 @@
           style="width: 3.5rem;"
         />
       </div>
-      <div id="error-expiry" class="field__error" role="alert"></div>
+      <div id="error-expiry" class="field__error" role="alert" aria-live="polite"></div>
     </div>
 
     <div class="card-form__cvc field">
@@ -219,7 +241,7 @@
         maxlength="4"
         aria-label="CVC"
       />
-      <div id="error-cvc" class="field__error" role="alert"></div>
+      <div id="error-cvc" class="field__error" role="alert" aria-live="polite"></div>
     </div>
   </form>
 
@@ -279,6 +301,30 @@
     }
 
     function cvcLen(brand) { return brand === 'amex' ? 4 : 3; }
+
+    // Instructional error copy (state 2): incomplete vs invalid, never accusatory,
+    // and only surfaced on BLUR so the field doesn't flash red mid-type.
+    const MSG = {
+      panIncomplete: 'Your card number is incomplete.',
+      panInvalid: 'Your card number is invalid.',
+      expiryIncomplete: "Your card's expiration date is incomplete.",
+      expiryInvalidMonth: "Your card's expiration month is invalid.",
+      expiryExpired: "Your card's expiration date is in the past.",
+      cvcIncomplete: "Your card's security code is incomplete.",
+    };
+
+    // FIX 4: render a field's error state — text + visual error class AND the
+    // programmatic aria-invalid so screen readers get the same state.
+    function renderFieldError(input, errorEl, message) {
+      if (input) {
+        input.className = message ? 'field__input field__input--error' : 'field__input';
+        input.setAttribute('aria-invalid', String(!!message));
+      }
+      if (errorEl) {
+        errorEl.textContent = message || '';
+        errorEl.className = message ? 'field__error field__error--visible' : 'field__error';
+      }
+    }
 
     // B-006 (race fix): the browser-ATTESTED origin of our immediate embedder,
     // read from window.location.ancestorOrigins (a DOMStringList on
@@ -401,15 +447,24 @@
       cvcInput.maxLength = cvcLen(state.brand);
       cvcInput.placeholder = state.brand === 'amex' ? '1234' : '123';
 
-      if (digits.length >= 13) {
-        state.errors.pan = luhnCheck(digits) ? null : 'Invalid card number';
-      } else {
+      // FIX 5: brand/Luhn run LIVE (brand icon + green success tick), but the RED
+      // 'invalid' error is deferred to blur. Live, we only CLEAR a shown error once
+      // the number becomes valid so a corrected number stops looking wrong.
+      if (luhnCheck(digits)) {
         state.errors.pan = null;
+        renderFieldError(panInput, errorPan, null);
       }
+      emitChange();
+    });
 
-      errorPan.textContent = state.errors.pan || '';
-      errorPan.className = state.errors.pan ? 'field__error field__error--visible' : 'field__error';
-      panInput.className = state.errors.pan ? 'field__input field__input--error' : 'field__input';
+    // FIX 5: PAN red error is set on BLUR (incomplete vs invalid), not mid-type.
+    panInput.addEventListener('blur', () => {
+      const digits = state.pan;
+      if (digits.length === 0) state.errors.pan = null;
+      else if (luhnCheck(digits)) state.errors.pan = null;
+      else if (digits.length >= 13) state.errors.pan = MSG.panInvalid;
+      else state.errors.pan = MSG.panIncomplete;
+      renderFieldError(panInput, errorPan, state.errors.pan);
       emitChange();
     });
 
@@ -417,13 +472,15 @@
       const d = monthInput.value.replace(/\D/g, '').slice(0, 2);
       monthInput.value = d;
       state.expMonth = d;
+      // FIX 5: auto-advance + clear stale error only; red error deferred to blur.
       if (d.length === 2) {
         const m = parseInt(d, 10);
-        if (m < 1 || m > 12) { state.errors.expiry = 'Invalid month'; }
-        else { state.errors.expiry = null; yearInput.focus(); }
+        if (m >= 1 && m <= 12) { state.errors.expiry = null; yearInput.focus(); }
       } else { state.errors.expiry = null; }
-      errorExpiry.textContent = state.errors.expiry || '';
-      errorExpiry.className = state.errors.expiry ? 'field__error field__error--visible' : 'field__error';
+      if (!state.errors.expiry) {
+        renderFieldError(monthInput, errorExpiry, null);
+        renderFieldError(yearInput, errorExpiry, null);
+      }
       emitChange();
     });
 
@@ -431,22 +488,54 @@
       const d = yearInput.value.replace(/\D/g, '').slice(0, 2);
       yearInput.value = d;
       state.expYear = d;
+      // FIX 5: clear a stale error once a complete valid date is entered; red
+      // 'expired' / 'invalid' errors are deferred to blur.
       if (d.length === 2 && state.expMonth.length === 2) {
-        state.errors.expiry = isExpiryValid(parseInt(state.expMonth), parseInt(d)) ? null : 'Card expired';
+        if (isExpiryValid(parseInt(state.expMonth), parseInt(d))) state.errors.expiry = null;
       }
-      errorExpiry.textContent = state.errors.expiry || '';
-      errorExpiry.className = state.errors.expiry ? 'field__error field__error--visible' : 'field__error';
+      if (!state.errors.expiry) {
+        renderFieldError(monthInput, errorExpiry, null);
+        renderFieldError(yearInput, errorExpiry, null);
+      }
       emitChange();
     });
+
+    // FIX 5: expiry red error is set on BLUR (incomplete / invalid month / expired).
+    function handleExpiryBlur() {
+      const mLen = state.expMonth.length, yLen = state.expYear.length;
+      if (mLen === 0 && yLen === 0) state.errors.expiry = null;
+      else if (mLen < 2 || yLen < 2) state.errors.expiry = MSG.expiryIncomplete;
+      else {
+        const m = parseInt(state.expMonth), y = parseInt(state.expYear);
+        if (m < 1 || m > 12) state.errors.expiry = MSG.expiryInvalidMonth;
+        else if (!isExpiryValid(m, y)) state.errors.expiry = MSG.expiryExpired;
+        else state.errors.expiry = null;
+      }
+      renderFieldError(monthInput, errorExpiry, state.errors.expiry);
+      renderFieldError(yearInput, errorExpiry, state.errors.expiry);
+      emitChange();
+    }
+    monthInput.addEventListener('blur', handleExpiryBlur);
+    yearInput.addEventListener('blur', handleExpiryBlur);
 
     cvcInput.addEventListener('input', () => {
       const max = cvcLen(state.brand);
       const d = cvcInput.value.replace(/\D/g, '').slice(0, max);
       cvcInput.value = d;
       state.cvc = d;
+      // Never show a CVC error while typing; clear any stale one.
       state.errors.cvc = null;
-      errorCvc.textContent = '';
-      errorCvc.className = 'field__error';
+      renderFieldError(cvcInput, errorCvc, null);
+      emitChange();
+    });
+
+    // CVC incomplete error is surfaced on blur (matches existing behavior).
+    cvcInput.addEventListener('blur', () => {
+      const max = cvcLen(state.brand);
+      if (state.cvc.length === 0) state.errors.cvc = null;
+      else if (state.cvc.length < max) state.errors.cvc = MSG.cvcIncomplete;
+      else state.errors.cvc = null;
+      renderFieldError(cvcInput, errorCvc, state.errors.cvc);
       emitChange();
     });
 
@@ -468,6 +557,8 @@
         if (p.parentOrigin && event.origin && p.parentOrigin !== event.origin) return;
         if (p.sessionToken) state.sessionToken = p.sessionToken;
         if (p.apiBase) state.apiBase = p.apiBase;
+        // TODO (spec P3 — deferred): appearance.fonts[] passthrough — inject
+        // merchant custom @font-face into this iframe. Not yet implemented.
         if (p.appearance?.variables) {
           const vars = p.appearance.variables;
           const map = {
@@ -477,6 +568,13 @@
             fontSizeBase: '--nxp-font-size-base', borderRadius: '--nxp-border-radius',
             spacingUnit: '--nxp-spacing-unit', fontWeightNormal: '--nxp-font-weight-normal',
             fontWeightBold: '--nxp-font-weight-bold',
+            // P2/P3: extended tokens so the iframe consumes the same set as the parent.
+            colorTextSecondary: '--nxp-color-text-secondary',
+            colorTextPlaceholder: '--nxp-color-text-placeholder',
+            colorBorder: '--nxp-color-border', colorBorderHover: '--nxp-color-border-hover',
+            colorWarning: '--nxp-color-warning', colorSurface: '--nxp-color-surface',
+            onPrimary: '--nxp-on-primary', fontWeightMedium: '--nxp-font-weight-medium',
+            buttonBorderRadius: '--nxp-button-border-radius',
           };
           for (const [k, v] of Object.entries(map)) {
             if (vars[k] !== undefined) document.documentElement.style.setProperty(v, String(vars[k]));
@@ -511,6 +609,21 @@
         panInput.focus();
       }
     });
+
+    // FIX 6: observe content height and post a 'resize' to the parent (pinned
+    // origin via post(), origin gate unchanged) so the iframe element is sized to
+    // fit — no dead space, no clipping when the inline error slide-in grows the
+    // body. Targets the established parent origin; does NOT weaken the gate.
+    (function observeBodyResize() {
+      if (typeof ResizeObserver === 'undefined') return;
+      let last = -1;
+      function emit() {
+        const height = Math.ceil(document.body.scrollHeight);
+        if (height > 0 && height !== last) { last = height; post('resize', { height }); }
+      }
+      new ResizeObserver(emit).observe(document.body);
+      emit();
+    })();
 
     // Ready
     post('FRAME_READY');

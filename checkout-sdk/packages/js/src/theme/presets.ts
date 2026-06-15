@@ -37,11 +37,14 @@ export const PRESET_NIGHT: Appearance = {
     '.Tab': {
       color: '#E2E8F0',
     },
+    // Tab tints use color-mix (consistent with base-styles.ts) instead of literal
+    // rgba — and the night ring alpha is raised so it doesn't vanish on dark.
     '.Tab:hover': {
-      backgroundColor: 'rgba(59, 130, 246, 0.08)',
+      backgroundColor: 'color-mix(in srgb, var(--nxp-color-primary, #3B82F6) 8%, transparent)',
     },
     '.Tab--selected': {
-      backgroundColor: 'rgba(59, 130, 246, 0.12)',
+      backgroundColor: 'color-mix(in srgb, var(--nxp-color-primary, #3B82F6) 12%, transparent)',
+      borderColor: '#3B82F6',
     },
   },
 };

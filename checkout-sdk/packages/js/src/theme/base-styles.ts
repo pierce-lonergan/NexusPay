@@ -2,6 +2,11 @@
  * Base CSS styles for all NexusPay elements.
  * Uses CSS custom properties from tokens.ts via css-properties.ts.
  * These styles are injected into the iframe and host page.
+ *
+ * P1: the focus ring + tab tints use color-mix(in srgb, ...) — NEVER the
+ * invalid rgba(var(--hex), alpha) form, which the CSS parser drops (renders
+ * nothing). This mirrors the iframe side (card-frame.css) so the seam is
+ * invisible. All easing/duration are tokens, never literals.
  */
 
 export const BASE_STYLES = /* css */ `
@@ -20,31 +25,41 @@ html {
 
 .Input {
   width: 100%;
-  padding: calc(var(--nxp-spacing-unit, 4px) * 3);
+  padding: var(--nxp-space-3, calc(var(--nxp-spacing-unit, 4px) * 3));
   font-family: var(--nxp-font-family);
   font-size: 1rem;
   font-weight: var(--nxp-font-weight-normal, 400);
+  line-height: var(--nxp-font-line-height, 1.5);
   color: var(--nxp-color-text, #1A1A2E);
-  background-color: var(--nxp-color-background, #FFFFFF);
-  border: 1px solid var(--nxp-border-default, #E5E7EB);
+  background-color: var(--nxp-color-surface, var(--nxp-color-background, #FFFFFF));
+  border: 1px solid var(--nxp-color-border, var(--nxp-border-default, #E5E7EB));
   border-radius: var(--nxp-border-radius, 8px);
   outline: none;
-  transition: border-color 150ms ease, box-shadow 150ms ease;
+  transition:
+    border-color var(--nxp-dur-fast, 150ms) var(--nxp-ease-standard, ease),
+    box-shadow var(--nxp-dur-fast, 150ms) var(--nxp-ease-out, ease);
   -webkit-appearance: none;
   appearance: none;
 }
 
 .Input::placeholder {
-  color: #9CA3AF;
+  color: var(--nxp-color-text-placeholder, #9CA3AF);
 }
 
 .Input:hover {
-  border-color: var(--nxp-border-hover, #D1D5DB);
+  border-color: var(--nxp-color-border-hover, var(--nxp-border-hover, #D1D5DB));
 }
 
+/*
+ * Two-layer focus ring (premium/cheap divider): a 1px solid inner ring
+ * (guarantees >=3:1 for SC 1.4.11) plus a 3px translucent halo. Text inputs use
+ * :focus (so the ring shows while typing); buttons/tabs use :focus-visible.
+ */
 .Input:focus {
   border-color: var(--nxp-color-primary, #0066FF);
-  box-shadow: 0 0 0 3px rgba(var(--nxp-color-primary, #0066FF), var(--nxp-focus-ring-alpha, 0.15));
+  box-shadow:
+    0 0 0 1px var(--nxp-color-primary, #0066FF),
+    0 0 0 var(--nxp-focus-ring-width, 3px) color-mix(in srgb, var(--nxp-color-primary, #0066FF) 18%, transparent);
 }
 
 .Input--error {
@@ -52,7 +67,9 @@ html {
 }
 
 .Input--error:focus {
-  box-shadow: 0 0 0 3px rgba(var(--nxp-color-danger, #DC2626), var(--nxp-focus-ring-alpha, 0.15));
+  box-shadow:
+    0 0 0 1px var(--nxp-color-danger, #DC2626),
+    0 0 0 var(--nxp-focus-ring-width, 3px) color-mix(in srgb, var(--nxp-color-danger, #DC2626) 18%, transparent);
 }
 
 .Input:disabled {
@@ -62,7 +79,7 @@ html {
 
 /* Autofill override */
 .Input:-webkit-autofill {
-  -webkit-box-shadow: 0 0 0 1000px var(--nxp-color-background, #FFFFFF) inset;
+  -webkit-box-shadow: 0 0 0 1000px var(--nxp-color-surface, var(--nxp-color-background, #FFFFFF)) inset;
   -webkit-text-fill-color: var(--nxp-color-text, #1A1A2E);
 }
 
@@ -70,10 +87,10 @@ html {
 
 .Label {
   display: block;
-  margin-bottom: calc(var(--nxp-spacing-unit, 4px) * 1.5);
+  margin-bottom: var(--nxp-space-2, calc(var(--nxp-spacing-unit, 4px) * 1.5));
   font-family: var(--nxp-font-family);
-  font-size: 0.875rem;
-  font-weight: var(--nxp-font-weight-bold, 600);
+  font-size: var(--nxp-font-size-label, 0.875rem);
+  font-weight: var(--nxp-font-weight-medium, 500);
   color: var(--nxp-color-text, #1A1A2E);
 }
 
@@ -81,11 +98,11 @@ html {
 
 .Error {
   display: block;
-  margin-top: calc(var(--nxp-spacing-unit, 4px) * 1.5);
+  margin-top: var(--nxp-space-2, calc(var(--nxp-spacing-unit, 4px) * 1.5));
   font-family: var(--nxp-font-family);
-  font-size: 0.8125rem;
+  font-size: var(--nxp-font-size-sm, 0.8125rem);
   color: var(--nxp-color-danger, #DC2626);
-  animation: nxp-slide-in var(--nxp-anim-error-slide-in, 200ms) ease-out;
+  animation: nxp-slide-in var(--nxp-anim-error-slide-in, 200ms) var(--nxp-ease-out, ease-out);
 }
 
 @keyframes nxp-slide-in {
@@ -99,33 +116,64 @@ html {
   }
 }
 
+/* One-shot horizontal shake for hard validation failures (never looped). */
+@keyframes nxp-shake {
+  0% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+  100% { transform: translateX(0); }
+}
+
+.Input--shake {
+  animation: nxp-shake 320ms var(--nxp-ease-standard, ease-in-out);
+}
+
 /* --- Tab --- */
 
 .Tab {
   display: inline-flex;
   align-items: center;
-  gap: calc(var(--nxp-spacing-unit, 4px) * 2);
-  padding: calc(var(--nxp-spacing-unit, 4px) * 3) calc(var(--nxp-spacing-unit, 4px) * 4);
+  gap: var(--nxp-space-2, calc(var(--nxp-spacing-unit, 4px) * 2));
+  padding: var(--nxp-space-3, calc(var(--nxp-spacing-unit, 4px) * 3)) var(--nxp-space-4, calc(var(--nxp-spacing-unit, 4px) * 4));
   font-family: var(--nxp-font-family);
-  font-size: 0.875rem;
+  font-size: var(--nxp-font-size-label, 0.875rem);
   font-weight: var(--nxp-font-weight-normal, 400);
   color: var(--nxp-color-text, #1A1A2E);
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
+  border-radius: var(--nxp-border-radius, 8px) var(--nxp-border-radius, 8px) 0 0;
   cursor: pointer;
-  transition: all var(--nxp-anim-tab-switch, 200ms) ease-in-out;
+  transition:
+    color var(--nxp-anim-tab-switch, 200ms) var(--nxp-ease-standard, ease-in-out),
+    background-color var(--nxp-anim-tab-switch, 200ms) var(--nxp-ease-standard, ease-in-out),
+    border-color var(--nxp-anim-tab-switch, 200ms) var(--nxp-ease-standard, ease-in-out),
+    box-shadow var(--nxp-anim-tab-switch, 200ms) var(--nxp-ease-standard, ease-in-out);
   white-space: nowrap;
 }
 
 .Tab:hover {
-  background-color: rgba(var(--nxp-color-primary, #0066FF), 0.04);
+  background-color: color-mix(in srgb, var(--nxp-color-primary, #0066FF) 4%, transparent);
+}
+
+.Tab:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 1px var(--nxp-color-primary, #0066FF),
+    0 0 0 var(--nxp-focus-ring-width, 3px) color-mix(in srgb, var(--nxp-color-primary, #0066FF) 18%, transparent);
 }
 
 .Tab--selected {
   font-weight: var(--nxp-font-weight-bold, 600);
   border-bottom-color: var(--nxp-color-primary, #0066FF);
-  background-color: rgba(var(--nxp-color-primary, #0066FF), 0.06);
+  background-color: color-mix(in srgb, var(--nxp-color-primary, #0066FF) 6%, transparent);
+  /* Stripe-style selected-tab ring */
+  box-shadow:
+    0 1px 1px rgba(0, 0, 0, 0.03),
+    0 3px 6px rgba(18, 42, 66, 0.02),
+    0 0 0 2px var(--nxp-color-primary, #0066FF);
 }
 
 .Tab:disabled {
@@ -145,23 +193,51 @@ html {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: calc(var(--nxp-spacing-unit, 4px) * 2);
+  gap: var(--nxp-space-2, calc(var(--nxp-spacing-unit, 4px) * 2));
   width: 100%;
-  padding: calc(var(--nxp-spacing-unit, 4px) * 3) calc(var(--nxp-spacing-unit, 4px) * 6);
+  padding: var(--nxp-space-3, calc(var(--nxp-spacing-unit, 4px) * 3)) var(--nxp-space-6, calc(var(--nxp-spacing-unit, 4px) * 6));
   font-family: var(--nxp-font-family);
   font-size: 1rem;
   font-weight: var(--nxp-font-weight-bold, 600);
-  color: #FFFFFF;
+  color: var(--nxp-on-primary, #FFFFFF);
+  /* Flat brand fill + a very subtle same-hue vertical gradient (top ~4% lighter)
+     for tactility — NOT a multi-hue gradient. */
   background-color: var(--nxp-color-primary, #0066FF);
+  background-image: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--nxp-color-primary, #0066FF) 96%, #FFFFFF),
+    var(--nxp-color-primary, #0066FF)
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), var(--nxp-shadow-sm, none);
   border: none;
-  border-radius: var(--nxp-border-radius, 8px);
+  border-radius: var(--nxp-button-border-radius, var(--nxp-border-radius, 8px));
   cursor: pointer;
-  transition: background-color 150ms ease, opacity var(--nxp-anim-submit-loading, 300ms) ease;
-  min-height: 44px;
+  transition:
+    background-color var(--nxp-dur-fast, 150ms) var(--nxp-ease-standard, ease),
+    box-shadow var(--nxp-dur-fast, 150ms) var(--nxp-ease-standard, ease),
+    transform var(--nxp-dur-instant, 100ms) var(--nxp-ease-standard, ease),
+    opacity var(--nxp-anim-submit-loading, 300ms) var(--nxp-ease-standard, ease);
+  min-height: 48px;
 }
 
-.Button:hover {
-  filter: brightness(0.9);
+.Button:hover:not(:disabled) {
+  /* -8% lightness shift via color-mix toward black (replaces filter:brightness). */
+  background-color: color-mix(in srgb, var(--nxp-color-primary, #0066FF) 92%, #000000);
+  background-image: none;
+  transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), var(--nxp-shadow-md, none);
+}
+
+.Button:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
+.Button:focus-visible {
+  outline: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    0 0 0 1px var(--nxp-color-primary, #0066FF),
+    0 0 0 var(--nxp-focus-ring-width, 3px) color-mix(in srgb, var(--nxp-color-primary, #0066FF) 25%, transparent);
 }
 
 .Button:disabled {
@@ -171,13 +247,14 @@ html {
 
 .Button--loading {
   pointer-events: none;
+  cursor: wait;
 }
 
 .Button__spinner {
   width: 20px;
   height: 20px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top-color: #FFFFFF;
+  border: 2px solid color-mix(in srgb, var(--nxp-on-primary, #FFFFFF) 30%, transparent);
+  border-top-color: var(--nxp-on-primary, #FFFFFF);
   border-radius: 50%;
   animation: nxp-spin 600ms linear infinite;
 }
@@ -190,25 +267,28 @@ html {
 
 .BrandIcon {
   position: absolute;
-  right: calc(var(--nxp-spacing-unit, 4px) * 3);
+  right: var(--nxp-space-3, calc(var(--nxp-spacing-unit, 4px) * 3));
   top: 50%;
   transform: translateY(-50%);
   width: 32px;
   height: 20px;
-  transition: opacity var(--nxp-anim-brand-crossfade, 150ms) ease-out;
+  transition:
+    opacity var(--nxp-anim-brand-crossfade, 150ms) var(--nxp-ease-out, ease-out),
+    transform var(--nxp-anim-brand-crossfade, 150ms) var(--nxp-ease-out, ease-out);
 }
 
 .BrandIcon--hidden {
   opacity: 0;
+  transform: translateY(-50%) scale(0.9);
 }
 
 /* --- Skeleton Shimmer --- */
 
 .Skeleton {
   background: linear-gradient(90deg,
-    var(--nxp-border-default, #E5E7EB) 25%,
-    var(--nxp-color-background, #FFFFFF) 50%,
-    var(--nxp-border-default, #E5E7EB) 75%
+    var(--nxp-color-border, var(--nxp-border-default, #E5E7EB)) 25%,
+    var(--nxp-color-surface, var(--nxp-color-background, #FFFFFF)) 50%,
+    var(--nxp-color-border, var(--nxp-border-default, #E5E7EB)) 75%
   );
   background-size: 200% 100%;
   animation: nxp-shimmer var(--nxp-anim-skeleton-shimmer, 1500ms) infinite linear;
@@ -233,7 +313,7 @@ html {
   fill: none;
   stroke-dasharray: 166;
   stroke-dashoffset: 166;
-  animation: nxp-stroke var(--nxp-anim-success-checkmark, 600ms) linear forwards;
+  animation: nxp-stroke var(--nxp-anim-success-checkmark, 600ms) var(--nxp-ease-spring, ease-out) 200ms forwards;
 }
 
 .SuccessCheckmark__check {
@@ -242,7 +322,7 @@ html {
   fill: none;
   stroke-dasharray: 48;
   stroke-dashoffset: 48;
-  animation: nxp-stroke var(--nxp-anim-success-checkmark, 600ms) linear 300ms forwards;
+  animation: nxp-stroke 400ms var(--nxp-ease-spring, ease-out) 700ms forwards;
 }
 
 @keyframes nxp-stroke {
@@ -254,20 +334,77 @@ html {
 @media (max-width: 639px) {
   .TabList {
     flex-direction: column;
-    gap: calc(var(--nxp-spacing-unit, 4px) * 2);
+    gap: var(--nxp-space-2, calc(var(--nxp-spacing-unit, 4px) * 2));
   }
 
   .Tab {
     min-height: 44px;
     border-bottom: none;
-    border: 1px solid var(--nxp-border-default, #E5E7EB);
+    border: 1px solid var(--nxp-color-border, var(--nxp-border-default, #E5E7EB));
     border-radius: var(--nxp-border-radius, 8px);
     width: 100%;
   }
 
   .Tab--selected {
     border-color: var(--nxp-color-primary, #0066FF);
-    background-color: rgba(var(--nxp-color-primary, #0066FF), 0.06);
+    background-color: color-mix(in srgb, var(--nxp-color-primary, #0066FF) 6%, transparent);
+  }
+}
+
+/* --- Motion a11y: prefers-reduced-motion (mirrors card-frame.css) --- */
+
+/*
+ * Remove motion but NEVER the focus ring or error visibility. Visual state
+ * (focus ring, error message, brand icon, success check) still changes — only
+ * the transition/animation is removed.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .Input,
+  .Tab,
+  .Button,
+  .BrandIcon {
+    transition: none;
+  }
+
+  .Error,
+  .Input--shake,
+  .Button__spinner,
+  .Skeleton,
+  .SuccessCheckmark__circle,
+  .SuccessCheckmark__check {
+    animation: none;
+  }
+
+  /* Reduced motion shows the final checkmark statically. */
+  .SuccessCheckmark__circle,
+  .SuccessCheckmark__check {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* --- Forced colors (Windows High Contrast) --- */
+
+/*
+ * box-shadow rings are invisible in forced-colors mode, so fall back to a real
+ * outline using system colors. The transparent outline reserved here becomes
+ * visible automatically.
+ */
+@media (forced-colors: active) {
+  .Input,
+  .Tab,
+  .Button {
+    border: 1px solid CanvasText;
+  }
+
+  .Input:focus,
+  .Tab:focus-visible,
+  .Button:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: var(--nxp-focus-outline-offset, 2px);
+  }
+
+  .Input--error {
+    border-color: LinkText;
   }
 }
 `;

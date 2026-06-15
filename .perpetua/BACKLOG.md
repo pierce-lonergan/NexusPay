@@ -83,6 +83,18 @@ Fix program (each batch = its own T3 PR via the fusion topology; diverse impleme
 - **B-022-async | async-refund settle path + max-pending-age signal** | T2 money | MEDIUM. The B-022 reconciler re-drives a `pending` PSP refund benignly (no attempt increment) and a later re-drive marks it executed once the PSP reports `succeeded` — but a refund stuck `pending` FOREVER is re-checked indefinitely without paging. Add a getRefund-poll (the adapter already has getRefund) or a refund webhook to flip executed_at on settle, + a max-pending-age operator signal so a never-settling refund is surfaced. Also fold in the Docker-gated @DataJpaTest proving the conditional-UPDATE SQL invariants (mark-once / discovery filters) — folds into B-016.
 
 ## Done
+- **Premium checkout widget** (2026-06-15, FF) — implemented the deep-research design spec
+  (docs/design/premium-checkout-spec.md; Stripe/Adyen/Checkout.com-tier). Fixed a REAL bug: the focus ring +
+  tab tints used invalid `rgba(var(--token), a)` (renders nothing) → `color-mix` (L-050; proven via live
+  Chromium computed styles). Extended tokens (navy-tinted soft shadows, spacing/type/easing/duration scales,
+  new color tokens, full NIGHT dark-mode parity); two-layer :focus-visible ring; the ENCAPSULATED card-details
+  group (Baymard 15-30% trust lift); REAL flat brand SVGs replacing the `<text>` placeholders; floating card +
+  sticky summary/paybar; tabular-nums on amounts + PAN; motion easings + reduced-motion (parent+iframe) +
+  forced-colors; 5 states identical across the PCI iframe seam; on-primary auto-derive that flips the button
+  label to dark ink when a merchant brand color fails AA 4.5:1. 134 SDK tests green (+17). Seam parity,
+  aria-invalid, blur-deferred instructional errors, iframe auto-resize. 3 reviews. No security behavior
+  changed (DX-1 postMessage/3DS intact). RESIDUALS: appearance.fonts[] iframe passthrough (// TODO, P3);
+  deterministic in-gate ledger soak variant.
 - **Simulation / stress + red-team environment** (2026-06-15, FF) — an aggressive test harness, all
   REPORT-ONLY so it never reds the default gate (the SEC-* fixes are un-merged). (1) gatling load sims
   (payment burst / mixed-concurrency / refund-idempotency storm / dashboard read storm). (2) UNTAGGED in-gate

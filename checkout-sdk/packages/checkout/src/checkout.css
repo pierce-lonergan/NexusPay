@@ -1,14 +1,49 @@
-/* NexusPay Hosted Checkout — responsive styles */
+/* NexusPay Hosted Checkout — responsive premium styles */
 
 :root {
   --nxp-color-primary: #0066FF;
-  --nxp-color-background: #FFFFFF;
+  --nxp-color-background: #F6F8FA;
+  --nxp-color-surface: #FFFFFF;
   --nxp-color-text: #1A1A2E;
+  --nxp-color-text-secondary: #6B7280;
+  --nxp-color-text-placeholder: #9CA3AF;
   --nxp-color-danger: #DC2626;
   --nxp-color-success: #16A34A;
+  --nxp-color-warning: #D97706;
+  --nxp-on-primary: #FFFFFF;
   --nxp-font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --nxp-color-border: #E5E7EB;
+  --nxp-color-border-hover: #D1D5DB;
   --nxp-border-default: #E5E7EB;
   --nxp-border-radius: 8px;
+  --nxp-button-border-radius: 8px;
+  --nxp-radius-group: 12px;
+  --nxp-radius-chip: 4px;
+  --nxp-font-weight-medium: 500;
+
+  /* Type scale (1.25 modular) */
+  --nxp-font-size-sm: 0.8125rem;
+  --nxp-font-size-label: 0.875rem;
+  --nxp-font-size-lg: 1.125rem;
+  --nxp-font-size-2xl: 1.75rem;
+
+  /* Soft navy-tinted layered shadows */
+  --nxp-shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --nxp-shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  --nxp-shadow-md: 0 1px 3px rgba(16, 24, 40, 0.07), 0 1px 2px rgba(16, 24, 40, 0.06);
+  --nxp-shadow-lg: 0 4px 6px -2px rgba(16, 24, 40, 0.04), 0 12px 16px -4px rgba(16, 24, 40, 0.08);
+
+  /* Easing + duration tokens */
+  --nxp-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --nxp-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --nxp-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --nxp-dur-instant: 100ms;
+  --nxp-dur-fast: 150ms;
+  --nxp-dur-base: 200ms;
+  --nxp-dur-slow: 300ms;
+
+  --nxp-focus-ring-width: 3px;
+  --nxp-focus-outline-offset: 2px;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -16,14 +51,15 @@
 body {
   font-family: var(--nxp-font-family);
   color: var(--nxp-color-text);
-  background: #F9FAFB;
+  background: var(--nxp-color-background);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* --- Checkout Layout --- */
 
 .checkout {
-  max-width: 960px;
+  max-width: 920px;
   margin: 0 auto;
   padding: 24px 16px;
   min-height: 100vh;
@@ -31,20 +67,84 @@ body {
 
 .checkout__layout {
   display: grid;
-  grid-template-columns: 1fr 320px;
-  gap: 48px;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 40px;
   margin-top: 24px;
 }
 
+/* Floating page card around the form column. */
 .checkout__form {
-  max-width: 480px;
+  background: var(--nxp-color-surface);
+  border-radius: var(--nxp-radius-group);
+  box-shadow: var(--nxp-shadow-lg);
+  padding: 32px;
+}
+
+.checkout__form-inner {
+  max-width: 460px;
 }
 
 .checkout__title {
-  font-size: 1.125rem;
+  font-size: var(--nxp-font-size-lg);
   font-weight: 600;
   margin-bottom: 16px;
   color: var(--nxp-color-text);
+  text-rendering: optimizeLegibility;
+}
+
+/* --- Encapsulated Card-Details Group (highest-ROI trust move) --- */
+
+.nxp-card-group {
+  background: var(--nxp-color-surface);
+  border: 1px solid var(--nxp-color-border);
+  border-radius: var(--nxp-radius-group);
+  box-shadow: var(--nxp-shadow-card), inset 0 0 0 1px rgba(0, 0, 0, 0.01);
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.nxp-card-group__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.nxp-card-group__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--nxp-font-size-label);
+  font-weight: 600;
+  color: var(--nxp-color-text);
+}
+
+.nxp-card-group__lock {
+  width: 16px;
+  height: 16px;
+  color: var(--nxp-color-text-secondary);
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.nxp-card-group__secure {
+  font-size: var(--nxp-font-size-sm);
+  color: var(--nxp-color-text-secondary);
+}
+
+/* --- Accepted card row (muted brand marks) --- */
+
+.checkout__accepted-cards {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.checkout__accepted-cards svg {
+  width: 36px;
+  height: 24px;
+  opacity: 0.4;
 }
 
 /* --- Submit Button --- */
@@ -56,37 +156,81 @@ body {
   gap: 8px;
   width: 100%;
   padding: 14px 24px;
-  margin-top: 24px;
+  margin-top: 32px;
   font-family: var(--nxp-font-family);
   font-size: 1rem;
   font-weight: 600;
-  color: #FFFFFF;
+  color: var(--nxp-on-primary);
   background-color: var(--nxp-color-primary);
+  background-image: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--nxp-color-primary) 96%, #FFFFFF),
+    var(--nxp-color-primary)
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), var(--nxp-shadow-sm);
   border: none;
-  border-radius: var(--nxp-border-radius);
+  border-radius: var(--nxp-button-border-radius);
   cursor: pointer;
   min-height: 48px;
-  transition: filter 150ms ease;
+  transition:
+    background-color var(--nxp-dur-fast) var(--nxp-ease-standard),
+    box-shadow var(--nxp-dur-fast) var(--nxp-ease-standard),
+    transform var(--nxp-dur-instant) var(--nxp-ease-standard);
 }
 
-.checkout__submit:hover:not(:disabled) { filter: brightness(0.9); }
+.checkout__submit:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--nxp-color-primary) 92%, #000000);
+  background-image: none;
+  transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), var(--nxp-shadow-md);
+}
+
+.checkout__submit:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
+.checkout__submit:focus-visible {
+  outline: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    0 0 0 1px var(--nxp-color-primary),
+    0 0 0 var(--nxp-focus-ring-width) color-mix(in srgb, var(--nxp-color-primary) 25%, transparent);
+}
+
 .checkout__submit:disabled { opacity: 0.5; cursor: not-allowed; }
+.checkout__submit--loading { cursor: wait; }
+
+/* In-place processing morph: a fixed-size content box so the button never
+   collapses width when the label swaps for the spinner. */
+.checkout__submit-content {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: opacity var(--nxp-dur-slow) var(--nxp-ease-standard);
+}
 
 .checkout__lock-icon {
   width: 16px;
   height: 16px;
 }
 
+.checkout__amount {
+  font-variant-numeric: tabular-nums;
+}
+
 .checkout__spinner {
   width: 20px;
   height: 20px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top-color: #FFFFFF;
+  border: 2px solid color-mix(in srgb, var(--nxp-on-primary) 30%, transparent);
+  border-top-color: var(--nxp-on-primary);
   border-radius: 50%;
   animation: spin 600ms linear infinite;
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* --- Trust footer --- */
 
 .checkout__secure-text {
   display: flex;
@@ -94,9 +238,17 @@ body {
   gap: 6px;
   justify-content: center;
   margin-top: 16px;
-  font-size: 0.8125rem;
-  color: var(--nxp-color-text);
-  opacity: 0.5;
+  font-size: var(--nxp-font-size-sm);
+  color: var(--nxp-color-text-secondary);
+}
+
+.checkout__powered-by {
+  text-align: center;
+  margin-top: 6px;
+  font-size: 0.75rem;
+  /* No opacity: the secondary token already passes AA (4.83:1 light / 6.96:1
+     dark). Stacking opacity:0.8 dropped it to ~3.25:1 and failed AA. */
+  color: var(--nxp-color-text-secondary);
 }
 
 /* --- Summary --- */
@@ -108,9 +260,10 @@ body {
 }
 
 .payment-summary {
-  background: #FFFFFF;
-  border: 1px solid var(--nxp-border-default);
-  border-radius: 12px;
+  background: var(--nxp-color-surface);
+  border: 1px solid var(--nxp-color-border);
+  border-radius: var(--nxp-radius-group);
+  box-shadow: var(--nxp-shadow-card);
   padding: 24px;
 }
 
@@ -122,20 +275,30 @@ body {
 
 .payment-summary__divider {
   height: 1px;
-  background: var(--nxp-border-default);
+  background: var(--nxp-color-border);
   margin-bottom: 16px;
 }
 
 .payment-summary__row {
   display: flex;
   justify-content: space-between;
-  font-size: 0.875rem;
+  font-size: var(--nxp-font-size-label);
   margin-bottom: 8px;
+}
+
+.payment-summary__row .payment-summary__label {
+  color: var(--nxp-color-text-secondary);
 }
 
 .payment-summary__row--total {
   font-weight: 600;
-  font-size: 1.125rem;
+  font-size: var(--nxp-font-size-2xl);
+  line-height: 1.2;
+  align-items: baseline;
+}
+
+.payment-summary__amount {
+  font-variant-numeric: tabular-nums slashed-zero;
 }
 
 /* --- Branding Header --- */
@@ -145,11 +308,11 @@ body {
   align-items: center;
   gap: 12px;
   padding-bottom: 16px;
-  border-bottom: 1px solid var(--nxp-border-default);
+  border-bottom: 1px solid var(--nxp-color-border);
 }
 
 .branding-header__name {
-  font-size: 1.125rem;
+  font-size: var(--nxp-font-size-lg);
   font-weight: 600;
 }
 
@@ -167,23 +330,35 @@ body {
 
 .success__icon, .failure__icon { margin-bottom: 24px; }
 
+/* Wrapper pop-in: scale 0 -> 1.1 -> 1 over ~500ms spring. */
+.success__checkmark {
+  animation: success-pop 500ms var(--nxp-ease-spring) forwards;
+  transform: scale(0);
+}
+
+@keyframes success-pop {
+  0% { transform: scale(0); }
+  60% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
 .success__checkmark .success__circle {
-  stroke-dasharray: 176;
-  stroke-dashoffset: 176;
-  animation: stroke 600ms linear forwards;
+  stroke-dasharray: 166;
+  stroke-dashoffset: 166;
+  animation: stroke 600ms var(--nxp-ease-spring) 200ms forwards;
 }
 
 .success__checkmark .success__check {
   stroke-dasharray: 48;
   stroke-dashoffset: 48;
-  animation: stroke 600ms linear 300ms forwards;
+  animation: stroke 400ms var(--nxp-ease-spring) 700ms forwards;
 }
 
 @keyframes stroke { to { stroke-dashoffset: 0; } }
 
 .success__title, .failure__title {
-  font-size: 1.5rem;
-  font-weight: 700;
+  font-size: var(--nxp-font-size-xl, 1.5rem);
+  font-weight: 600;
   margin-bottom: 8px;
 }
 
@@ -192,17 +367,20 @@ body {
   font-weight: 600;
   color: var(--nxp-color-success);
   margin-bottom: 16px;
+  font-variant-numeric: tabular-nums slashed-zero;
 }
 
 .success__message, .failure__message {
   font-size: 1rem;
-  opacity: 0.7;
+  color: var(--nxp-color-text-secondary);
   margin-bottom: 16px;
 }
 
 .success__redirect {
-  font-size: 0.875rem;
-  opacity: 0.5;
+  font-size: var(--nxp-font-size-label);
+  /* No opacity: the secondary token already passes AA (4.83:1 light / 6.96:1
+     dark). Stacking opacity:0.8 dropped it to ~3.25:1 and failed AA. */
+  color: var(--nxp-color-text-secondary);
 }
 
 .failure__retry {
@@ -210,16 +388,23 @@ body {
   font-family: var(--nxp-font-family);
   font-size: 1rem;
   font-weight: 600;
-  color: #FFFFFF;
+  color: var(--nxp-on-primary);
   background-color: var(--nxp-color-primary);
   border: none;
-  border-radius: var(--nxp-border-radius);
+  border-radius: var(--nxp-button-border-radius);
   cursor: pointer;
   min-height: 44px;
-  transition: filter 150ms ease;
+  transition:
+    background-color var(--nxp-dur-fast) var(--nxp-ease-standard),
+    transform var(--nxp-dur-instant) var(--nxp-ease-standard);
 }
 
-.failure__retry:hover { filter: brightness(0.9); }
+.failure__retry:hover {
+  background-color: color-mix(in srgb, var(--nxp-color-primary) 92%, #000000);
+  transform: translateY(-1px);
+}
+
+.failure__retry:active { transform: translateY(0) scale(0.98); }
 
 /* --- Error Page --- */
 
@@ -239,13 +424,13 @@ body {
 }
 
 .checkout-error p {
-  opacity: 0.7;
+  color: var(--nxp-color-text-secondary);
 }
 
 /* --- Skeleton --- */
 
 .skeleton-page {
-  max-width: 960px;
+  max-width: 920px;
   margin: 0 auto;
   padding: 24px 16px;
 }
@@ -255,13 +440,13 @@ body {
   align-items: center;
   gap: 12px;
   padding-bottom: 16px;
-  border-bottom: 1px solid var(--nxp-border-default);
+  border-bottom: 1px solid var(--nxp-color-border);
 }
 
 .skeleton-page__layout {
   display: grid;
-  grid-template-columns: 1fr 320px;
-  gap: 48px;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 40px;
   margin-top: 24px;
 }
 
@@ -291,7 +476,11 @@ body {
 
   .checkout__form {
     max-width: 100%;
+    padding: 16px;
+    box-shadow: var(--nxp-shadow-card);
   }
+
+  .checkout__form-inner { max-width: 100%; }
 
   .checkout__summary {
     position: static;
@@ -301,6 +490,32 @@ body {
   .checkout__submit {
     min-height: 52px;
     font-size: 1.0625rem;
+  }
+
+  /* SC 2.4.11: keep focused fields above the sticky pay bar. */
+  .checkout__form-inner input,
+  .checkout__payment-element,
+  .checkout__address-element {
+    scroll-margin-bottom: 64px;
+  }
+
+  /* Sticky mobile pay bar (parent SPA, NOT the iframe). */
+  .checkout__paybar {
+    position: sticky;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    margin: 24px -16px 0;
+    padding: 12px 16px;
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+    background: var(--nxp-color-surface);
+    box-shadow:
+      0 -1px 0 var(--nxp-color-border),
+      0 -8px 24px rgba(0, 0, 0, 0.06);
+  }
+
+  .checkout__paybar .checkout__submit {
+    margin-top: 0;
   }
 
   .skeleton-page__layout {
@@ -313,21 +528,59 @@ body {
   }
 }
 
+/* On desktop the pay bar is just a normal block (no sticky chrome). */
+@media (min-width: 640px) {
+  .checkout__paybar {
+    display: contents;
+  }
+}
+
 /* --- Dark Mode --- */
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --nxp-color-primary: #3B82F6;
+  /*
+   * Doubled :root:root (specificity 0,2,0) so these dark overrides beat the
+   * light-default ":host, :root" custom properties that @nexuspay/js injects
+   * unconditionally into <head> at element-mount time (same 0,1,0 specificity
+   * but later in cascade order would otherwise win). This is what makes the
+   * NIGHT palette actually take on the page background + ink, not just the
+   * directly-styled surfaces.
+   */
+  :root:root {
+    /* Richer blue (was #3B82F6 = 3.68:1, failed AA): white-on-#2563EB is ~5.1:1,
+       so the 16px/600 pay-button label clears AA 4.5:1. Mirrors NIGHT_VARIABLES. */
+    --nxp-color-primary: #2563EB;
     --nxp-color-background: #0F172A;
+    --nxp-color-surface: #1E293B;
     --nxp-color-text: #E2E8F0;
+    --nxp-color-text-secondary: #94A3B8;
+    --nxp-color-text-placeholder: #64748B;
+    --nxp-color-danger: #F87171;
+    --nxp-color-success: #4ADE80;
+    --nxp-color-border: #334155;
+    --nxp-color-border-hover: #475569;
     --nxp-border-default: #334155;
   }
 
-  body { background: #0B1120; }
+  body { background: var(--nxp-color-background); }
 
-  .payment-summary {
-    background: #1E293B;
-    border-color: var(--nxp-border-default);
+  /* Depth via lighter surface + a 1px top-highlight, not heavy shadow. */
+  .checkout__form,
+  .payment-summary,
+  .nxp-card-group {
+    background: var(--nxp-color-surface);
+    border-color: var(--nxp-color-border);
+    box-shadow: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .nxp-card-group { background: #111A2E; }
+
+  .checkout__paybar {
+    background: var(--nxp-color-surface);
+    box-shadow:
+      0 -1px 0 var(--nxp-color-border),
+      0 -8px 24px rgba(0, 0, 0, 0.4);
   }
 
   .skeleton {
@@ -339,21 +592,47 @@ body {
 /* --- Reduced Motion (a11y) --- */
 
 /*
- * Respect prefers-reduced-motion: disable button hover transitions and all
- * decorative animations (submit spinner, success checkmark draw, skeleton
- * shimmer). The spinner/skeleton remain visible as static affordances; only the
- * motion is removed. Default-motion behavior is unchanged for everyone else.
+ * Respect prefers-reduced-motion: disable button hover/transform transitions and
+ * all decorative animations. The spinner/skeleton remain visible as static
+ * affordances; the success check shows in its final drawn state. Motion only is
+ * removed — never the focus ring or error visibility.
  */
 @media (prefers-reduced-motion: reduce) {
   .checkout__submit,
-  .failure__retry {
+  .failure__retry,
+  .checkout__submit-content {
     transition: none;
   }
 
   .checkout__spinner,
-  .success__checkmark .success__circle,
-  .success__checkmark .success__check,
   .skeleton {
     animation: none;
+  }
+
+  .success__checkmark {
+    animation: none;
+    transform: scale(1);
+  }
+
+  .success__checkmark .success__circle,
+  .success__checkmark .success__check {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
+
+/* --- Forced colors (Windows High Contrast) --- */
+
+@media (forced-colors: active) {
+  .checkout__form,
+  .payment-summary,
+  .nxp-card-group {
+    border: 1px solid CanvasText;
+  }
+
+  .checkout__submit:focus-visible,
+  .failure__retry:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: var(--nxp-focus-outline-offset);
   }
 }

@@ -39,7 +39,14 @@ export type IframeMessageType =
   | 'TOKENIZE_RESPONSE'
   | 'STYLE_UPDATE'
   | 'TOKENIZE_REQUEST'
-  | 'FOCUS_REQUEST';
+  | 'FOCUS_REQUEST'
+  // FIX 6: iframe → parent content-height report for auto-resize.
+  | 'resize';
+
+/** FIX 6: payload of the iframe → parent 'resize' message. */
+export interface ResizePayload {
+  height: number;
+}
 
 export interface IframeMessage {
   source: 'nexuspay-card-frame' | 'nexuspay-parent';
@@ -57,6 +64,13 @@ export interface IframeManagerOptions {
   onError?: (error: string) => void;
   onTokenizeResponse?: (payload: TokenizeResponsePayload) => void;
 }
+
+/**
+ * FIX 6: floor for the auto-resize height. The iframe element already declares
+ * min-height:44px (one input row); never shrink the element below this even if a
+ * transient/zero measurement arrives from the frame.
+ */
+const MIN_IFRAME_HEIGHT = 44;
 
 export class IframeManager {
   private iframe: HTMLIFrameElement | null = null;
@@ -180,6 +194,13 @@ export class IframeManager {
               msg.payload as TokenizeResponsePayload,
             );
             break;
+
+          case 'resize':
+            // FIX 6: size the iframe element to the frame's reported content
+            // height so the parent reserves no dead space and never clips the
+            // slid-in inline error. Clamped to a sane floor.
+            this.applyResize(msg.payload as ResizePayload | undefined);
+            break;
         }
       };
 
@@ -231,6 +252,19 @@ export class IframeManager {
 
   isReady(): boolean {
     return this.ready;
+  }
+
+  /**
+   * FIX 6: apply a content-height report from the frame to the iframe element.
+   * Ignores missing/non-finite/non-positive heights and clamps to
+   * {@link MIN_IFRAME_HEIGHT} so a transient zero measurement can't collapse it.
+   */
+  private applyResize(payload: ResizePayload | undefined): void {
+    if (!this.iframe) return;
+    const raw = payload?.height;
+    if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) return;
+    const height = Math.max(Math.round(raw), MIN_IFRAME_HEIGHT);
+    this.iframe.style.height = `${height}px`;
   }
 
   private sendStyleUpdate(): void {

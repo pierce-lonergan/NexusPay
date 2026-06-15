@@ -9,6 +9,14 @@ const {
   resetState,
   recomputeAuthoritativeParentOrigin,
   getAuthoritativeParentOrigin,
+  handlePanInput,
+  handlePanBlur,
+  handleExpiryInput,
+  handleExpiryBlur,
+  handleCvcInput,
+  handleCvcBlur,
+  renderFieldError,
+  MSG,
 } = __test__;
 
 /**
@@ -295,5 +303,147 @@ describe('card-frame B-006 authoritative parent origin (ancestorOrigins)', () =>
     resetState('');
     // TOFU: first concrete origin trusted.
     expect(isExpectedParentOrigin('https://merchant.example')).toBe(true);
+  });
+});
+
+/**
+ * FIX 4 + FIX 5: error state is deferred to BLUR (not mid-type) with instructional
+ * copy, and the handlers set aria-invalid alongside the visual error class so
+ * screen readers get the programmatic state.
+ */
+describe('card-frame FIX 4/5 blur-deferred errors + aria-invalid', () => {
+  // A valid Luhn-passing Visa test PAN.
+  const VALID_PAN = '4242424242424242';
+  // A complete-length (16) PAN that fails Luhn.
+  const INVALID_PAN = '4242424242424241';
+
+  function input(id: string): HTMLInputElement {
+    const el = document.createElement('input');
+    el.id = id;
+    el.className = 'field__input';
+    document.body.appendChild(el);
+    return el;
+  }
+  function errorEl(id: string): HTMLElement {
+    const el = document.createElement('div');
+    el.id = id;
+    el.className = 'field__error';
+    document.body.appendChild(el);
+    return el;
+  }
+
+  beforeEach(() => {
+    // Pin a concrete parent origin so emitChange()'s postMessage has a valid
+    // target in jsdom (an empty '' target throws). Production behavior unchanged.
+    resetState('https://merchant.example');
+    document.body.innerHTML = '';
+  });
+  afterEach(() => {
+    resetState('');
+    document.body.innerHTML = '';
+  });
+
+  it('does NOT surface a red PAN error mid-type (input event)', () => {
+    const pan = input('card-number');
+    const err = errorEl('error-pan');
+    pan.value = INVALID_PAN; // complete-but-bad, but still typing
+    handlePanInput(pan, err);
+
+    // No red error while typing.
+    expect(state.errors.pan).toBeNull();
+    expect(pan.classList.contains('field__input--error')).toBe(false);
+    expect(err.classList.contains('field__error--visible')).toBe(false);
+  });
+
+  it('surfaces an instructional "incomplete" PAN error on blur when too short', () => {
+    const pan = input('card-number');
+    const err = errorEl('error-pan');
+    pan.value = '4242';
+    handlePanInput(pan, err);
+    handlePanBlur(pan, err);
+
+    expect(state.errors.pan).toBe(MSG.panIncomplete);
+    expect(state.errors.pan).toBe('Your card number is incomplete.');
+    // FIX 4: aria-invalid is set true alongside the visual error class.
+    expect(pan.getAttribute('aria-invalid')).toBe('true');
+    expect(pan.classList.contains('field__input--error')).toBe(true);
+  });
+
+  it('surfaces an instructional "invalid" PAN error on blur for a complete-but-bad number', () => {
+    const pan = input('card-number');
+    const err = errorEl('error-pan');
+    pan.value = INVALID_PAN;
+    handlePanInput(pan, err);
+    handlePanBlur(pan, err);
+
+    expect(state.errors.pan).toBe(MSG.panInvalid);
+    expect(state.errors.pan).toBe('Your card number is invalid.');
+    expect(pan.getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('a valid PAN clears the error and aria-invalid on blur', () => {
+    const pan = input('card-number');
+    const err = errorEl('error-pan');
+    pan.value = VALID_PAN;
+    handlePanInput(pan, err);
+    handlePanBlur(pan, err);
+
+    expect(state.errors.pan).toBeNull();
+    expect(pan.getAttribute('aria-invalid')).toBe('false');
+    expect(pan.classList.contains('field__input--error')).toBe(false);
+  });
+
+  it('defers expiry errors to blur with instructional copy', () => {
+    const month = input('card-exp-month');
+    const year = input('card-exp-year');
+    const err = errorEl('error-expiry');
+
+    month.value = '13'; // invalid month
+    handleExpiryInput(month, year, 'month', err);
+    year.value = '30'; // complete year so the invalid-month path (not incomplete) is reached
+    handleExpiryInput(month, year, 'year', err);
+    // Mid-type: no error surfaced.
+    expect(err.classList.contains('field__error--visible')).toBe(false);
+
+    handleExpiryBlur(month, year, err);
+    expect(state.errors.expiry).toBe(MSG.expiryInvalidMonth);
+    expect(month.getAttribute('aria-invalid')).toBe('true');
+    expect(year.getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('reports an "incomplete" expiry on blur when partially filled', () => {
+    const month = input('card-exp-month');
+    const year = input('card-exp-year');
+    const err = errorEl('error-expiry');
+    month.value = '12';
+    handleExpiryInput(month, year, 'month', err);
+    handleExpiryBlur(month, year, err);
+    expect(state.errors.expiry).toBe(MSG.expiryIncomplete);
+  });
+
+  it('CVC error is deferred to blur and sets aria-invalid', () => {
+    state.brand = 'visa';
+    const cvc = input('card-cvc');
+    const err = errorEl('error-cvc');
+    cvc.value = '12';
+    handleCvcInput(cvc, err);
+    // Mid-type: nothing.
+    expect(state.errors.cvc).toBeNull();
+    expect(cvc.getAttribute('aria-invalid')).not.toBe('true');
+
+    handleCvcBlur(cvc, err);
+    expect(state.errors.cvc).toBe(MSG.cvcIncomplete);
+    expect(cvc.getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('renderFieldError toggles class, text and aria-invalid coherently', () => {
+    const el = input('x');
+    const err = errorEl('x-err');
+    renderFieldError(el, err, 'boom');
+    expect(el.getAttribute('aria-invalid')).toBe('true');
+    expect(err.textContent).toBe('boom');
+    renderFieldError(el, err, null);
+    expect(el.getAttribute('aria-invalid')).toBe('false');
+    expect(err.textContent).toBe('');
   });
 });

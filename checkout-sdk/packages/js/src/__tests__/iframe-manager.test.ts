@@ -175,6 +175,65 @@ describe('IframeManager', () => {
     expect(options.onError).toHaveBeenCalledWith('Card frame is not ready');
   });
 
+  // FIX 6: auto-resize from the iframe's 'resize' message.
+  it('sets the iframe height from a resize message (clamped to a sane floor)', async () => {
+    const manager = new IframeManager(options);
+    const createPromise = manager.create(container);
+
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { source: 'nexuspay-card-frame', type: 'FRAME_READY' },
+      origin: 'https://api.test.com',
+    }));
+    await createPromise;
+
+    const iframe = container.querySelector('iframe') as HTMLIFrameElement;
+
+    // A normal content height is applied verbatim.
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { source: 'nexuspay-card-frame', type: 'resize', payload: { height: 220 } },
+      origin: 'https://api.test.com',
+    }));
+    expect(iframe.style.height).toBe('220px');
+
+    // A tiny/zero height is clamped to the 44px floor (never collapses).
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { source: 'nexuspay-card-frame', type: 'resize', payload: { height: 4 } },
+      origin: 'https://api.test.com',
+    }));
+    expect(iframe.style.height).toBe('44px');
+
+    // Invalid payloads are ignored (height unchanged from last valid clamp).
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { source: 'nexuspay-card-frame', type: 'resize', payload: { height: 0 } },
+      origin: 'https://api.test.com',
+    }));
+    expect(iframe.style.height).toBe('44px');
+
+    manager.destroy();
+  });
+
+  it('ignores a resize message from a foreign origin', async () => {
+    const manager = new IframeManager(options);
+    const createPromise = manager.create(container);
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { source: 'nexuspay-card-frame', type: 'FRAME_READY' },
+      origin: 'https://api.test.com',
+    }));
+    await createPromise;
+
+    const iframe = container.querySelector('iframe') as HTMLIFrameElement;
+    const before = iframe.style.height;
+
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { source: 'nexuspay-card-frame', type: 'resize', payload: { height: 500 } },
+      origin: 'https://evil.example.com',
+    }));
+    // Origin gate rejected it — no resize applied.
+    expect(iframe.style.height).toBe(before);
+
+    manager.destroy();
+  });
+
   it('cleans up on destroy', async () => {
     const manager = new IframeManager(options);
     const createPromise = manager.create(container);

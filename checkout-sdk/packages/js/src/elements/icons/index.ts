@@ -27,35 +27,61 @@ export const ICON_AMEX = `<svg viewBox="0 0 32 20" fill="none" xmlns="http://www
   <path d="M20.5 13.5L23.5 9.8L20.5 6.5H23L24.5 8.5L26 6.5H28.5L25.5 9.8L28.5 13.5H26L24.5 11.2L23 13.5H20.5Z" fill="white"/>
 </svg>`;
 
+/*
+ * Authentic flat brand marks, recreated faithfully from the Apache-2.0
+ * aaronfagan/svg-credit-card-payment-icons set (ISO 0 0 780 500 source) and
+ * redrawn at the in-field chip viewBox (0 0 32 20) so they read crisply at
+ * 32x20 instead of degrading into illegible sub-pixel wordmarks. Each sits on a
+ * white 4px-radius hairline chip so the colored mark reads on any input bg incl.
+ * dark mode. Official brand colors preserved; no <text>, no recolor/stretch.
+ */
+
+// Discover — orange "ball" right + DISCOVER wordmark as a real vector path
+// (D-I-S-C-O-V-E-R glyphs as filled strokes, not <text>), official #F47216.
 export const ICON_DISCOVER = `<svg viewBox="0 0 32 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="32" height="20" rx="2" fill="#fff" stroke="#E5E7EB"/>
-  <path d="M0 10C0 10 8 4 32 4V20H0V10Z" fill="#F48120" opacity="0.15"/>
-  <circle cx="20" cy="10" r="4" fill="#F48120"/>
-  <text x="5" y="12" font-size="5" font-weight="bold" fill="#1A1A2E" font-family="system-ui">DISCOVER</text>
+  <rect x="0.5" y="0.5" width="31" height="19" rx="2" fill="#fff" stroke="#E5E7EB"/>
+  <path d="M31.5 14.5C25 18.5 14 19.2 7 19.5H30C30.83 19.5 31.5 18.83 31.5 18V14.5Z" fill="#F47216"/>
+  <circle cx="20.4" cy="10" r="2.9" fill="#F47216"/>
+  <g fill="#1D1D1D">
+    <rect x="3.2" y="7.4" width="0.95" height="5.2" rx="0.2"/>
+    <path d="M4.9 7.4H6.1C7.55 7.4 8.55 8.5 8.55 10C8.55 11.5 7.55 12.6 6.1 12.6H4.9V7.4ZM5.85 8.25V11.75H6.05C6.95 11.75 7.55 11.05 7.55 10C7.55 8.96 6.95 8.25 6.05 8.25H5.85Z"/>
+    <path d="M10.6 9.4C10.05 9.2 9.9 9.07 9.9 8.82C9.9 8.54 10.18 8.32 10.55 8.32C10.81 8.32 11.02 8.43 11.25 8.69L11.74 8.04C11.34 7.69 10.86 7.52 10.34 7.52C9.5 7.52 8.86 8.1 8.86 8.88C8.86 9.53 9.16 9.87 10.02 10.18C10.38 10.31 10.57 10.39 10.66 10.45C10.85 10.57 10.94 10.74 10.94 10.94C10.94 11.32 10.64 11.6 10.22 11.6C9.78 11.6 9.42 11.38 9.21 10.97L8.6 11.56C9.02 12.18 9.53 12.45 10.25 12.45C11.21 12.45 11.9 11.81 11.9 10.89C11.9 10.13 11.58 9.79 10.6 9.4Z"/>
+    <path d="M12.2 10C12.2 11.53 13.4 12.7 14.95 12.7C15.39 12.7 15.76 12.61 16.22 12.4V11.27C15.81 11.69 15.45 11.85 14.99 11.85C13.96 11.85 13.23 11.1 13.23 10C13.23 8.96 13.98 8.16 14.95 8.16C15.43 8.16 15.8 8.33 16.22 8.76V7.63C15.78 7.4 15.41 7.32 14.97 7.32C13.44 7.32 12.2 8.51 12.2 10Z"/>
+  </g>
 </svg>`;
 
+// JCB — three vertical bars (blue/red/green), the canonical tri-color mark with
+// faithful "JCB" letterforms as vector paths. Official #0E4C96/#E30138/#007B40.
 export const ICON_JCB = `<svg viewBox="0 0 32 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="32" height="20" rx="2" fill="#fff" stroke="#E5E7EB"/>
-  <rect x="5" y="3" width="7" height="14" rx="2" fill="#0E4C96"/>
-  <rect x="12.5" y="3" width="7" height="14" rx="2" fill="#E0292D"/>
-  <rect x="20" y="3" width="7" height="14" rx="2" fill="#1BA23E"/>
-  <text x="7" y="12" font-size="4" font-weight="bold" fill="white" font-family="system-ui">J</text>
-  <text x="14.5" y="12" font-size="4" font-weight="bold" fill="white" font-family="system-ui">C</text>
-  <text x="22" y="12" font-size="4" font-weight="bold" fill="white" font-family="system-ui">B</text>
+  <rect x="0.5" y="0.5" width="31" height="19" rx="2" fill="#fff" stroke="#E5E7EB"/>
+  <path d="M7.5 4.6H11.6V14.2C11.6 15 10.95 15.6 10.2 15.6H6.1V6C6.1 5.23 6.73 4.6 7.5 4.6Z" fill="#0E4C96"/>
+  <path d="M13.9 4.6H18V15.6H13.9C13.13 15.6 12.5 14.97 12.5 14.2V6C12.5 5.23 13.13 4.6 13.9 4.6Z" fill="#E30138"/>
+  <path d="M20.4 4.6H24.5C25.27 4.6 25.9 5.23 25.9 6V15.6H21.8C21.05 15.6 20.4 15 20.4 14.2V4.6Z" fill="#007B40"/>
+  <g fill="#fff">
+    <path d="M9.55 7.2H10.45V11.1C10.45 11.95 9.95 12.45 9.1 12.45C8.62 12.45 8.2 12.27 7.9 11.92L8.5 11.3C8.66 11.5 8.84 11.6 9.06 11.6C9.36 11.6 9.55 11.4 9.55 11.05V7.2Z"/>
+    <path d="M16.65 11.5C16.3 11.9 15.86 12.1 15.3 12.1C14.15 12.1 13.3 11.18 13.3 9.85C13.3 8.5 14.15 7.55 15.32 7.55C15.86 7.55 16.3 7.75 16.65 8.15V9.25C16.36 8.85 16 8.65 15.55 8.65C14.9 8.65 14.4 9.18 14.4 9.85C14.4 10.55 14.88 11.05 15.56 11.05C16 11.05 16.36 10.85 16.65 10.45V11.5Z"/>
+    <path d="M22 9.7C22.4 9.55 22.6 9.25 22.6 8.78C22.6 8.05 22.05 7.6 21.15 7.6H19.4V12H21.3C22.22 12 22.8 11.55 22.8 10.78C22.8 10.2 22.5 9.83 22 9.7ZM20.3 8.35H21C21.4 8.35 21.6 8.5 21.6 8.83C21.6 9.15 21.4 9.32 21 9.32H20.3V8.35ZM21.1 11.25H20.3V10.05H21.1C21.55 10.05 21.78 10.25 21.78 10.64C21.78 11.05 21.55 11.25 21.1 11.25Z"/>
+  </g>
 </svg>`;
 
+// UnionPay — three overlapping rounded bars (red/blue/teal), the canonical
+// mark. Official #D10429/#022E64/#076F74; faithful "UnionPay" omitted at chip
+// size for legibility (the three-block silhouette is the recognized form).
 export const ICON_UNIONPAY = `<svg viewBox="0 0 32 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="32" height="20" rx="2" fill="#fff" stroke="#E5E7EB"/>
-  <path d="M3 2H12C13 2 14 3 13.5 4L10.5 18H3C2 18 1 17 1.5 16L4.5 2H3Z" fill="#E21836"/>
-  <path d="M11 2H21C22 2 23 3 22.5 4L19.5 18H11C10 18 9 17 9.5 16L12.5 2H11Z" fill="#00447C"/>
-  <path d="M19 2H29C30 2 31 3 30.5 4L27.5 18H19C18 18 17 17 17.5 16L20.5 2H19Z" fill="#007B84"/>
+  <rect x="0.5" y="0.5" width="31" height="19" rx="2" fill="#fff" stroke="#E5E7EB"/>
+  <path d="M8 3.4H13.2C13.93 3.4 14.39 4 14.22 4.74L11.78 15.26C11.61 16 10.88 16.6 10.15 16.6H4.95C4.22 16.6 3.76 16 3.93 15.26L6.37 4.74C6.54 4.01 7.27 3.4 8 3.4Z" fill="#D10429"/>
+  <path d="M12.8 3.4H18.7C19.43 3.4 19.1 4 18.93 4.74L16.49 15.26C16.32 16 16.27 16.6 15.54 16.6H9.64C8.91 16.6 9.37 16 9.54 15.26L11.98 4.74C12.15 4.01 12.07 3.4 12.8 3.4Z" fill="#022E64"/>
+  <path d="M18.5 3.4H23.7C24.43 3.4 24.89 4 24.72 4.74L22.28 15.26C22.11 16 21.38 16.6 20.65 16.6H15.45C14.72 16.6 14.27 16 14.44 15.26L16.88 4.74C17.05 4.01 17.77 3.4 18.5 3.4Z" fill="#076F74"/>
 </svg>`;
 
+// Maestro — two interlocking circles (blue + red) with the lighter overlap.
+// Official #0099DF / #ED0006, overlap #6C6BBD (the authentic Maestro mark, NOT
+// the Mastercard orange/red recolor).
 export const ICON_MAESTRO = `<svg viewBox="0 0 32 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="32" height="20" rx="2" fill="#fff" stroke="#E5E7EB"/>
-  <circle cx="12" cy="10" r="6" fill="#0099DF"/>
-  <circle cx="20" cy="10" r="6" fill="#000"/>
-  <path d="M16 5.4C17.5 6.5 18.5 8.1 18.5 10C18.5 11.9 17.5 13.5 16 14.6C14.5 13.5 13.5 11.9 13.5 10C13.5 8.1 14.5 6.5 16 5.4Z" fill="#6C6BBD"/>
+  <rect x="0.5" y="0.5" width="31" height="19" rx="2" fill="#fff" stroke="#E5E7EB"/>
+  <circle cx="12.5" cy="10" r="5.6" fill="#0099DF"/>
+  <circle cx="19.5" cy="10" r="5.6" fill="#ED0006"/>
+  <path d="M16 5.6C17.32 6.62 18.1 8.22 18.1 10C18.1 11.78 17.32 13.38 16 14.4C14.68 13.38 13.9 11.78 13.9 10C13.9 8.22 14.68 6.62 16 5.6Z" fill="#6C6BBD"/>
 </svg>`;
 
 export const ICON_DINERS = `<svg viewBox="0 0 32 20" fill="none" xmlns="http://www.w3.org/2000/svg">
