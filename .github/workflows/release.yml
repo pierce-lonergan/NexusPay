@@ -1,0 +1,76 @@
+# SDK npm release pipeline (INT-7 / B-012). Publishes the three checkout-sdk
+# libraries to npm with provenance. Trigger: push a tag matching `sdk-v*`
+# (e.g. sdk-v0.1.0) OR run manually via workflow_dispatch. Auth is the owner's
+# NPM_TOKEN repo secret — when it is absent the job SKIPS cleanly (no hard fail),
+# so forks / unconfigured repos stay green. Actual `npm publish` is the owner's
+# credentialed step; this workflow only runs it when a token is present.
+name: release-sdk
+
+on:
+  push:
+    tags: ['sdk-v*']
+  workflow_dispatch: {}
+
+# Least privilege. id-token:write is REQUIRED for npm provenance (Sigstore OIDC).
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm-publish        # optional: lets owner add manual approval
+    defaults:
+      run:
+        working-directory: checkout-sdk
+    steps:
+      # B-012: SHAs reused VERBATIM from .github/workflows/checkout-sdk.yml + ci.yml.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+          cache-dependency-path: checkout-sdk/package-lock.json
+
+      # secrets can't be used in `if:` directly, so surface NPM_TOKEN presence
+      # as a step output and gate every downstream step on it → clean no-op when unset.
+      - name: Check NPM_TOKEN presence
+        id: token
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "::warning::NPM_TOKEN secret is not set — skipping publish (no-op)."
+            echo "have_token=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_token=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install dependencies
+        if: steps.token.outputs.have_token == 'true'
+        run: npm ci
+
+      - name: Build (workspace order)
+        if: steps.token.outputs.have_token == 'true'
+        run: npm run build   # root script: js -> node -> react -> checkout
+
+      - name: Publish @nexuspay/js
+        if: steps.token.outputs.have_token == 'true'
+        run: npm publish -w @nexuspay/js --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @nexuspay/node
+        if: steps.token.outputs.have_token == 'true'
+        run: npm publish -w @nexuspay/node --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @nexuspay/react   # last: depends on js+node being live
+        if: steps.token.outputs.have_token == 'true'
+        run: npm publish -w @nexuspay/react --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
