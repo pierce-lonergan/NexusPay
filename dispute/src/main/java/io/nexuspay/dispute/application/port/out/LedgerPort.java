@@ -17,19 +17,36 @@ public interface LedgerPort {
     /**
      * Creates a chargeback reserve journal entry when a dispute is opened.
      *
+     * @param tenantId   the dispute's server-authoritative tenant (from the
+     *                   HMAC-verified webhook, SEC-BATCH-2); the journal entry +
+     *                   postings and account stamping are scoped to this tenant
      * @param disputeId  the dispute identifier (for payment_reference)
      * @param amount     minor units to reserve
      * @param currency   ISO 4217 currency code
      */
-    void createChargebackReserve(String disputeId, long amount, String currency);
+    void createChargebackReserve(String tenantId, String disputeId, long amount, String currency);
 
     /**
      * Reverses the chargeback reserve when a dispute is won.
+     *
+     * @param tenantId   the dispute's server-authoritative tenant (from the
+     *                   HMAC-verified webhook, SEC-BATCH-2); must match the tenant
+     *                   under which the original reserve was posted
+     * @param disputeId  the dispute identifier (for payment_reference)
+     * @param amount     minor units to release
+     * @param currency   ISO 4217 currency code
      */
-    void reverseChargebackReserve(String disputeId, long amount, String currency);
+    void reverseChargebackReserve(String tenantId, String disputeId, long amount, String currency);
 
     /**
      * Finalises the chargeback as an expense when a dispute is lost.
+     *
+     * @param tenantId   the dispute's server-authoritative tenant (from the
+     *                   HMAC-verified webhook, SEC-BATCH-2); must match the tenant
+     *                   under which the original reserve was posted
+     * @param disputeId  the dispute identifier (for payment_reference)
+     * @param amount     minor units to expense
+     * @param currency   ISO 4217 currency code
      */
-    void finaliseChargebackExpense(String disputeId, long amount, String currency);
+    void finaliseChargebackExpense(String tenantId, String disputeId, long amount, String currency);
 }
