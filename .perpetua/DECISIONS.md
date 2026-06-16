@@ -674,3 +674,20 @@ B-012 pins), minimal perms (contents:read, id-token:write), NODE_AUTH_TOKEN←se
 workspace builds + npm publish --dry-run for all three lists exactly dist+README+LICENSE+package.json (no
 src/tests). Versions unchanged (0.1.0). The actual npm publish is the OWNER's credentialed action (add NPM_TOKEN
 secret + push an sdk-vX.Y.Z tag). 0 BLOCKERS, 1 SHOULD_FIX (README snippet). No migration. ADR-031.
+
+## ADR-032 | 2026-06-16 | INT-8: local-dev sandbox (lite compose + seed script + runbook)
+Running NexusPay locally needed ~17 containers (GAP-12). INT-8 adds a lite path: docker/docker-compose.lite.yml
+= only nexuspay-pg + kafka + valkey + keycloak (+ the one volume), each service block byte-identical to the full
+compose except host ports templated to ${...PORT:-default}. The app runs via ./gradlew :app:bootRun with
+SPRING_CLOUD_VAULT_ENABLED=false (the critic confirmed Vault auto-config else fails at boot — env, not code) and
+SPRING_PROFILES local; HyperSwitch/Temporal/Vault/schema-registry/observability are omitted because INT-3's
+in-process MockPaymentGatewayPort handles sk_test_ keys (test mode needs no real PSP) and nothing else is required
+at boot. scripts/dev/seed-local.sh automates the GAP-01 onboarding ritual: Keycloak admin token (seeded realm
+user) -> POST /v1/api-keys (operator, live=false) -> prints the once-shown sk_test_ key + POST /v1/webhook-endpoints
+-> prints the whsec_ + endpoint id; ZERO literal secrets in the file (all runtime-generated; gitleaks-clean),
+LOCAL-DEV-ONLY header + Windows note. docs/LOCAL_DEV.md runbook (compose up -> bootRun :8090 -> seed -> curl a
+sk_test_ payment -> canonical webhook) with the SEC-4b localhost-webhook caveat (loopback rejected -> tunnel or
+@nexuspay/node self-signed verify) + a port-override example. Review caught a compose port double-bind + a
+host->Kafka listener mismatch (use localhost:29092 PLAINTEXT_HOST) that would've broken the webhook loop — both
+doc-fixed. 0 BLOCKERS, 2 SHOULD_FIX. No Java change, no migration, no committed secrets. Ops/docs validated by
+review (not CI-exercised). ADR-032.
