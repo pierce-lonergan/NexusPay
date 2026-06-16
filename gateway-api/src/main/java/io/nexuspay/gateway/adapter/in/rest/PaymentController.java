@@ -61,6 +61,34 @@ public class PaymentController {
         return (principal != null && !principal.live()) ? "test" : "live";
     }
 
+    /**
+     * SEC-12: resolve the PSP idempotency key for a capture/void/refund. The caller-supplied
+     * {@code Idempotency-Key} header is AUTHORITATIVE — when present (non-null, non-blank) it is
+     * forwarded unchanged. When the caller omits it, derive a DETERMINISTIC per-op key
+     * {@code {op}-{paymentId}[-{amountSeg}]} so a network RETRY of the SAME logical op re-derives the
+     * IDENTICAL key and HyperSwitch dedups it server-side (no double capture / void / refund). Before
+     * this fix a null/blank header was forwarded raw, so the PSP saw no key and a retry double-charged.
+     *
+     * <p>Key shape per op: {@code capture-{id}-{amountToCapture|"full"}}, {@code void-{id}} (a void is
+     * unitary per authorization — no amount segment), {@code refund-{id}-{amount}}. The prefix + amount
+     * segment make a $10 and a $25 partial refund distinct, and a capture and a refund of the same
+     * payment never collide.</p>
+     *
+     * <p>PARTIAL-REFUND NUANCE (acceptable by design): two INTENTIONAL, separate refunds of the SAME
+     * amount with NO caller key derive the SAME key, so the second dedups to the first at the PSP. This
+     * is the correct retry-safe default; a caller that genuinely wants two same-amount refunds must
+     * supply distinct {@code Idempotency-Key} headers. The goal is retry-safety, not preventing
+     * deliberate duplicates.</p>
+     */
+    private static String resolveKey(String callerKey, String op, String paymentId, String amountSeg) {
+        if (callerKey != null && !callerKey.isBlank()) {
+            return callerKey; // caller key is authoritative — never overridden
+        }
+        return amountSeg == null
+                ? op + "-" + paymentId
+                : op + "-" + paymentId + "-" + amountSeg;
+    }
+
     @PostMapping
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     @Operation(summary = "Create a payment intent")
@@ -151,8 +179,11 @@ public class PaymentController {
         // SEC-07 (B-007): tenant-ownership check BEFORE the id reaches the PSP (404 on mismatch/absent).
         screeningOrigins.assertOwnedBy(id, principal != null ? principal.tenantId() : null);
         var req = request != null ? request : new CapturePaymentRequest(null);
+        // SEC-12: caller key wins; else derive a deterministic key (null amount = full capture -> "full").
+        String amtSeg = req.amount_to_capture() != null ? req.amount_to_capture().toString() : "full";
+        String key = resolveKey(idempotencyKey, "capture", id, amtSeg);
         var response = paymentGateway.capturePayment(id, new CaptureRequest(
-                req.amount_to_capture(), idempotencyKey));
+                req.amount_to_capture(), key));
         return ResponseEntity.ok(ResponseMapper.toPaymentResponse(response, modeOf(principal)));
     }
 
@@ -167,8 +198,10 @@ public class PaymentController {
         // SEC-07 (B-007): tenant-ownership check BEFORE the id reaches the PSP (404 on mismatch/absent).
         screeningOrigins.assertOwnedBy(id, principal != null ? principal.tenantId() : null);
         var req = request != null ? request : new CancelPaymentRequest(null);
+        // SEC-12: caller key wins; else derive a deterministic key (a void is unitary per auth, no amount).
+        String key = resolveKey(idempotencyKey, "void", id, null);
         var response = paymentGateway.voidPayment(id, new VoidRequest(
-                req.cancellation_reason(), idempotencyKey));
+                req.cancellation_reason(), key));
         return ResponseEntity.ok(ResponseMapper.toPaymentResponse(response, modeOf(principal)));
     }
 
@@ -192,9 +225,14 @@ public class PaymentController {
             @Valid @RequestBody CreateRefundRequest request,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @AuthenticationPrincipal NexusPayPrincipal principal) {
+        // SEC-12: caller key wins; else derive a deterministic key from the refund amount. Resolve HERE
+        // (the amount is a controller param) before delegating; the sub-threshold path forwards this key
+        // straight into the RefundRequest. The above-threshold approval path later mints its own
+        // deterministic "refund-approval-{id}" key (B-009) and is unaffected.
+        String key = resolveKey(idempotencyKey, "refund", id, Long.toString(request.amount()));
         var result = refundOrchestration.createRefund(
                 id, request.amount(), request.currency(), request.reason(),
-                idempotencyKey, principal.userId(), principal.tenantId());
+                key, principal.userId(), principal.tenantId());
 
         if (result.requiresApproval()) {
             // INT-2 Invariant 3: 202 body carries requires_approval=true + the configured threshold.
