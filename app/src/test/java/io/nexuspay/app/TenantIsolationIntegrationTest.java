@@ -336,7 +336,11 @@ class TenantIsolationIntegrationTest extends IntegrationTestBase {
      * (there is no public create-assessment endpoint). Returns the seeded id.
      */
     private UUID seedFraudAssessment() {
-        RiskAssessment assessment = RiskAssessment.create("tenant-A", "pay_seed_sec23");
+        // Unique payment ref per call: fraud dedups on (tenant_id, payment_id), so a shared ref would
+        // make only the first-seeding test persist a real row and the rest collide/no-op (their id then
+        // resolves to nothing → spurious 404s). A distinct ref keeps each test's data isolated.
+        RiskAssessment assessment = RiskAssessment.create(
+                "tenant-A", "pay_seed_sec23_" + UUID.randomUUID().toString().substring(0, 8));
         // REVIEW decision → reviewStatus = PENDING_REVIEW, so it also shows in the pending list.
         assessment.applyDecision(80, 80, "NATIVE_ONLY", 80, RiskDecision.REVIEW);
         fraudAssessmentRepository.save(assessment);
