@@ -1,5 +1,8 @@
 package io.nexuspay.iam.adapter.in.filter;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.nexuspay.common.domain.ApiError;
+import io.nexuspay.common.domain.ApiErrorResponse;
 import io.nexuspay.common.domain.SessionToken;
 import io.nexuspay.iam.application.service.SessionTokenIssuer;
 import io.nexuspay.iam.domain.NexusPayPrincipal;
@@ -10,6 +13,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -19,6 +23,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Authenticates checkout SDK requests using session-scoped JWTs.
@@ -41,10 +46,14 @@ public class SessionTokenAuthenticationFilter extends OncePerRequestFilter {
     private static final String BEARER_PREFIX = "Bearer ";
     private static final String CHECKOUT_PATH_PREFIX = "/v1/checkout";
 
-    private final SessionTokenIssuer sessionTokenIssuer;
+    private static final String MDC_REQUEST_ID = "request_id";
 
-    public SessionTokenAuthenticationFilter(SessionTokenIssuer sessionTokenIssuer) {
+    private final SessionTokenIssuer sessionTokenIssuer;
+    private final ObjectMapper objectMapper;
+
+    public SessionTokenAuthenticationFilter(SessionTokenIssuer sessionTokenIssuer, ObjectMapper objectMapper) {
         this.sessionTokenIssuer = sessionTokenIssuer;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -103,10 +112,19 @@ public class SessionTokenAuthenticationFilter extends OncePerRequestFilter {
     }
 
     private void sendUnauthorized(HttpServletResponse response, String message) throws IOException {
+        // INT-2: emit the stable error envelope via common's ApiError/ApiErrorResponse so the session
+        // 401 body stays in lock-step with the rest of the contract (type=unauthorized,
+        // code=invalid_session_token, request_id from the correlation MDC with a UUID fallback).
+        // Mirrors ApiKeyAuthenticationFilter. Serializing via ObjectMapper also JSON-escapes the
+        // message rather than concatenating it into a raw string.
+        String rid = MDC.get(MDC_REQUEST_ID);
+        if (rid == null || rid.isBlank()) {
+            rid = UUID.randomUUID().toString();
+        }
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setContentType("application/json");
-        response.getWriter().write(
-                "{\"error\":{\"type\":\"authentication_error\",\"code\":\"invalid_session_token\",\"message\":\""
-                        + message + "\"}}");
+        objectMapper.writeValue(response.getOutputStream(),
+                ApiErrorResponse.of(ApiError.of(ApiError.TYPE_UNAUTHORIZED,
+                        "invalid_session_token", message, rid)));
     }
 }

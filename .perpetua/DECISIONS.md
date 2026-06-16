@@ -587,3 +587,19 @@ and read at delivery (tenant-scoped) into data.metadata — so userId/packId-sty
 SERVER-DERIVED path, never the PSP echo or client. Registration now REJECTS unknown event-name strings
 (@CanonicalWebhookEvents on CreateWebhookEndpointRequest). Review: 0 BLOCKERS, 1 SHOULD_FIX applied (app-level
 tenant assertion on the metadata read so isolation holds independent of rls.enforce, mirroring B-007). ADR-025.
+
+## ADR-026 | 2026-06-16 | INT-2: payments/session contract polish (T3)
+Four merchant-DX contract fixes. (1) CAPTURE ALIAS: CreatePaymentRequest accepts an optional Boolean `capture`;
+when set and capture_method is absent it maps true→automatic/false→manual (capture_method authoritative when
+both) — additive, no security surface. (2) STANDARDIZED ERROR ENVELOPE (cross-cutting): every API error now emits
+`{error:{type,code,message,request_id}}` via the evolved common ApiError (param→request_id; stable taxonomy
+validation/not_found/unauthorized/forbidden/conflict/payment/rate_limit/internal) + GlobalExceptionHandler, with
+request_id sourced from CorrelationIdFilter's MDC (UUID fallback); ALL 500s hardened to a generic message (no
+ex.getMessage()/stack/SQL leakage); HTTP status codes unchanged. The adversarial blast-radius lens caught a missed
+path — SessionTokenAuthenticationFilter's 401 still emitted the retired `authentication_error` envelope — fixed +
+regression-tested (ApiKey + SessionToken 401-envelope tests); an FxRate DCC 422 plain-string body was also
+normalized. (3) REFUND requires_approval: the maker-checker 202 now carries `requires_approval:true` +
+`approval_threshold`; the created path carries `requires_approval:false`. (4) SESSION METADATA PARITY: payments
+created via the session/SDK path persist the merchant metadata map into the INT-1 payment_webhook_metadata store
+(tenant-scoped, no PAN) so the SDK path round-trips correlation to webhooks like /v1/payments. No migration. Review:
+3 BLOCKERS (all the same missed 401 envelope) + 3 SHOULD_FIX, all applied. ADR-026.

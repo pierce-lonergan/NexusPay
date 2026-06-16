@@ -1,5 +1,6 @@
 package io.nexuspay.payment.adapter.in.rest;
 
+import io.nexuspay.common.exception.PaymentException;
 import io.nexuspay.payment.application.fx.CrossBorderComplianceService;
 import io.nexuspay.payment.application.fx.CurrencyRoutingService;
 import io.nexuspay.payment.application.fx.DynamicCurrencyConversionService;
@@ -147,13 +148,17 @@ public class FxRateController {
             @RequestBody DccOfferRequest request,
             @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId) {
 
+        // INT-2: emit the standardized error envelope. A DCC-unavailable result throws a PaymentException
+        // (code=dcc_unavailable) which the GlobalExceptionHandler maps to 422 (the default PaymentException
+        // status, UNCHANGED from the prior unprocessableEntity()) as { error: { type, code, message,
+        // request_id } } — replacing the old non-conforming {"error":"<string>"} body.
         return dccService.createOffer(
                 tenantId, request.paymentId(), request.pspConnector(),
                 request.presentmentCurrency(), request.presentmentAmountMinorUnits(),
                 request.cardholderCurrency()
-        ).map(offer -> ResponseEntity.ok(dccService.buildDisclosure(offer)))
-         .orElse(ResponseEntity.unprocessableEntity()
-                 .body(Map.of("error", "DCC not available for this payment configuration")));
+        ).<ResponseEntity<?>>map(offer -> ResponseEntity.ok(dccService.buildDisclosure(offer)))
+         .orElseThrow(() -> new PaymentException(
+                 "DCC not available for this payment configuration", "dcc_unavailable"));
     }
 
     /**

@@ -1,5 +1,8 @@
 package io.nexuspay.iam.adapter.in.filter;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.nexuspay.common.domain.ApiError;
+import io.nexuspay.common.domain.ApiErrorResponse;
 import io.nexuspay.iam.application.ApiKeyService;
 import io.nexuspay.iam.domain.NexusPayPrincipal;
 import jakarta.servlet.FilterChain;
@@ -8,6 +11,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -17,6 +21,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * API key authentication filter.
@@ -36,10 +41,14 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
     private static final String BEARER_PREFIX = "Bearer ";
     private static final String SK_PREFIX = "sk_";
 
-    private final ApiKeyService apiKeyService;
+    private static final String MDC_REQUEST_ID = "request_id";
 
-    public ApiKeyAuthenticationFilter(ApiKeyService apiKeyService) {
+    private final ApiKeyService apiKeyService;
+    private final ObjectMapper objectMapper;
+
+    public ApiKeyAuthenticationFilter(ApiKeyService apiKeyService, ObjectMapper objectMapper) {
         this.apiKeyService = apiKeyService;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -61,10 +70,18 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
                     }
                 } catch (Exception e) {
                     log.warn("API key authentication failed: {}", e.getMessage());
+                    // INT-2: emit the stable error envelope via common's ApiError/ApiErrorResponse so the
+                    // 401 body stays in lock-step with the rest of the contract (type=unauthorized,
+                    // code=invalid_api_key, request_id from the correlation MDC with a UUID fallback).
+                    String rid = MDC.get(MDC_REQUEST_ID);
+                    if (rid == null || rid.isBlank()) {
+                        rid = UUID.randomUUID().toString();
+                    }
                     response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                     response.setContentType("application/json");
-                    response.getWriter().write("""
-                            {"error":{"type":"authentication_error","code":"invalid_api_key","message":"Invalid API key"}}""");
+                    objectMapper.writeValue(response.getOutputStream(),
+                            ApiErrorResponse.of(ApiError.of(ApiError.TYPE_UNAUTHORIZED,
+                                    "invalid_api_key", "Invalid API key", rid)));
                     return;
                 }
             }

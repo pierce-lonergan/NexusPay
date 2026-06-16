@@ -30,15 +30,37 @@ final class ResponseMapper {
         return new RefundApiResponse(
                 r.gatewayRefundId(), r.paymentId(), r.status(), r.amount(),
                 r.currency(), r.reason(), r.connectorName(),
-                r.errorCode(), r.errorMessage(), r.createdAt()
+                r.errorCode(), r.errorMessage(), r.createdAt(),
+                // INT-2 Invariant 3: a created refund is self-describing — it did NOT require approval.
+                Boolean.FALSE
         );
     }
 
+    /**
+     * Approval-lifecycle mapping (list/approve/reject). The {@code requires_approval}/
+     * {@code approval_threshold} fields are left null (dropped by NON_NULL); they are only stamped on
+     * the refund-creation 202 path via {@link #toApprovalResponse(PendingApproval, long)}.
+     */
     static ApprovalResponse toApprovalResponse(PendingApproval a) {
         return new ApprovalResponse(
                 a.getId(), a.getAction(), a.getResourceType(), a.getResourceId(),
                 mapApprovalStatus(a.getStatus()), a.getRequestedBy(), a.getReviewedBy(),
-                a.getPayload(), a.getCreatedAt(), a.getReviewedAt()
+                a.getPayload(), a.getCreatedAt(), a.getReviewedAt(),
+                null, null
+        );
+    }
+
+    /**
+     * INT-2 Invariant 3: refund-creation 202 path. Stamps {@code requires_approval=true} and the
+     * configured maker-checker {@code approval_threshold} (minor units). The pending-approval id is the
+     * existing {@code id} field — consumers read {@code id} for the approval id.
+     */
+    static ApprovalResponse toApprovalResponse(PendingApproval a, long approvalThreshold) {
+        return new ApprovalResponse(
+                a.getId(), a.getAction(), a.getResourceType(), a.getResourceId(),
+                mapApprovalStatus(a.getStatus()), a.getRequestedBy(), a.getReviewedBy(),
+                a.getPayload(), a.getCreatedAt(), a.getReviewedAt(),
+                Boolean.TRUE, approvalThreshold
         );
     }
 
