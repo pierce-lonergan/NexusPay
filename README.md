@@ -1,214 +1,106 @@
 # NexusPay
 
-Enterprise payment platform built on [HyperSwitch](https://github.com/juspay/hyperswitch) — open-source payment orchestration with double-entry ledger, fraud prevention, subscription billing, dispute management, and production observability.
+A source-available, enterprise payment platform built on
+[HyperSwitch](https://github.com/juspay/hyperswitch) — the operations layer that
+turns payment orchestration into a CFO-ready system: full payment lifecycle,
+refunds with maker-checker approval, a double-entry ledger, fraud and sanctions
+screening, dispute management, subscription billing, and signed-and-retried
+webhooks, with a first-class **test mode** that never moves real money.
 
-NexusPay provides the enterprise operations layer that transforms HyperSwitch from a developer tool into a CFO-ready payment platform: SSO, approval workflows, double-entry ledger, reconciliation, fraud prevention, subscription billing, observability, and compliance automation.
+## Key features
 
-## Architecture
+- **Payment lifecycle** — create, confirm, capture, cancel, and retrieve
+  payments (`/v1/payments`), with idempotent creates and a server-derived
+  `mode` (test/live).
+- **Refunds with maker-checker approval** — refunds within threshold are created
+  directly (201); refunds above the threshold return a pending approval (202).
+- **Double-entry ledger** — every money movement posts balanced journal entries;
+  queryable accounts and journal entries (`/v1/ledger`).
+- **Fraud & sanctions screening** — fraud rules engine + FRM integration, with
+  cross-border and sanctions-geography checks at the payment boundary.
+- **Dispute management** — dispute lifecycle, evidence collection, and chargeback
+  ledger postings.
+- **Subscription billing** — multi-pricing models, smart-retry dunning, invoicing
+  and proration.
+- **Signed, retried webhooks** — canonical events, HMAC-SHA256 signatures,
+  exponential-backoff retries, a dead-letter queue, admin replay, and secret
+  rotation. See [docs/WEBHOOKS.md](docs/WEBHOOKS.md).
+- **Test mode** — `sk_test_` keys route every payment to an in-process mock with
+  zero network I/O; a test key can never reach a real processor (enforced by an
+  architecture test).
 
-```
-                    ┌─────────────────────────────────────┐
-                    │           Gateway API                │
-                    │  Rate Limit · Idempotency · RBAC     │
-                    └────────┬────────────┬───────────────┘
-                             │            │
-              ┌──────────────┘            └──────────────┐
-              │                                           │
-    ┌─────────┴──────────┐                    ┌──────────┴─────────┐
-    │  Payment Orch.     │                    │    IAM Module      │
-    │  HyperSwitch Client│                    │  JWT + API Keys    │
-    │  Circuit Breaker   │                    │  Maker-Checker     │
-    └────────┬───────────┘                    │  Audit Logging     │
-             │                                └────────────────────┘
-    ┌────────┴───────────┐     ┌──────────────────────┐
-    │  Transactional     │     │  Double-Entry Ledger  │
-    │  Outbox → Kafka    │────►│  SERIALIZABLE Txns    │
-    │  Debezium CDC      │     │  Reconciliation Jobs  │
-    └────────────────────┘     └──────────────────────┘
+## SDKs
 
-    ┌────────────────────┐     ┌──────────────────────┐
-    │  Fraud Prevention  │     │  Subscription Billing │
-    │  Rules Engine      │     │  Multi-Pricing Models │
-    │  FRM (Sift/Signifyd│     │  Smart Retry Dunning  │
-    │  Device Fingerprint│     │  Invoice & Proration  │
-    └────────────────────┘     └──────────────────────┘
+| Package | Purpose |
+|---|---|
+| [`@nexuspay/js`](checkout-sdk/packages/js) | Browser checkout SDK (session load, tokenize, confirm, 3DS) |
+| [`@nexuspay/react`](checkout-sdk/packages/react) | React bindings — `NexusPayProvider`, `useConfirmPayment`, `PaymentElement` |
+| [`@nexuspay/node`](checkout-sdk/packages/node) | Zero-dependency server SDK (typed client + `verifyWebhook`/`constructEvent`) |
 
-    ┌────────────────────┐     ┌──────────────────────┐
-    │  Dispute Mgmt      │     │  Observability        │
-    │  State Machine      │     │  Prometheus + Grafana │
-    │  Evidence + Ledger  │     │  SLO/SLI + Alerts    │
-    └────────────────────┘     └──────────────────────┘
-```
+## Quickstart
 
-**Tech stack**: Java 21, Spring Boot 3.2, Spring Modulith, PostgreSQL 16, Kafka (KRaft), Valkey 8, Keycloak 26, Resilience4j, Temporal, Prometheus, Grafana, AlertManager, HashiCorp Vault, Debezium
-
-## Quick Start
+Spin up the lite stack, seed a test key, create a payment, receive a webhook
+(all in **test mode** — no real money moves):
 
 ```bash
-# Prerequisites: Docker, Docker Compose, JDK 21
+# 1. Start the lite infra (Postgres, Kafka, Valkey, Keycloak)
+docker compose -f docker/docker-compose.lite.yml up -d
 
-# 1. Start infrastructure (15 containers)
-docker compose -f docker/docker-compose.yml up -d
+# 2. Boot the app (test-mode, no HyperSwitch/Vault needed)
+SPRING_PROFILES_ACTIVE=local SPRING_CLOUD_VAULT_ENABLED=false \
+  KAFKA_BOOTSTRAP_SERVERS=localhost:29092 ./gradlew :app:bootRun
 
-# 2. Build
-./gradlew build
+# 3. Seed an sk_test_ key + a webhook endpoint (prints both secrets once)
+bash scripts/dev/seed-local.sh
 
-# 3. Run
-./gradlew bootRun
-
-# 4. Open
-# API:           http://localhost:8090
-# Swagger UI:    http://localhost:8090/v1/swagger-ui
-# Keycloak:      http://localhost:8180 (admin/admin)
-# Grafana:       http://localhost:3000 (admin/admin)
-# Prometheus:    http://localhost:9090
-# Temporal UI:   http://localhost:8280
-# Vault:         http://localhost:8200
+# 4. Create a payment (routes to the in-process mock → emits payment.succeeded)
+curl -X POST http://localhost:8090/v1/payments \
+  -H "Authorization: Bearer sk_test_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"amount":1000,"currency":"USD"}'
 ```
 
-Or use the quickstart script: `bash scripts/quickstart.sh`
+Full walkthrough (cURL + Node) in [docs/INTEGRATION.md](docs/INTEGRATION.md);
+the local sandbox runbook is in [docs/LOCAL_DEV.md](docs/LOCAL_DEV.md).
 
-## API Endpoints
-
-### Payments & Refunds
-
-| Method | Path | Description | Auth |
-|--------|------|-------------|------|
-| POST | `/v1/payments` | Create payment intent | admin, operator |
-| POST | `/v1/payments/{id}/confirm` | Confirm payment | admin, operator |
-| POST | `/v1/payments/{id}/capture` | Capture payment | admin, operator |
-| POST | `/v1/payments/{id}/cancel` | Void authorization | admin, operator |
-| POST | `/v1/payments/{id}/refunds` | Create refund (202 if > threshold) | admin, operator |
-| GET | `/v1/payments/{id}` | Retrieve payment | all |
-| GET | `/v1/refunds/{id}` | Retrieve refund | all |
-
-### Ledger & Approvals
-
-| Method | Path | Description | Auth |
-|--------|------|-------------|------|
-| GET | `/v1/ledger/accounts` | List ledger accounts | all |
-| GET | `/v1/ledger/journal-entries` | List journal entries | all |
-| GET | `/v1/approvals` | List pending approvals | admin, operator |
-| POST | `/v1/approvals/{id}/approve` | Approve request | admin |
-| POST | `/v1/approvals/{id}/reject` | Reject request | admin |
-
-### Fraud Prevention
-
-| Method | Path | Description | Auth |
-|--------|------|-------------|------|
-| POST | `/v1/fraud/rules` | Create fraud rule | admin |
-| GET | `/v1/fraud/rules` | List fraud rules | admin, operator |
-| PUT | `/v1/fraud/rules/{id}` | Update fraud rule | admin |
-| DELETE | `/v1/fraud/rules/{id}` | Disable fraud rule | admin |
-| GET | `/v1/fraud/assessments/pending` | List pending reviews | admin, operator |
-| GET | `/v1/fraud/assessments/{id}` | Get assessment details | all |
-| POST | `/v1/fraud/assessments/{id}/approve` | Approve assessment | admin |
-| POST | `/v1/fraud/assessments/{id}/reject` | Reject assessment | admin |
-
-### FX & Cross-Border
-
-| Method | Path | Description | Auth |
-|--------|------|-------------|------|
-| GET | `/v1/fx/rates/{from}/{to}` | Get FX rate for currency pair | all |
-| GET | `/v1/fx/rates/{base}` | Get all rates for base currency | all |
-| POST | `/v1/fx/locks` | Lock FX rate for payment | admin, operator |
-| GET | `/v1/fx/locks/{id}` | Get rate lock details | all |
-| GET | `/v1/fx/routing/presentment/{ccy}` | Find PSPs supporting currency | admin, operator |
-| POST | `/v1/fx/compliance/validate` | Validate cross-border compliance | admin, operator |
-| GET | `/v1/merchant/currency-preferences` | Get merchant FX preferences | all |
-| PUT | `/v1/merchant/currency-preferences` | Update merchant FX preferences | admin |
-
-### Webhooks & API Keys
-
-| Method | Path | Description | Auth |
-|--------|------|-------------|------|
-| POST | `/v1/webhook-endpoints` | Register webhook URL | admin |
-| GET | `/v1/webhook-endpoints` | List webhook endpoints | admin |
-| DELETE | `/v1/webhook-endpoints/{id}` | Remove webhook endpoint | admin |
-| POST | `/v1/api-keys` | Create API key | admin |
-
-## Authentication
-
-Two authentication methods, both producing a uniform `NexusPayPrincipal`:
-
-1. **JWT (Keycloak OIDC)** — for interactive users (dashboard, admin console)
-2. **API Keys** (`sk_test_` / `sk_live_`) — for programmatic access (merchant integrations)
-
-```bash
-# API key authentication
-curl -H "Authorization: Bearer sk_test_..." http://localhost:8090/v1/payments
-
-# JWT authentication
-TOKEN=$(curl -s -X POST http://localhost:8180/realms/nexuspay/protocol/openid-connect/token \
-  -d "grant_type=password&client_id=nexuspay-api&username=admin@nexuspay.test&password=test123" \
-  | jq -r .access_token)
-curl -H "Authorization: Bearer $TOKEN" http://localhost:8090/v1/payments
-```
-
-## Modules
-
-| Module | Purpose | Phase |
-|--------|---------|-------|
-| `common` | Shared domain (Money, PrefixedId, exceptions, events) | 1.1 |
-| `gateway-api` | REST controllers, rate limiting, idempotency | 1.1+ |
-| `payment-orchestration` | HyperSwitch client, webhook receiver, outbox relay, Debezium CDC | 1.2 |
-| `ledger` | Double-entry ledger, balance reconciliation | 1.3 |
-| `iam` | API keys, RBAC, maker-checker, audit logging | 1.5 |
-| `reconciliation` | Automated 3-way reconciliation (PSP, ledger, bank) | 2.3 |
-| `dispute` | Dispute lifecycle, evidence collection, chargeback ledger | 2.4 |
-| `billing` | Subscription billing, multi-pricing, smart dunning, invoicing | 2.5 |
-| `workflow` | Temporal-based durable payment orchestration | 2.2 |
-| `observability` | Micrometer metrics, Prometheus, Grafana dashboards, SLOs | 2.7 |
-| `fraud` | Rules engine, FRM integration (Sift/Signifyd), device fingerprinting | 3.1 |
-| `app` | Spring Boot main class, unified configuration | 1.1 |
-
-## Kafka Topics
-
-| Topic | Purpose | Partitions |
-|-------|---------|------------|
-| `nexuspay.payments` | Payment lifecycle events | 6 |
-| `nexuspay.ledger` | Ledger journal entry events | 6 |
-| `nexuspay.billing` | Subscription/invoice lifecycle events | 12 |
-| `nexuspay.fraud.assessments` | Fraud assessment results | 12 |
-| `nexuspay.fraud.events` | Fraud rule trigger events | 12 |
-| `nexuspay.fraud.rules.changelog` | Fraud rule CRUD changes | 6 |
-| `nexuspay.fx.rates` | FX rate update events | 3 |
-| `nexuspay.fx.conversions` | Currency conversion events | 12 |
-| `nexuspay.fx.locks` | FX rate lock events | 6 |
-
-## Testing
-
-```bash
-# Unit tests
-./gradlew test
-
-# Integration tests (requires Docker for Testcontainers)
-./gradlew test -Pintegration
-
-# Load test (requires running app)
-cd gatling && ../gradlew gatlingRun
-```
-
-## Deployment
-
-```bash
-# Helm (Kubernetes)
-helm install nexuspay ./nexuspay-helm -f nexuspay-helm/environments/dev/values.yaml
-```
+**Tech stack**: Java 21, Spring Boot 3.2, Spring Modulith, PostgreSQL 16, Kafka
+(KRaft), Valkey 8, Keycloak 26, Resilience4j, Temporal, Prometheus, Grafana,
+HashiCorp Vault, Debezium.
 
 ## Documentation
 
-- [Architecture Overview](docs/architecture/system-overview.md) — full system architecture, module inventory, data flows
-- [Payment Flow Diagrams](docs/diagrams/payment-flow.md)
-- [Ledger Flow Diagrams](docs/diagrams/ledger-flow.md)
-- [IAM & Auth Flow](docs/diagrams/iam-auth-flow.md)
-- [Kafka Event Streaming](docs/diagrams/kafka-event-streaming.md)
-- [Gateway API Flow](docs/diagrams/gateway-api-flow.md)
-- [Known Gaps](docs/gaps/known-gaps.md) — 45 gaps tracked, 25 resolved
-- [Architecture Decision Records](docs/decisions/)
-- [Strategic Roadmap](docs/strategy/strategic-roadmap.md)
-- [Phase 2 Plan](docs/roadmap/phase-2-production-hardening.md)
-- [Phase 3 Plan](docs/roadmap/phase-3-intelligence-global.md)
+- [Integration guide](docs/INTEGRATION.md) — end-to-end quickstart in cURL and Node, plus the merchant/platform responsibility matrix.
+- [Webhooks](docs/WEBHOOKS.md) — event taxonomy, canonical envelope, signature verification, retries/DLQ/replay.
+- [Local dev sandbox](docs/LOCAL_DEV.md) — the lite stack, seeding, and the SEC-4b localhost caveat.
+- [OpenAPI spec](docs/api/openapi.yaml) — curated merchant surface (the live `GET /v1/api-docs` is the complete authoritative spec).
+- [SDK publishing](checkout-sdk/PUBLISHING.md) — release runbook for the three npm packages.
+- [Architecture overview](docs/architecture/system-overview.md) — modules, data flows, decision records.
+
+## Authentication
+
+Requests authenticate with one of three `Authorization: Bearer <token>` schemes,
+all producing a uniform principal:
+
+1. **Merchant API keys** (`sk_test_` / `sk_live_`) — programmatic merchant access.
+2. **Session tokens** (short-lived JWT) — the browser checkout SDK (`/v1/checkout/**`).
+3. **Keycloak OIDC** (JWT) — the dashboard / back office.
+
+```bash
+curl -H "Authorization: Bearer sk_test_xxx" http://localhost:8090/v1/payments
+```
+
+## Security posture
+
+- **`sk_` bearer auth** with a server-derived `mode`/`livemode` (never trusted
+  from the request body).
+- **HMAC-SHA256 signed webhooks** with a per-attempt secret read (rotation-safe)
+  and a hardened replay window over the signed `created` field.
+- **SSRF guard** on webhook targets (SEC-4b): public-HTTPS only, with delivery-time
+  re-validation and IP-pinned connections (anti-DNS-rebinding).
+- **Row-level multi-tenancy** — every query is tenant-scoped; cross-tenant ids
+  return 404/204 with no existence oracle.
+- **Test-mode mock** — `sk_test_` payments are fully in-process and never reach a
+  real processor (architecture-test enforced).
 
 ## License
 

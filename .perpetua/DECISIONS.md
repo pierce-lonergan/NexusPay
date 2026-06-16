@@ -691,3 +691,20 @@ sk_test_ payment -> canonical webhook) with the SEC-4b localhost-webhook caveat 
 host->Kafka listener mismatch (use localhost:29092 PLAINTEXT_HOST) that would've broken the webhook loop — both
 doc-fixed. 0 BLOCKERS, 2 SHOULD_FIX. No Java change, no migration, no committed secrets. Ops/docs validated by
 review (not CI-exercised). ADR-032.
+
+## ADR-033 | 2026-06-16 | INT-9: integration documentation (DX)
+The single biggest adoption gap (GAP-11) was no committed, self-contained contract — exactly how Snap called the
+wrong endpoint expecting a field that never existed. INT-9 ships: docs/api/openapi.yaml (curated OpenAPI 3.1, 16
+paths + 19 schemas + 3 bearer security schemes, cross-checked against the real controllers/DTOs — sessions,
+payments incl capture alias, refunds incl 201/202 requires_approval, webhook-endpoints incl rotate/list/replay,
+api-keys, the canonical WebhookEvent + dotted event enum + the {error:{type,code,message,request_id}} envelope;
+notes that the live GET /v1/api-docs is authoritative + how to snapshot/codegen); docs/WEBHOOKS.md (taxonomy,
+annotated envelope with livemode + data.metadata, the 3 headers, HMAC-SHA256 verify via @nexuspay/node AND
+dependency-free crypto, idempotency, correlation, retry/DLQ/replay/rotation, SEC-4b https requirement);
+README rewrite (keeps the PolyForm-NC + sponsors License section verbatim); docs/INTEGRATION.md (end-to-end
+cURL + Node quickstart + merchant-vs-platform responsibility matrix + the INT-3 test-mode guarantee); and
+docs/integrations/snap-loyalty.md — the concrete Snap (Next.js) path-forward mapping every gap (GAP-01..16) to how
+it is now closed (data.metadata round-trips, dotted events now match Snap's expectation, @nexuspay/node, test-mode
+mock, the localhost-webhook tunnel caveat), referencing Snap's files READ-ONLY (no Snap code modified, per standing
+instruction). All example secrets are placeholders (gitleaks-safe). 0 BLOCKERS, 1 SHOULD_FIX (delivery-id prefix
+whd_). No code, no migration. ADR-033.
