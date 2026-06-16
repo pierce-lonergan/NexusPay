@@ -23,9 +23,22 @@ public interface MarketplaceRepository {
 
     // --- SplitPayment ---
     SplitPayment saveSplitPayment(SplitPayment splitPayment);
+    /**
+     * SEC-20: persist + flush synchronously so the uq_split_payments_tenant_payment (V4034) violation is
+     * raised AT THIS CALL (inside the create attempt's transaction) rather than being deferred to
+     * commit. The entity has a pre-assigned String {@code @Id}, so a plain {@code save()} does
+     * {@code merge()} and defers the INSERT to flush/commit — the unique violation would then escape the
+     * create attempt's try/catch. Used only for the FIRST (parent) write of a brand-new split.
+     */
+    SplitPayment saveAndFlushSplitPayment(SplitPayment splitPayment);
     Optional<SplitPayment> findSplitPaymentById(String id);
     /** SEC-BATCH-1: tenant-scoped by-id lookup. */
     Optional<SplitPayment> findSplitPaymentById(String id, String tenantId);
+    /**
+     * SEC-20: idempotency lookup by (tenant, payment). At most one row matches (V4034 UNIQUE). Used by
+     * createSplitPayment to return an existing split for a retried request instead of double-creating.
+     */
+    Optional<SplitPayment> findSplitPaymentByTenantAndPaymentId(String tenantId, String paymentId);
     List<SplitPayment> findSplitPaymentsByPaymentId(String paymentId);
 
     // --- SplitRule ---

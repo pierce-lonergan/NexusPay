@@ -145,6 +145,24 @@ nexuspay:
   rate-limit:
     max-requests: ${RATE_LIMIT_MAX_REQUESTS:100}
     window-seconds: ${RATE_LIMIT_WINDOW_SECONDS:60}
+  # SEC-21: per-IP token bucket on /internal/webhooks/** (HMAC-only inbound PSP webhooks). Sheds
+  # unauthenticated flood / HMAC brute-force before the controller signature check. trust-forwarded-for
+  # MUST stay false unless behind exactly one trusted LB (then the RIGHTMOST X-Forwarded-For entry is
+  # used — see InternalWebhookRateLimitFilter).
+  # SEC-BATCH-5c sizing basis: the limit is per CLIENT IP, but PSPs deliver from a small FIXED set of
+  # egress IPs (often one), so this is a per-PSP-source budget for ONE trusted PSP, NOT a per-attacker
+  # cap. A real resource-exhaustion / brute-force flood runs orders of magnitude above this, so the
+  # default is set HIGH (600/60s = 10/s) deliberately: against a flood, 600 and 60 are equally
+  # effective, but 60/min (1/s) would needlessly 429 a legitimate PSP burst (end-of-day batch
+  # captures/refunds, a dispute storm), and stalling real money-movement webhooks is worse than the
+  # marginal flood headroom. Raise further via the env override once real PSP peak volume is known
+  # (size to PSP peak delivery rate × merchant fan-out + headroom). 429 is retryable (events delayed,
+  # not lost) and the HMAC check still gates authenticity. Follow-up (tracked): a PSP-source-IP
+  # allowlist so only genuinely unknown floods are limited.
+  internal-webhook-rate-limit:
+    max-requests: ${INTERNAL_WEBHOOK_RATE_LIMIT_MAX_REQUESTS:600}
+    window-seconds: ${INTERNAL_WEBHOOK_RATE_LIMIT_WINDOW_SECONDS:60}
+    trust-forwarded-for: ${INTERNAL_WEBHOOK_RATE_LIMIT_TRUST_FORWARDED_FOR:false}
   retention:
     outbox-days: ${RETENTION_OUTBOX_DAYS:7}
     webhook-days: ${RETENTION_WEBHOOK_DAYS:90}

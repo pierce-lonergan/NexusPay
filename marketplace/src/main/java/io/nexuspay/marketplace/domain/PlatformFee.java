@@ -1,6 +1,9 @@
 package io.nexuspay.marketplace.domain;
 
+import io.nexuspay.common.domain.MoneyRounding;
+
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -38,9 +41,15 @@ public class PlatformFee {
 
     /**
      * Calculates the total platform fee for a given payment amount.
+     *
+     * <p>SEC-19: the percentage component is computed in exact {@link BigDecimal} arithmetic via
+     * {@link MoneyRounding#percentageOfMinorUnits} with {@link RoundingMode#HALF_EVEN} (banker's
+     * rounding), replacing the previous {@code (long)(amount * percent.doubleValue() / 100.0)} float
+     * math which lost fractional minor units and biased fees upward. {@code paymentAmount} is in minor
+     * units, so rounding to scale 0 is correct for every currency (see {@code MoneyRounding}).</p>
      */
     public static long calculateFee(long paymentAmount, BigDecimal feePercent, long feeFixed) {
-        long percentFee = (long) (paymentAmount * feePercent.doubleValue() / 100.0);
+        long percentFee = MoneyRounding.percentageOfMinorUnits(paymentAmount, feePercent, RoundingMode.HALF_EVEN);
         return percentFee + feeFixed;
     }
 

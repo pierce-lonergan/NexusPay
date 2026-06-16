@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -37,7 +38,13 @@ class SplitPaymentServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new SplitPaymentService(repository, eventPublisher);
+        // SEC-20: the create path delegates to a REQUIRES_NEW SplitPaymentWriter. We wire a REAL writer
+        // over the mocked repo/publisher so the full create flow (rules, fee, event) is still exercised
+        // through the service, while the service's read-through dedup + unique-race re-fetch are unit
+        // tested directly. (Propagation is a no-op without a real tx manager — the throw from the mocked
+        // save still propagates synchronously into the service's catch, which is what we assert.)
+        SplitPaymentWriter writer = new SplitPaymentWriter(repository, eventPublisher);
+        service = new SplitPaymentService(repository, writer);
     }
 
     @Test
@@ -48,6 +55,9 @@ class SplitPaymentServiceTest {
         // SEC-BATCH-1: each referenced account is loaded tenant-scoped (id + caller tenant).
         when(repository.findAccountById("merchant-1", TENANT)).thenReturn(Optional.of(merchant));
         when(repository.findAccountById("partner-1", TENANT)).thenReturn(Optional.of(partner));
+        // SEC-20: the writer's FIRST parent write is saveAndFlushSplitPayment; the final markProcessing
+        // write is saveSplitPayment.
+        when(repository.saveAndFlushSplitPayment(any())).thenAnswer(inv -> inv.getArgument(0));
         when(repository.saveSplitPayment(any())).thenAnswer(inv -> inv.getArgument(0));
         when(repository.saveSplitRule(any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -72,6 +82,7 @@ class SplitPaymentServiceTest {
     void createSplitPayment_withPlatformFee() {
         ConnectedAccount merchant = createAccount("merchant-1", new BigDecimal("15"), 0);
         when(repository.findAccountById("merchant-1", TENANT)).thenReturn(Optional.of(merchant));
+        when(repository.saveAndFlushSplitPayment(any())).thenAnswer(inv -> inv.getArgument(0));
         when(repository.saveSplitPayment(any())).thenAnswer(inv -> inv.getArgument(0));
         when(repository.saveSplitRule(any())).thenAnswer(inv -> inv.getArgument(0));
         when(repository.savePlatformFee(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -90,7 +101,7 @@ class SplitPaymentServiceTest {
     void createSplitPayment_foreignReferencedAccount_throwsNotFound() {
         // SEC-BATCH-1: a split rule referencing an account owned by tenant-2. The tenant-scoped finder
         // returns empty for the tenant-1 caller → 404 → no split crediting a foreign account is created.
-        when(repository.saveSplitPayment(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(repository.saveAndFlushSplitPayment(any())).thenAnswer(inv -> inv.getArgument(0));
         when(repository.findAccountById("ca_foreign", TENANT)).thenReturn(Optional.empty());
 
         assertThrows(ResourceNotFoundException.class, () ->
@@ -117,6 +128,90 @@ class SplitPaymentServiceTest {
                                 new CreateSplitPaymentUseCase.SplitRuleCommand("a1", SplitType.REMAINDER, 0, null),
                                 new CreateSplitPaymentUseCase.SplitRuleCommand("a2", SplitType.REMAINDER, 0, null)
                         ))));
+    }
+
+    @Test
+    void createSplitPayment_idempotent_returnsExistingWithoutRecreating() {
+        // SEC-20: a retry for the same (tenant, payment) must return the existing split and NEVER write
+        // a new split row tree. The read-through finds it and short-circuits.
+        SplitPayment existing = SplitPayment.create("pi_dup", TENANT, 10_000, "USD");
+        existing.markProcessing();
+        SplitRule rule = SplitRule.create(existing.getId(), "merchant-1", SplitType.REMAINDER, 0, null, "USD");
+        rule.setCalculatedAmount(10_000);
+        existing.addRule(rule);
+
+        when(repository.findSplitPaymentByTenantAndPaymentId(TENANT, "pi_dup"))
+                .thenReturn(Optional.of(existing));
+        when(repository.findFeesBySplitPaymentId(existing.getId())).thenReturn(Optional.empty());
+
+        var result = service.createSplitPayment(new CreateSplitPaymentUseCase.CreateSplitCommand(
+                TENANT, "pi_dup", 10_000, "USD",
+                List.of(new CreateSplitPaymentUseCase.SplitRuleCommand(
+                        "merchant-1", SplitType.REMAINDER, 0, null))));
+
+        assertEquals(existing.getId(), result.splitPaymentId());
+        assertEquals(SplitPaymentStatus.PROCESSING, result.status());
+        assertEquals(1, result.rules().size());
+        // No duplicate creation: the split/rule writers must NOT be touched on the idempotent path.
+        verify(repository, never()).saveSplitPayment(any());
+        verify(repository, never()).saveSplitRule(any());
+        verify(eventPublisher, never()).publishEvent(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void createSplitPayment_concurrentRace_uniqueViolation_refetchesAndReturnsExisting() {
+        // SEC-20: two callers both pass the pre-check; the UNIQUE(tenant_id, payment_id) (V4034) rejects
+        // the loser's insert with DataIntegrityViolationException. The service must catch it, re-fetch the
+        // winner's split, and return it idempotently — never surface a 500.
+        SplitPayment winner = SplitPayment.create("pi_race", TENANT, 10_000, "USD");
+        winner.markProcessing();
+        SplitRule rule = SplitRule.create(winner.getId(), "merchant-1", SplitType.REMAINDER, 0, null, "USD");
+        rule.setCalculatedAmount(10_000);
+        winner.addRule(rule);
+
+        // First read (pre-check) returns empty -> we proceed to create; the second read (after the
+        // unique violation) returns the winner.
+        when(repository.findSplitPaymentByTenantAndPaymentId(TENANT, "pi_race"))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(winner));
+        when(repository.findFeesBySplitPaymentId(winner.getId())).thenReturn(Optional.empty());
+        // The optimistic insert path trips the unique constraint on the FIRST write — the writer's
+        // saveAndFlushSplitPayment (flushed so the violation surfaces synchronously). The per-rule
+        // account lookups are never reached on this path.
+        when(repository.saveAndFlushSplitPayment(any()))
+                .thenThrow(new DataIntegrityViolationException("duplicate key uq_split_payments_tenant_payment"));
+
+        var result = service.createSplitPayment(new CreateSplitPaymentUseCase.CreateSplitCommand(
+                TENANT, "pi_race", 10_000, "USD",
+                List.of(new CreateSplitPaymentUseCase.SplitRuleCommand(
+                        "merchant-1", SplitType.REMAINDER, 0, null))));
+
+        assertEquals(winner.getId(), result.splitPaymentId());
+        assertEquals(SplitPaymentStatus.PROCESSING, result.status());
+        // Re-fetched exactly: pre-check + post-violation re-read = 2 lookups.
+        verify(repository, times(2)).findSplitPaymentByTenantAndPaymentId(TENANT, "pi_race");
+    }
+
+    @Test
+    void createSplitPayment_unrelatedIntegrityViolation_isRethrown_notMaskedAs404() {
+        // SEC-BATCH-5c: a DataIntegrityViolationException that is NOT the (tenant_id, payment_id) unique
+        // race (e.g. an FK violation on a concurrently-deleted connected account) must PROPAGATE — not be
+        // swallowed and relabelled as the benign race, which would re-fetch an empty Optional and surface
+        // a misleading 404 while hiding a genuine integrity bug in a money path.
+        when(repository.findSplitPaymentByTenantAndPaymentId(TENANT, "pi_fk"))
+                .thenReturn(Optional.empty());
+        when(repository.saveAndFlushSplitPayment(any()))
+                .thenThrow(new DataIntegrityViolationException(
+                        "could not execute statement; fk violation fk_split_rules_connected_account"));
+
+        DataIntegrityViolationException thrown = assertThrows(DataIntegrityViolationException.class, () ->
+                service.createSplitPayment(new CreateSplitPaymentUseCase.CreateSplitCommand(
+                        TENANT, "pi_fk", 10_000, "USD",
+                        List.of(new CreateSplitPaymentUseCase.SplitRuleCommand(
+                                "merchant-1", SplitType.REMAINDER, 0, null)))));
+        assertTrue(thrown.getMessage().contains("fk violation"));
+        // The unrelated DIVE must NOT trigger the idempotent re-fetch path: only the pre-check read ran.
+        verify(repository, times(1)).findSplitPaymentByTenantAndPaymentId(TENANT, "pi_fk");
     }
 
     @Test

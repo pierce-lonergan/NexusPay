@@ -16,4 +16,7 @@ public interface JpaSplitPaymentRepository extends JpaRepository<SplitPaymentEnt
 
     // SEC-BATCH-1: tenant-scoped by-id lookup.
     Optional<SplitPaymentEntity> findByIdAndTenantId(String id, String tenantId);
+
+    // SEC-20: idempotency lookup. (tenant_id, payment_id) is UNIQUE (V4034), so at most one row matches.
+    Optional<SplitPaymentEntity> findByTenantIdAndPaymentId(String tenantId, String paymentId);
 }
