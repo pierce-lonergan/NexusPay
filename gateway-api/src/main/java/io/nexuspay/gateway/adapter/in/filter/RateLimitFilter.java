@@ -9,6 +9,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.annotation.Order;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -21,6 +22,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Token bucket rate limiter using Valkey/Redis.
@@ -142,7 +144,15 @@ public class RateLimitFilter extends OncePerRequestFilter {
     private void writeRateLimitResponse(HttpServletResponse response) throws IOException {
         response.setStatus(429);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        var error = ApiErrorResponse.of(ApiError.rateLimitError());
+        // INT-2: include the request_id from the correlation MDC (CorrelationIdFilter runs first), with a
+        // UUID fallback so the field is never null. type/code values are unchanged (rate_limit_error /
+        // rate_limit_exceeded).
+        String rid = MDC.get(CorrelationIdFilter.MDC_REQUEST_ID);
+        if (rid == null || rid.isBlank()) {
+            rid = UUID.randomUUID().toString();
+        }
+        var error = ApiErrorResponse.of(ApiError.of(ApiError.TYPE_RATE_LIMIT, "rate_limit_exceeded",
+                "Too many requests. Please retry after the period specified in the Retry-After header.", rid));
         objectMapper.writeValue(response.getOutputStream(), error);
     }
 }

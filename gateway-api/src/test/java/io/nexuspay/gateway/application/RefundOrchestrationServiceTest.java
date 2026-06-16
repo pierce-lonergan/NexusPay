@@ -76,6 +76,12 @@ class RefundOrchestrationServiceTest {
     }
 
     @Test
+    void exposesConfiguredApprovalThreshold() {
+        // INT-2 Invariant 3: the controller stamps this onto the 202 approval-required response.
+        assertThat(svc.refundApprovalThreshold()).isEqualTo(50000L);
+    }
+
+    @Test
     void belowThresholdRefundsDirectlyWithCallerIdempotencyKey() {
         var result = svc.createRefund("pay_1", 100L, "USD", "small", "client-key", "maker", "t1");
 

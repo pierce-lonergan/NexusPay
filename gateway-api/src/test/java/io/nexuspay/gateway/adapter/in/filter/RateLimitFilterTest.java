@@ -138,6 +138,9 @@ class RateLimitFilterTest {
         JsonNode body = objectMapper.readTree(resp.getContentAsString());
         assertThat(body.path("error").path("type").asText()).isEqualTo("rate_limit_error");
         assertThat(body.path("error").path("code").asText()).isEqualTo("rate_limit_exceeded");
+        // INT-2: the 429 envelope now carries a request_id (from the correlation MDC, with a UUID
+        // fallback so it is never blank). FAILS if the request_id wiring is reverted.
+        assertThat(body.path("error").path("request_id").asText()).isNotBlank();
 
         verify(chain, never()).doFilter(any(), any());
     }

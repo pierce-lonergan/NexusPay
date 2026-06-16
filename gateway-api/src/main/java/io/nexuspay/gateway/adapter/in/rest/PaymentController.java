@@ -10,6 +10,8 @@ import io.nexuspay.payment.domain.*;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -23,6 +25,8 @@ import java.util.Map;
 @RequestMapping("/v1/payments")
 @Tag(name = "Payments", description = "Payment lifecycle operations")
 public class PaymentController {
+
+    private static final Logger log = LoggerFactory.getLogger(PaymentController.class);
 
     private final PaymentGatewayPort paymentGateway;
     private final RefundOrchestrationService refundOrchestration;
@@ -80,10 +84,21 @@ public class PaymentController {
             metadata.put("tenant_id", principal.tenantId());
         }
 
+        // INT-2 Invariant 1: `capture` is a convenience alias for `capture_method`. `capture_method` is
+        // authoritative when both are present; the boolean alias only fills a null/blank capture_method
+        // (true→automatic, false→manual). Pure passthrough when the alias is absent (back-compat).
+        String captureMethod = request.capture_method();
+        if ((captureMethod == null || captureMethod.isBlank()) && request.capture() != null) {
+            captureMethod = request.capture() ? "automatic" : "manual";
+        } else if (captureMethod != null && !captureMethod.isBlank() && request.capture() != null) {
+            log.debug("Both capture_method and capture supplied; capture_method is authoritative "
+                    + "(capture alias ignored)");
+        }
+
         var paymentRequest = new PaymentRequest(
                 request.amount(), request.currency(), request.customer_id(),
                 request.payment_method_type(), request.payment_method_data(),
-                request.return_url(), request.description(), request.capture_method(),
+                request.return_url(), request.description(), captureMethod,
                 idempotencyKey, metadata);
 
         // B-029: derive the screening rail + tenant from the TRUSTED authenticated principal, not
@@ -173,9 +188,12 @@ public class PaymentController {
                 idempotencyKey, principal.userId(), principal.tenantId());
 
         if (result.requiresApproval()) {
+            // INT-2 Invariant 3: 202 body carries requires_approval=true + the configured threshold.
             return ResponseEntity.status(HttpStatus.ACCEPTED)
-                    .body(ResponseMapper.toApprovalResponse(result.pendingApproval()));
+                    .body(ResponseMapper.toApprovalResponse(result.pendingApproval(),
+                            refundOrchestration.refundApprovalThreshold()));
         }
+        // 201 body carries requires_approval=false (symmetry).
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ResponseMapper.toRefundResponse(result.refundResponse()));
     }

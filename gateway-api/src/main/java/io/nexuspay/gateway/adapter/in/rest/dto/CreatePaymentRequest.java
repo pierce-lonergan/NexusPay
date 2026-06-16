@@ -34,6 +34,10 @@ public record CreatePaymentRequest(
         @Schema(description = "Capture method: automatic or manual", example = "automatic")
         String capture_method,
 
+        @Schema(description = "Convenience alias: true→automatic, false→manual capture. "
+                + "Ignored when capture_method is supplied.", example = "true")
+        Boolean capture,
+
         @Schema(description = "Arbitrary key-value metadata")
         Map<String, Object> metadata
 ) {

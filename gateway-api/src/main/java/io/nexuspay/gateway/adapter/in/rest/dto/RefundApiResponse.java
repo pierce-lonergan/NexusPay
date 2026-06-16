@@ -36,6 +36,9 @@ public record RefundApiResponse(
         String error_message,
 
         @Schema(description = "When the refund was created")
-        Instant created_at
+        Instant created_at,
+
+        @Schema(description = "False on a created refund (symmetry with the 202 approval-required shape)")
+        Boolean requires_approval
 ) {
 }

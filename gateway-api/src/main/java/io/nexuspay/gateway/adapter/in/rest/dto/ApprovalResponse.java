@@ -37,6 +37,12 @@ public record ApprovalResponse(
         Instant created_at,
 
         @Schema(description = "When the approval was reviewed")
-        Instant reviewed_at
+        Instant reviewed_at,
+
+        @Schema(description = "True when this refund needs maker-checker approval")
+        Boolean requires_approval,
+
+        @Schema(description = "Approval threshold in minor units")
+        Long approval_threshold
 ) {
 }

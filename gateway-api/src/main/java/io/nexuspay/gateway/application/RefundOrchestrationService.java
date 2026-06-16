@@ -44,6 +44,14 @@ public class RefundOrchestrationService {
         }
     }
 
+    /**
+     * The maker-checker refund approval threshold (minor units). INT-2: the controller stamps this onto
+     * the 202 approval-required response so consumers can surface it. No logic change.
+     */
+    public long refundApprovalThreshold() {
+        return refundApprovalThreshold;
+    }
+
     public RefundResult createRefund(String paymentId, long amount, String currency,
                                       String reason, String idempotencyKey,
                                       String userId, String tenantId) {
