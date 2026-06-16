@@ -635,3 +635,18 @@ API (404 no-oracle, secret never exposed) + a secret-rotation endpoint (new whse
 after a staleness threshold, with a crash-recovery test) and a lock-expiry-mid-batch double-send (now an atomic
 per-row claimForRetry conditional UPDATE — exactly one leader claims a row). 1 BLOCKER + 3 SHOULD_FIX, all applied.
 Migration V4031. ADR-028.
+
+## ADR-029 | 2026-06-16 | INT-5: @nexuspay/node backend SDK (DX)
+Every server integrator was hand-rolling fetch/auth/idempotency/error-mapping/webhook-parse against an
+undocumented shape (exactly how Snap called the wrong endpoint). New workspace package
+checkout-sdk/packages/node (@nexuspay/node, MIT, zero runtime deps, Node 18+ built-in crypto + global fetch,
+ESM+CJS via tsup): a typed NexusPay client (createPaymentSession/createPayment[incl INT-2 capture alias]/getPayment/
+capture/cancel/confirm/createRefund) with Bearer auth + optional Idempotency-Key + AbortController timeout, mapping
+the INT-2 {error:{type,code,message,request_id}} envelope to a typed NexusPayError and surfacing the 202
+requires_approval refund as a discriminated result; plus verifyWebhook (never throws) + constructEvent (throws
+SignatureVerificationError) that BYTE-MATCH the platform's INT-1 signing (HMAC-SHA256 over the raw body, lowercase
+hex, bare or sha256=-prefixed, crypto.timingSafeEqual) and return the typed canonical WebhookEvent
+{id,type,created,api_version,data:{object,metadata},livemode}. Review hardened the replay window to anchor on the
+HMAC-SIGNED `created` (the X-NexusPay-Timestamp header is OUTSIDE the HMAC and spoofable) — new createdToleranceSeconds
+option + test proving a rewritten header can't defeat it. 0 BLOCKERS, 2 SHOULD_FIX applied (replay-window + README).
+Locally npm build+test green (33 tests). No migration, no Java change. ADR-029.
