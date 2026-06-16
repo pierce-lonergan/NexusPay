@@ -1,5 +1,6 @@
 package io.nexuspay.gateway.adapter.in.rest.dto;
 
+import io.nexuspay.gateway.adapter.in.rest.validation.CanonicalWebhookEvents;
 import io.nexuspay.gateway.adapter.in.rest.validation.SafeWebhookUrl;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
@@ -19,7 +20,11 @@ public record CreateWebhookEndpointRequest(
         @Schema(description = "Optional description")
         String description,
 
-        @NotEmpty @Schema(description = "Event types to subscribe to", example = "[\"payment.captured\", \"refund.completed\"]")
+        // INT-1: events must be canonical dotted names (or "*"); an unknown name -> 400 via
+        // GlobalExceptionHandler. The Swagger example uses real canonical names.
+        @NotEmpty @CanonicalWebhookEvents
+        @Schema(description = "Event types to subscribe to (canonical dotted names or \"*\")",
+                example = "[\"payment.succeeded\", \"payment.refunded\"]")
         List<String> events
 ) {
 }

@@ -3,6 +3,7 @@ package io.nexuspay.payment.application.screening;
 import io.nexuspay.common.exception.PaymentException;
 import io.nexuspay.payment.adapter.out.hyperswitch.HyperSwitchPaymentAdapter;
 import io.nexuspay.payment.application.port.PaymentGatewayPort;
+import io.nexuspay.payment.application.webhook.WebhookMetadataService;
 import io.nexuspay.payment.domain.CaptureRequest;
 import io.nexuspay.payment.domain.ConfirmRequest;
 import io.nexuspay.payment.domain.PaymentRequest;
@@ -54,15 +55,18 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
     private final PreAuthorizationGate gate;
     private final CaptureHoldService captureHolds;
     private final ScreeningOriginService screeningOrigins;
+    private final WebhookMetadataService webhookMetadata;
 
     public GatedPaymentGateway(HyperSwitchPaymentAdapter delegate,
                                PreAuthorizationGate gate,
                                CaptureHoldService captureHolds,
-                               ScreeningOriginService screeningOrigins) {
+                               ScreeningOriginService screeningOrigins,
+                               WebhookMetadataService webhookMetadata) {
         this.delegate = delegate;
         this.gate = gate;
         this.captureHolds = captureHolds;
         this.screeningOrigins = screeningOrigins;
+        this.webhookMetadata = webhookMetadata;
     }
 
     /**
@@ -96,11 +100,16 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
     public PaymentResponse createPayment(PaymentRequest request, CallContext ctx) {
         CallContext c = ctx != null ? ctx : CallContext.strictDefault(null);
         assertNoClientAuthority(request.metadata());
+        // INT-1: capture the client-supplied merchant correlation metadata BEFORE scrubbing the
+        // authority markers, so the outbound-webhook store keeps correlation keys (userId/packId/...)
+        // while the authority markers (source/workflow/tenant_id) are dropped by sanitize() on persist.
+        Map<String, Object> merchantMeta = request.metadata();
         PaymentRequest scrubbed = scrubAuthorityMarkers(request);
-        return doCreate(scrubbed, c.tenantId(), c.mode());
+        return doCreate(scrubbed, c.tenantId(), c.mode(), merchantMeta);
     }
 
-    private PaymentResponse doCreate(PaymentRequest request, String tenantId, ScreeningMode mode) {
+    private PaymentResponse doCreate(PaymentRequest request, String tenantId, ScreeningMode mode,
+                                     Map<String, Object> merchantMeta) {
         if (tenantId == null || tenantId.isBlank()) {
             log.warn("createPayment (ref={}, mode={}) has no trusted tenant — geography resolver "
                     + "will fail closed to a mandatory review", request.idempotencyKey(), mode);
@@ -136,6 +145,13 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
             // B-029: persist the TRUSTED originating (tenant, mode) so confirm re-screens with the
             // same authority instead of re-deriving it from the (tamperable) intent metadata blob.
             screeningOrigins.record(response.gatewayPaymentId(), new CallContext(tenantId, mode));
+            // INT-1: persist the merchant correlation metadata for outbound-webhook enrichment, keyed by
+            // the gateway payment id under the SERVER-DERIVED trusted tenant (never the client echo). This
+            // is the single universal chokepoint — REST /v1/payments, billing, workflow, and SDK/session
+            // checkout all create their intent here — so it covers every webhook-emitting payment. The
+            // store sanitizes (PAN/card + source/workflow/tenant_id stripped) and caps size; a persist
+            // failure NEVER fails the payment (delivery just sends {} metadata).
+            webhookMetadata.record(response.gatewayPaymentId(), tenantId, merchantMeta);
             if (hold) {
                 captureHolds.hold(response.gatewayPaymentId(), tenantId, decision.fraudAssessmentId());
             }

@@ -38,6 +38,7 @@ class GatedPaymentGatewayTest {
     private PreAuthorizationGate gate;
     private CaptureHoldService holds;
     private ScreeningOriginService origins;
+    private io.nexuspay.payment.application.webhook.WebhookMetadataService webhookMetadata;
     private GatedPaymentGateway gateway;
 
     @BeforeEach
@@ -46,8 +47,9 @@ class GatedPaymentGatewayTest {
         gate = mock(PreAuthorizationGate.class);
         holds = mock(CaptureHoldService.class);
         origins = mock(ScreeningOriginService.class);
+        webhookMetadata = mock(io.nexuspay.payment.application.webhook.WebhookMetadataService.class);
         when(origins.find(any())).thenReturn(Optional.empty()); // default: no origin → strict fallback
-        gateway = new GatedPaymentGateway(delegate, gate, holds, origins);
+        gateway = new GatedPaymentGateway(delegate, gate, holds, origins, webhookMetadata);
     }
 
     private static PaymentRequest req(Map<String, Object> metadata) {

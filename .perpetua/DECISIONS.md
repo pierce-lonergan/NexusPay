@@ -570,3 +570,20 @@ data; fail-closed preserved for the un-attributable residue); idempotent (ON CON
 Adversarial review: 0 BLOCKERS, 3 SHOULD_FIX (all applied). CI caught two latent defects inherited from the SEC-4b
 base that the no-CI review could not: a Spring two-constructor context collapse (L-054) and @SafeWebhookUrl ITs using
 NXDOMAIN hosts (L-055) — both fixed on SEC-4b and inherited here via the rebase onto main. ADR-024, L-054, L-055.
+
+## ADR-025 | 2026-06-16 | INT-1: canonical versioned outbound webhook contract (T3)
+The merchant-facing webhook was unconsumable by a standard client: a nested PascalCase envelope
+{event_id,event_type,aggregate_id,timestamp(ISO),payload} vs the industry {id,type,created,data} shape, carrying NO
+merchant correlation metadata. INT-1 makes the PUBLIC contract canonical + versioned WITHOUT touching the internal
+Kafka payload (internal consumers unchanged): WebhookDeliveryService transforms each outbound delivery into
+{id, type, created(epoch s), api_version, data:{object, metadata}} via WebhookEnvelopeSerializer and RE-SIGNS
+HMAC-SHA256 over the EXACT transformed body. Types are dotted-lowercase (common.event.WebhookEventTaxonomy:
+PaymentCaptured→payment.succeeded, RefundCompleted→payment.refunded, PaymentFailed→payment.failed, …); internal
+subscribesToEvent still matches the internal type. The public `id` is stable (anchored on the PSP
+original_event_id) for idempotent redelivery. MERCHANT METADATA ROUND-TRIP: a NEW tenant-scoped store
+payment_webhook_metadata (V4030) is written at create (GatedPaymentGateway.doCreate, alongside
+screeningOrigins.record) capturing the merchant `metadata` map ONLY (never payment_method_data/PAN; size/key-capped)
+and read at delivery (tenant-scoped) into data.metadata — so userId/packId-style correlation rides the
+SERVER-DERIVED path, never the PSP echo or client. Registration now REJECTS unknown event-name strings
+(@CanonicalWebhookEvents on CreateWebhookEndpointRequest). Review: 0 BLOCKERS, 1 SHOULD_FIX applied (app-level
+tenant assertion on the metadata read so isolation holds independent of rls.enforce, mirroring B-007). ADR-025.

@@ -123,7 +123,7 @@ class TenantIsolationIntegrationTest extends IntegrationTestBase {
                         .content("""
                                 {
                                   "url": "https://example.com/webhooks",
-                                  "events": ["payment.captured"]
+                                  "events": ["payment.succeeded"]
                                 }
                                 """))
                 .andExpect(status().isCreated())

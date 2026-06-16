@@ -62,7 +62,10 @@ class WebhookDeliveryServiceTenantFanoutTest {
         repository = mock(JpaWebhookEndpointRepository.class);
         tenantWork = mock(TenantWorkRunner.class);
         ObjectMapper objectMapper = new ObjectMapper();
-        service = new WebhookDeliveryService(repository, objectMapper, tenantWork, false,
+        // INT-1: seam ctor now takes a WebhookMetadataPort (find(gatewayPaymentId, tenant)); this test
+        // asserts tenant routing only, so it returns empty metadata regardless.
+        service = new WebhookDeliveryService(repository, objectMapper, tenantWork,
+                (gatewayPaymentId, tenant) -> java.util.Map.of(), false,
                 loopbackPermittingGuard());
 
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -105,7 +108,9 @@ class WebhookDeliveryServiceTenantFanoutTest {
         lenient().when(repository.findAllByTenantIdAndEnabledTrue(TENANT_B))
                 .thenReturn(List.of(endpoint("we_b", "/b", TENANT_B)));
 
-        service.onPaymentEvent(recordForTenant(TENANT_A, "payment.succeeded", "{\"x\":1}"));
+        // INT-1: the consumer translates the INTERNAL type (PaymentCaptured) to the dotted name
+        // (payment.succeeded) that endpoints subscribe to.
+        service.onPaymentEvent(recordForTenant(TENANT_A, "PaymentCaptured", "{\"x\":1}"));
 
         assertThat(deliveredPaths)
                 .as("a tenant-A event must be delivered ONLY to tenant-A's endpoint")
@@ -136,10 +141,11 @@ class WebhookDeliveryServiceTenantFanoutTest {
         lenient().when(repository.findAllByTenantIdAndEnabledTrue("default"))
                 .thenReturn(java.util.Collections.emptyList());
 
-        // event_type header present (so we get past the early return) but NO tenant_id header.
+        // event_type header present + mappable (so we get past the early return AND the INT-1 unknown-type
+        // drop) but NO tenant_id header. PaymentCaptured -> payment.succeeded.
         var rec = new ConsumerRecord<>(Topics.PAYMENTS, 0, 0L, "k",
                 "{\"metadata\":{\"tenant_id\":\"" + TENANT_B + "\"}}");
-        rec.headers().add(new RecordHeader("event_type", "payment.succeeded".getBytes(StandardCharsets.UTF_8)));
+        rec.headers().add(new RecordHeader("event_type", "PaymentCaptured".getBytes(StandardCharsets.UTF_8)));
 
         service.onPaymentEvent(rec);
 

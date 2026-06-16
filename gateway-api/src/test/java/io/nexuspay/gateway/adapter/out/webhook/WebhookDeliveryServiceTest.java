@@ -79,7 +79,11 @@ class WebhookDeliveryServiceTest {
         // default config too. The seam constructor injects a guard that PERMITS the loopback receiver but
         // still resolves+returns its addresses, so the IP-pin (DnsResolver) path is still exercised.
         // Production validation is untouched.
-        service = new WebhookDeliveryService(repository, objectMapper, tenantWork, false,
+        // INT-1: seam ctor now takes a WebhookMetadataPort. These existing tests assert routing/HMAC, not
+        // enrichment, so stub it to return empty metadata ({} -> data.metadata == {}). The port now takes
+        // (gatewayPaymentId, tenant) — the tenant is the app-layer ownership check (see WebhookMetadataPort).
+        service = new WebhookDeliveryService(repository, objectMapper, tenantWork,
+                (gatewayPaymentId, tenant) -> java.util.Map.of(), false,
                 loopbackPermittingGuard());
 
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -142,6 +146,18 @@ class WebhookDeliveryServiceTest {
         return rec;
     }
 
+    /**
+     * INT-1: a minimal valid internal outbox payload for a captured payment. The consumer transforms this
+     * into the canonical envelope at send time; tests assert on the transformed body the receiver gets.
+     */
+    private static String captureOutbox() {
+        return "{\"event_id\":\"evt_1\",\"event_type\":\"PaymentCaptured\",\"aggregate_type\":\"Payment\","
+                + "\"aggregate_id\":\"pay_abc123\",\"timestamp\":\"2026-06-15T14:03:22.511Z\",\"version\":1,"
+                + "\"metadata\":{\"source\":\"hyperswitch_webhook\",\"original_event_id\":\"hs_evt_77\"},"
+                + "\"payload\":{\"payment_id\":\"pay_abc123\",\"amount\":4999,\"currency\":\"USD\","
+                + "\"status\":\"succeeded\"}}";
+    }
+
     private static String expectedHmac(String payload, String secret) throws Exception {
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
@@ -149,39 +165,74 @@ class WebhookDeliveryServiceTest {
         return HexFormat.of().formatHex(hash);
     }
 
-    // ---- HMAC signature ----
+    // ---- INT-1: canonical envelope + signature over the transformed body + metadata enrichment ----
+
+    @Test
+    void deliversCanonicalEnvelope_withSignatureOverTransformedBody() throws Exception {
+        String secret = "whsec_supersecret";
+        when(repository.findAllByTenantIdAndEnabledTrue(TENANT))
+                .thenReturn(List.of(endpoint("we_1", "/canonical", secret, List.of("payment.succeeded"))));
+        // A service whose metadata port returns merchant correlation keys (tenant-scoped store stub).
+        java.util.Map<String, Object> stubMeta = new java.util.LinkedHashMap<>();
+        stubMeta.put("userId", "u_42");
+        stubMeta.put("packId", "gold");
+        var enriched = new WebhookDeliveryService(repository, objectMapper, tenantWork,
+                (gatewayPaymentId, tenant) -> stubMeta,
+                false, loopbackPermittingGuard());
+
+        enriched.onPaymentEvent(recordWithHeader("PaymentCaptured", captureOutbox()));
+
+        assertThat(captures).hasSize(1);
+        Capture c = captures.get(0);
+        var env = objectMapper.readTree(c.body());
+        // canonical shape + values
+        assertThat(env.path("type").asText()).isEqualTo("payment.succeeded");
+        assertThat(env.path("api_version").asText()).isEqualTo("2026-06-16");
+        assertThat(env.path("id").asText()).isEqualTo("hs_evt_77");
+        assertThat(env.path("data").path("metadata").path("userId").asText()).isEqualTo("u_42");
+        assertThat(env.path("data").path("metadata").path("packId").asText()).isEqualTo("gold");
+        // signature covers the EXACT transformed body the receiver got (re-sign proof).
+        assertThat(c.headers().get("X-nexuspay-signature"))
+                .as("signature must be HMAC-SHA256 over the transformed envelope body, not the raw payload")
+                .isEqualTo(expectedHmac(c.body(), secret));
+        assertThat(c.headers().get("X-nexuspay-event")).isEqualTo("payment.succeeded");
+    }
+
+    // ---- HMAC signature (INT-1: over the TRANSFORMED canonical body) ----
 
     @Test
     void deliversWithCorrectHmacSha256Signature() throws Exception {
         String secret = "whsec_supersecret";
-        String payload = "{\"event_type\":\"payment.succeeded\",\"id\":\"pi_1\"}";
         when(repository.findAllByTenantIdAndEnabledTrue(TENANT))
                 .thenReturn(List.of(endpoint("we_1", "/hook", secret, List.of("payment.succeeded"))));
 
-        service.onPaymentEvent(recordWithHeader("payment.succeeded", payload));
+        service.onPaymentEvent(recordWithHeader("PaymentCaptured", captureOutbox()));
 
         assertThat(captures).hasSize(1);
         Capture c = captures.get(0);
         assertThat(c.path()).isEqualTo("/hook");
-        assertThat(c.body()).isEqualTo(payload);
+        // INT-1: the POSTed body is the canonical envelope, NOT the raw outbox payload.
+        assertThat(c.body()).contains("\"api_version\":\"2026-06-16\"");
+        assertThat(c.body()).contains("\"type\":\"payment.succeeded\"");
         // com.sun.net.httpserver.Headers normalizes header names by uppercasing ONLY the first
         // character and lowercasing the rest, so production's "X-NexusPay-Signature" is captured as
-        // "X-nexuspay-signature". The test copies these normalized keys into a plain map, so the
-        // lookup key must match that exact casing.
+        // "X-nexuspay-signature".
+        // INT-1: the signature must cover the EXACT transformed body the receiver got — recompute over
+        // the captured body. If the re-sign were reverted (signing the raw payload), this fails.
         assertThat(c.headers().get("X-nexuspay-signature"))
-                .as("signature must be HMAC-SHA256(payload, secret) hex")
-                .isEqualTo(expectedHmac(payload, secret));
+                .as("signature must be HMAC-SHA256(transformedBody, secret) hex")
+                .isEqualTo(expectedHmac(c.body(), secret));
         assertThat(c.headers().get("X-nexuspay-event")).isEqualTo("payment.succeeded");
     }
 
-    // ---- subscription filtering ----
+    // ---- subscription filtering (INT-1: dotted names) ----
 
     @Test
     void emptyEvents_receivesAllEvents() {
         when(repository.findAllByTenantIdAndEnabledTrue(TENANT))
                 .thenReturn(List.of(endpoint("we_1", "/all", "s", Collections.emptyList())));
 
-        service.onPaymentEvent(recordWithHeader("payment.refunded", "{\"x\":1}"));
+        service.onPaymentEvent(recordWithHeader("RefundCompleted", captureOutbox()));
 
         assertThat(captures).hasSize(1);
         assertThat(captures.get(0).path()).isEqualTo("/all");
@@ -192,7 +243,7 @@ class WebhookDeliveryServiceTest {
         when(repository.findAllByTenantIdAndEnabledTrue(TENANT))
                 .thenReturn(List.of(endpoint("we_1", "/null", "s", null)));
 
-        service.onPaymentEvent(recordWithHeader("payment.refunded", "{\"x\":1}"));
+        service.onPaymentEvent(recordWithHeader("RefundCompleted", captureOutbox()));
 
         assertThat(captures).hasSize(1);
         assertThat(captures.get(0).path()).isEqualTo("/null");
@@ -203,7 +254,7 @@ class WebhookDeliveryServiceTest {
         when(repository.findAllByTenantIdAndEnabledTrue(TENANT))
                 .thenReturn(List.of(endpoint("we_1", "/star", "s", List.of("*"))));
 
-        service.onPaymentEvent(recordWithHeader("anything.at.all", "{\"x\":1}"));
+        service.onPaymentEvent(recordWithHeader("PaymentCaptured", captureOutbox()));
 
         assertThat(captures).hasSize(1);
         assertThat(captures.get(0).path()).isEqualTo("/star");
@@ -214,7 +265,8 @@ class WebhookDeliveryServiceTest {
         when(repository.findAllByTenantIdAndEnabledTrue(TENANT))
                 .thenReturn(List.of(endpoint("we_1", "/specific", "s", List.of("payment.succeeded"))));
 
-        service.onPaymentEvent(recordWithHeader("payment.failed", "{\"x\":1}"));
+        // PaymentFailed -> payment.failed, which the endpoint does NOT subscribe to.
+        service.onPaymentEvent(recordWithHeader("PaymentFailed", captureOutbox()));
 
         assertThat(captures).as("non-subscribed event type must not be delivered").isEmpty();
     }
@@ -224,10 +276,21 @@ class WebhookDeliveryServiceTest {
         when(repository.findAllByTenantIdAndEnabledTrue(TENANT))
                 .thenReturn(List.of(endpoint("we_1", "/specific", "s", List.of("payment.succeeded"))));
 
-        service.onPaymentEvent(recordWithHeader("payment.succeeded", "{\"y\":2}"));
+        service.onPaymentEvent(recordWithHeader("PaymentCaptured", captureOutbox()));
 
         assertThat(captures).hasSize(1);
-        assertThat(captures.get(0).body()).isEqualTo("{\"y\":2}");
+        assertThat(captures.get(0).body()).contains("\"type\":\"payment.succeeded\"");
+    }
+
+    // ---- INT-1: unmapped internal type is NOT deliverable ----
+
+    @Test
+    void unmappedInternalType_isDropped_noLookupNoDelivery() {
+        // SubscriptionCreated has no canonical webhook mapping -> dropped before any endpoint lookup.
+        service.onPaymentEvent(recordWithHeader("SubscriptionCreated", captureOutbox()));
+
+        verify(repository, never()).findAllByTenantIdAndEnabledTrue(anyString());
+        assertThat(captures).isEmpty();
     }
 
     // ---- event type extraction ----
@@ -236,15 +299,15 @@ class WebhookDeliveryServiceTest {
     void eventType_parsedFromPayload_whenHeaderAbsent() {
         // No tenant header either; extractTenant falls back to "default" (no metadata.tenant_id in payload).
         when(repository.findAllByTenantIdAndEnabledTrue("default"))
-                .thenReturn(List.of(endpoint("we_1", "/frompayload", "s", List.of("payment.captured"))));
-        String payload = "{\"event_type\":\"payment.captured\",\"id\":\"pi_2\"}";
-        var rec = new ConsumerRecord<>(Topics.PAYMENTS, 0, 0L, "k", payload); // no event_type header
+                .thenReturn(List.of(endpoint("we_1", "/frompayload", "s", List.of("payment.succeeded"))));
+        // No event_type header — extractEventType parses event_type from the payload (PaymentCaptured).
+        var rec = new ConsumerRecord<>(Topics.PAYMENTS, 0, 0L, "k", captureOutbox());
 
         service.onPaymentEvent(rec);
 
         assertThat(captures).hasSize(1);
         // Sun Headers lowercases everything after the first char: "X-NexusPay-Event" -> "X-nexuspay-event".
-        assertThat(captures.get(0).headers().get("X-nexuspay-event")).isEqualTo("payment.captured");
+        assertThat(captures.get(0).headers().get("X-nexuspay-event")).isEqualTo("payment.succeeded");
     }
 
     @Test
@@ -266,7 +329,7 @@ class WebhookDeliveryServiceTest {
     void noEndpoints_returnsEarly_noDelivery() {
         when(repository.findAllByTenantIdAndEnabledTrue(TENANT)).thenReturn(Collections.emptyList());
 
-        service.onPaymentEvent(recordWithHeader("payment.succeeded", "{\"x\":1}"));
+        service.onPaymentEvent(recordWithHeader("PaymentCaptured", captureOutbox()));
 
         assertThat(captures).isEmpty();
     }
@@ -282,7 +345,7 @@ class WebhookDeliveryServiceTest {
         var live = endpoint("we_live", "/live", "s", List.of("payment.succeeded"));
         when(repository.findAllByTenantIdAndEnabledTrue(TENANT)).thenReturn(List.of(dead, live));
 
-        service.onPaymentEvent(recordWithHeader("payment.succeeded", "{\"z\":3}"));
+        service.onPaymentEvent(recordWithHeader("PaymentCaptured", captureOutbox()));
 
         assertThat(captures)
                 .as("a failing endpoint must not block the others")
