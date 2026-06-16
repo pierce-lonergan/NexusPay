@@ -138,7 +138,7 @@ public class AnalyticsRepositoryAdapters implements AuthRateRollupRepository, Ps
                     total_declined = auth_rate_hourly.total_declined + EXCLUDED.total_declined,
                     total_errors = auth_rate_hourly.total_errors + EXCLUDED.total_errors,
                     auth_rate = CASE WHEN (auth_rate_hourly.total_attempts + EXCLUDED.total_attempts) > 0
-                        THEN (auth_rate_hourly.total_approved + EXCLUDED.total_approved)::DECIMAL
+                        THEN CAST(auth_rate_hourly.total_approved + EXCLUDED.total_approved AS DECIMAL)
                              / (auth_rate_hourly.total_attempts + EXCLUDED.total_attempts)
                         ELSE 0 END,
                     avg_latency_ms = COALESCE(EXCLUDED.avg_latency_ms, auth_rate_hourly.avg_latency_ms),
