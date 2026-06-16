@@ -212,4 +212,14 @@ helm install nexuspay ./nexuspay-helm -f nexuspay-helm/environments/dev/values.y
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE)
+**Source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE).**
+Free for noncommercial use (personal, research, education, evaluation, nonprofits).
+
+**Commercial use requires a separate commercial license** (fees and/or royalties) —
+see [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md) or contact
+Pierce Lonergan &lt;lonerganpierce@gmail.com&gt;.
+
+The browser checkout SDKs under `checkout-sdk/packages/*` (`@nexuspay/js`,
+`@nexuspay/react`) are separately licensed **MIT** so they can be embedded freely.
+
+💜 Support development via [GitHub Sponsors](https://github.com/sponsors/pierce-lonergan).

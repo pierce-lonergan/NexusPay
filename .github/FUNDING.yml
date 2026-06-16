@@ -1,0 +1,16 @@
+# NexusPay funding / sponsorship configuration.
+# Surfaces the "Sponsor" button on the GitHub repo.
+#
+# NOTE: the GitHub Sponsors entry below only works once you have ENROLLED in
+# GitHub Sponsors (github.com/sponsors — requires bank/tax/Stripe onboarding,
+# which only you can complete). Until then it shows but won't accept funds.
+# Uncomment / fill the other platforms you actually set up.
+
+github: [pierce-lonergan]
+
+# open_collective: nexuspay
+# ko_fi: your_ko_fi_handle
+# patreon: your_patreon_handle
+# buy_me_a_coffee: your_handle
+# liberapay: your_handle
+# custom: ["https://your-site.example/sponsor"]
