@@ -33,7 +33,14 @@ public record MatchResult(
         // ingestion (RFC-4180 corruption, non-numeric amount, bad date, ragged
         // columns). Persisted as a durable exception so no row is silently
         // dropped. 11 chars — fits the VARCHAR(32) exception_type column.
-        PARSE_ERROR
+        PARSE_ERROR,
+        // SEC-17: the reconciliation run itself failed (matching/persistence threw
+        // mid-pipeline). Recorded as a durable failure-reason exception by
+        // ReconciliationFailureRecorder in a REQUIRES_NEW transaction so the failure
+        // survives the outer rollback. 12 chars — fits the VARCHAR(32)
+        // exception_type column (V4021 only COMMENTs the column; it is not
+        // check-constrained).
+        SYSTEM_ERROR
     }
 
     public static MatchResult matched(String settlementId, String paymentId, String journalEntryId) {

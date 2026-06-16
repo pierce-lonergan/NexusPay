@@ -780,3 +780,20 @@ TransactionSynchronization afterCompletion that DELETEs the dedup key when statu
 webhook is now redeliverable; a successfully-committed one stays deduped. Inbound HMAC-SHA512 + tenant stamping +
 outbox untouched. 9 SEC-12 + 4 SEC-15 tests (fail on the vulnerable code). No migration. 0 BLOCKERS, 0 SHOULD_FIX.
 ADR-038.
+
+## ADR-039 | 2026-06-16 | SEC-BATCH-5b: durable recon failure (SEC-17) + idempotent analytics rollups (SEC-18) (T3)
+SEC-17 (lost failure record): a failed reconciliation run's terminal FAILED state was saved inside the same
+@Transactional that then rolled back → no durable trace of failed runs. INITIAL naive fix (a REQUIRES_NEW
+failure-recorder) was caught DO_NOT_SHIP by review: a REQUIRES_NEW tx that re-saves the SAME run PK the suspended
+OUTER tx already inserted+locked SELF-DEADLOCKS (lock-wait) → record still lost + the gate test would hang.
+Restructured: ReconciliationRunLifecycle commits the run (PENDING then RUNNING) in its OWN REQUIRES_NEW tx BEFORE
+the work; ReconciliationExecutor runs the matching in a separate tx that never touches the run-status row (holds no
+lock the recorder blocks on); ReconciliationFailureRecorder does a non-blocking UPDATE (merge the committed RUNNING
+row → FAILED + a durable SYSTEM_ERROR ReconciliationException) on the orchestrator's catch. Success path unchanged.
+SEC-18 (rollup double-count): the payment/fraud/routing analytics consumers applied additive upserts with no
+idempotency → Kafka redelivery/DLT replay inflated revenue/auth-rate/decline metrics. New processed_analytics_events
+(V4033, UNIQUE (event_id, rollup_kind)) + saveAndFlush dup-no-op: each additive upsert dedups on the stable event id
+PER rollup_kind (so one event updating several rollups still counts each once) and SKIPs on replay; first delivery
+unchanged. Real-Postgres ITs: failed-run durable record survives rollback; same event twice = counters unchanged,
+distinct event still increments (a vacuous routing test was caught + fixed). 6 BLOCKERS (the REQUIRES_NEW
+self-deadlock, one root cause across lenses) + 5 SHOULD_FIX, all applied. Migration V4033. ADR-039.
