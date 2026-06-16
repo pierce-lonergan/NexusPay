@@ -92,8 +92,9 @@ public class DisputeLifecycleService {
             disputeRepository.saveEvent(event);
         }
 
-        // Create chargeback reserve in ledger
-        ledgerPort.createChargebackReserve(dispute.getId(), amount, currency);
+        // Create chargeback reserve in ledger under the dispute's server-authoritative
+        // tenant (SEC-24) — the same tenantId used for the dispute idempotency key above.
+        ledgerPort.createChargebackReserve(tenantId, dispute.getId(), amount, currency);
 
         log.info("Dispute opened: id={}, payment={}, amount={} {}, network={}",
                 dispute.getId(), paymentId, amount, currency, network);
@@ -172,7 +173,10 @@ public class DisputeLifecycleService {
         dispute = disputeRepository.save(dispute);
         saveNewEvents(dispute, eventsBefore);
 
-        ledgerPort.reverseChargebackReserve(dispute.getId(), dispute.getAmount(), dispute.getCurrency());
+        // Post under the dispute's persisted server-authoritative tenant (SEC-24) so
+        // the reversal lands on the SAME tenant as the original reserve.
+        ledgerPort.reverseChargebackReserve(dispute.getTenantId(), dispute.getId(),
+                dispute.getAmount(), dispute.getCurrency());
 
         log.info("Dispute won: id={}, amount={} {}", disputeId, dispute.getAmount(), dispute.getCurrency());
         return dispute;
@@ -189,7 +193,10 @@ public class DisputeLifecycleService {
         dispute = disputeRepository.save(dispute);
         saveNewEvents(dispute, eventsBefore);
 
-        ledgerPort.finaliseChargebackExpense(dispute.getId(), dispute.getAmount(), dispute.getCurrency());
+        // Post under the dispute's persisted server-authoritative tenant (SEC-24) so
+        // the expense lands on the SAME tenant as the original reserve.
+        ledgerPort.finaliseChargebackExpense(dispute.getTenantId(), dispute.getId(),
+                dispute.getAmount(), dispute.getCurrency());
 
         log.info("Dispute lost: id={}, amount={} {}", disputeId, dispute.getAmount(), dispute.getCurrency());
         return dispute;
@@ -212,8 +219,10 @@ public class DisputeLifecycleService {
         saveNewEvents(dispute, eventsBefore);
 
         if (transitioned) {
-            // Lost by default — finalise chargeback
-            ledgerPort.finaliseChargebackExpense(dispute.getId(), dispute.getAmount(), dispute.getCurrency());
+            // Lost by default — finalise chargeback under the dispute's persisted
+            // server-authoritative tenant (SEC-24), matching the original reserve.
+            ledgerPort.finaliseChargebackExpense(dispute.getTenantId(), dispute.getId(),
+                    dispute.getAmount(), dispute.getCurrency());
             log.info("Dispute expired: id={}", disputeId);
         } else {
             log.info("Dispute {} already terminal, skipping ledger finalisation", disputeId);

@@ -737,3 +737,17 @@ surface; fixed to the 2-arg tenant-scoped finder + 404 before any read/mutation 
 tightened too, defense-in-depth). app TenantIsolationIntegrationTest extended with cross-tenant cases per endpoint
 incl. the create-from-foreign-PO case (asserts 404 + the PO stays APPROVED, not INVOICED) — all fail on the
 vulnerable code. 2 BLOCKERS (same defect, 2 lenses), applied. No migration (tenant_id cols exist). ADR-035.
+
+## ADR-036 | 2026-06-16 | SEC-24: dispute chargeback ledger posts under the dispute's tenant (T3)
+LedgerChargebackAdapter.post() hardcoded EnsureAccountsExistUseCase.DEFAULT_TENANT ("default") as the journal
+tenant AND called the no-tenant ensureAccountsForCurrency overload — so EVERY chargeback entry (open DR
+chargeback_reserve / CR merchant_receivables; win reversal; loss/expire expense) landed on tenant_id='default'
+regardless of which merchant's dispute fired it → a chargeback for merchant X silently reduced the DEFAULT
+tenant's receivables (money mis-attribution). Fix: tenantId is now the first parameter of all three LedgerPort
+methods; DisputeLifecycleService passes the dispute's SERVER-AUTHORITATIVE tenant (SEC-BATCH-2) — openDispute
+forwards its tenantId, win/lose/expire forward the persisted dispute.getTenantId() so the reversal/expense lands
+under the same tenant; the adapter routes through the existing tenant-aware ensureAccountsForCurrency(ccy, tenant)
++ stamps the journal command's tenantId. Double-entry stays balanced + the SEC-10 idempotency holds (now correctly
+tenant-scoped). No migration needed (existing tenant-aware overload + tenant_id columns). New
+LedgerChargebackAdapterTest pins tenantId on all 3 flows (+ asserts never DEFAULT_TENANT, balanced postings) —
+fails on the vulnerable code. 0 BLOCKERS, 2 SHOULD_FIX (adapter test), applied. ADR-036.
