@@ -724,3 +724,16 @@ are correct. Fix agent rightly rejected an H2-@DataJpaTest suggestion (no H2 in 
 Testcontainers/Postgres) in favor of an infra-free service-layer test. Orchestrator shortened the test's fake
 collision keys (sk_test_coll_a/b/z, underscore body) to stay gitleaks-clean while preserving the 12-char prefix
 collision. 0 BLOCKERS, 1 SHOULD_FIX. No migration. SEC-22 closed. ADR-034.
+
+## ADR-035 | 2026-06-16 | SEC-23: cross-tenant IDOR on remaining b2b + fraud controllers (T3)
+B2bInvoiceController, PurchaseOrderController, FraudAssessmentController trusted a client @RequestHeader
+("X-Tenant-Id") (fraud even defaulted to "default") — cross-tenant IDOR on b2b money + fraud surfaces, the same
+class SEC-BATCH-1 closed elsewhere. Fix: tenant now comes from the authenticated principal via
+common.tenant.CallerTenant.require(); every read AND mutation resolves via a tenant-scoped findByIdAndTenantId +
+TenantOwnership -> ResourceNotFoundException (404, no existence oracle). Adversarial review caught a DEEPER residual
+the controllers hid: B2bInvoiceService.createInvoiceFromPO loaded the referenced purchase order via the GLOBAL
+(un-scoped) finder, then read its financials + called po.markInvoiced() — a cross-tenant read AND write on a money
+surface; fixed to the 2-arg tenant-scoped finder + 404 before any read/mutation (markInvoicePaid's linked-PO load
+tightened too, defense-in-depth). app TenantIsolationIntegrationTest extended with cross-tenant cases per endpoint
+incl. the create-from-foreign-PO case (asserts 404 + the PO stays APPROVED, not INVOICED) — all fail on the
+vulnerable code. 2 BLOCKERS (same defect, 2 lenses), applied. No migration (tenant_id cols exist). ADR-035.

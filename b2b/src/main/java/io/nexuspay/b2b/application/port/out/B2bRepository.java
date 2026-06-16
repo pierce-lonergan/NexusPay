@@ -15,11 +15,15 @@ public interface B2bRepository {
     // --- PurchaseOrder ---
     PurchaseOrder savePurchaseOrder(PurchaseOrder po);
     Optional<PurchaseOrder> findPurchaseOrderById(String id);
+    /** SEC-23: tenant-scoped by-id lookup — empty when absent OR owned by another tenant. */
+    Optional<PurchaseOrder> findPurchaseOrderById(String id, String tenantId);
     List<PurchaseOrder> findPurchaseOrdersByTenantId(String tenantId);
 
     // --- B2bInvoice ---
     B2bInvoice saveInvoice(B2bInvoice invoice);
     Optional<B2bInvoice> findInvoiceById(String id);
+    /** SEC-23: tenant-scoped by-id lookup — empty when absent OR owned by another tenant. */
+    Optional<B2bInvoice> findInvoiceById(String id, String tenantId);
     Optional<B2bInvoice> findInvoiceByPurchaseOrderId(String purchaseOrderId);
 
     // --- VirtualCard ---

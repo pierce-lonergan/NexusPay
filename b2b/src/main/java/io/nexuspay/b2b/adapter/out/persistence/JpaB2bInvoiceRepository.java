@@ -5,4 +5,7 @@ import java.util.Optional;
 
 public interface JpaB2bInvoiceRepository extends JpaRepository<B2bInvoiceEntity, String> {
     Optional<B2bInvoiceEntity> findByPurchaseOrderId(String purchaseOrderId);
+
+    // SEC-23: tenant-scoped by-id lookup.
+    Optional<B2bInvoiceEntity> findByIdAndTenantId(String id, String tenantId);
 }

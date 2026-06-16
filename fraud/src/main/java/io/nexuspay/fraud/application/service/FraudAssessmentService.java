@@ -7,6 +7,7 @@ import io.nexuspay.fraud.application.port.out.FraudAssessmentRepository;
 import io.nexuspay.fraud.application.port.out.FraudEventPublisher;
 import io.nexuspay.fraud.config.FraudProperties;
 import io.nexuspay.fraud.domain.model.*;
+import io.nexuspay.common.tenant.TenantOwnership;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -241,9 +242,10 @@ public class FraudAssessmentService implements AssessFraudRiskUseCase, ReviewFra
     @Override
     @Transactional(readOnly = true)
     public RiskAssessment getAssessment(UUID assessmentId, String tenantId) {
-        return assessmentRepository.findById(assessmentId)
-                .filter(a -> a.getTenantId().equals(tenantId))
-                .orElseThrow(() -> new IllegalArgumentException("Assessment not found: " + assessmentId));
+        // SEC-23: tenant-scoped finder + 404 on absent OR wrong-tenant (no existence oracle; was
+        // findById().filter(tenant==) -> IllegalArgumentException which had no handler -> 500).
+        return TenantOwnership.require(
+                assessmentRepository.findByIdAndTenantId(assessmentId, tenantId), "Assessment");
     }
 
     @Override

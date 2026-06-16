@@ -3,6 +3,7 @@ package io.nexuspay.b2b.application.service;
 import io.nexuspay.b2b.application.port.out.B2bEventPublisher;
 import io.nexuspay.b2b.application.port.out.B2bRepository;
 import io.nexuspay.b2b.domain.*;
+import io.nexuspay.common.exception.ResourceNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -41,7 +42,7 @@ class B2bInvoiceServiceTest {
         po.addLineItem(new LineItem("Widget", 10, 100, null, "EA"));
         po.submit();
         po.approve();
-        when(repository.findPurchaseOrderById(po.getId())).thenReturn(Optional.of(po));
+        when(repository.findPurchaseOrderById(po.getId(), "tenant-1")).thenReturn(Optional.of(po));
         when(repository.saveInvoice(any())).thenAnswer(inv -> inv.getArgument(0));
         when(repository.savePurchaseOrder(any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -64,17 +65,33 @@ class B2bInvoiceServiceTest {
     void createInvoiceFromPO_throwsForDraftPO() {
         PurchaseOrder po = PurchaseOrder.create("tenant-1", "buyer-1", "seller-1", "PO-002", "USD", PaymentTerms.NET_30);
         // PO is DRAFT, not APPROVED
-        when(repository.findPurchaseOrderById(po.getId())).thenReturn(Optional.of(po));
+        when(repository.findPurchaseOrderById(po.getId(), "tenant-1")).thenReturn(Optional.of(po));
 
         assertThrows(IllegalStateException.class,
                 () -> service.createInvoiceFromPO(po.getId(), "tenant-1", "INV-002"));
     }
 
     @Test
+    void createInvoiceFromPO_foreignTenantPO_throwsNotFoundAndDoesNotReadOrMutate() {
+        // SEC-23: tenant-2 caller passes a tenant-1 PO id. The tenant-scoped finder returns
+        // empty, so the service must 404 (no oracle) BEFORE reading PO financials or mutating it.
+        String foreignPoId = "po_owned_by_tenant_1";
+        when(repository.findPurchaseOrderById(foreignPoId, "tenant-2")).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> service.createInvoiceFromPO(foreignPoId, "tenant-2", "INV-EVIL"));
+
+        // No invoice created, no PO mutation, no event published.
+        verify(repository, never()).saveInvoice(any());
+        verify(repository, never()).savePurchaseOrder(any());
+        verifyNoInteractions(eventPublisher);
+    }
+
+    @Test
     void sendInvoice_changesStatusToSent() {
         B2bInvoice invoice = B2bInvoice.create("tenant-1", "po_123", "buyer-1", "seller-1",
                 "INV-003", 50000, 5000, "USD", PaymentTerms.NET_30, LocalDate.now().plusDays(30));
-        when(repository.findInvoiceById(invoice.getId())).thenReturn(Optional.of(invoice));
+        when(repository.findInvoiceById(invoice.getId(), "tenant-1")).thenReturn(Optional.of(invoice));
         when(repository.saveInvoice(any())).thenAnswer(inv -> inv.getArgument(0));
 
         var result = service.sendInvoice(invoice.getId(), "tenant-1");
@@ -93,9 +110,9 @@ class B2bInvoiceServiceTest {
         po.approve();
         po.markInvoiced();
 
-        when(repository.findInvoiceById(invoice.getId())).thenReturn(Optional.of(invoice));
+        when(repository.findInvoiceById(invoice.getId(), "tenant-1")).thenReturn(Optional.of(invoice));
         when(repository.saveInvoice(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(repository.findPurchaseOrderById("po_123")).thenReturn(Optional.of(po));
+        when(repository.findPurchaseOrderById("po_123", "tenant-1")).thenReturn(Optional.of(po));
         when(repository.savePurchaseOrder(any())).thenAnswer(inv -> inv.getArgument(0));
 
         var result = service.markInvoicePaid(invoice.getId(), "tenant-1");
@@ -108,8 +125,8 @@ class B2bInvoiceServiceTest {
 
     @Test
     void getInvoice_throwsWhenNotFound() {
-        when(repository.findInvoiceById("inv_missing")).thenReturn(Optional.empty());
+        when(repository.findInvoiceById("inv_missing", "tenant-1")).thenReturn(Optional.empty());
 
-        assertThrows(IllegalArgumentException.class, () -> service.getInvoice("inv_missing", "tenant-1"));
+        assertThrows(ResourceNotFoundException.class, () -> service.getInvoice("inv_missing", "tenant-1"));
     }
 }

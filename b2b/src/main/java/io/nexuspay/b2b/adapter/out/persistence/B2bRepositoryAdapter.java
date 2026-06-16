@@ -52,6 +52,11 @@ public class B2bRepositoryAdapter implements B2bRepository {
     }
 
     @Override
+    public Optional<PurchaseOrder> findPurchaseOrderById(String id, String tenantId) {
+        return poRepo.findByIdAndTenantId(id, tenantId).map(this::toDomain);
+    }
+
+    @Override
     public List<PurchaseOrder> findPurchaseOrdersByTenantId(String tenantId) {
         return poRepo.findByTenantId(tenantId).stream().map(this::toDomain).toList();
     }
@@ -66,6 +71,11 @@ public class B2bRepositoryAdapter implements B2bRepository {
     @Override
     public Optional<B2bInvoice> findInvoiceById(String id) {
         return invoiceRepo.findById(id).map(this::toDomain);
+    }
+
+    @Override
+    public Optional<B2bInvoice> findInvoiceById(String id, String tenantId) {
+        return invoiceRepo.findByIdAndTenantId(id, tenantId).map(this::toDomain);
     }
 
     @Override

@@ -6,6 +6,7 @@ import io.nexuspay.b2b.application.port.out.B2bRepository;
 import io.nexuspay.b2b.domain.B2bInvoice;
 import io.nexuspay.b2b.domain.PurchaseOrder;
 import io.nexuspay.b2b.domain.PurchaseOrderStatus;
+import io.nexuspay.common.tenant.TenantOwnership;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -35,8 +36,10 @@ public class B2bInvoiceService implements ManageB2bInvoiceUseCase {
     @Override
     @Transactional
     public InvoiceResult createInvoiceFromPO(String purchaseOrderId, String tenantId, String invoiceNumber) {
-        PurchaseOrder po = repository.findPurchaseOrderById(purchaseOrderId)
-                .orElseThrow(() -> new IllegalArgumentException("Purchase order not found: " + purchaseOrderId));
+        // SEC-23: resolve the referenced PO tenant-scoped so a foreign-tenant PO 404s
+        // before any read of its financials or any cross-tenant mutation (markInvoiced).
+        PurchaseOrder po = TenantOwnership.require(
+                repository.findPurchaseOrderById(purchaseOrderId, tenantId), "Purchase order");
 
         if (po.getStatus() != PurchaseOrderStatus.APPROVED && po.getStatus() != PurchaseOrderStatus.SUBMITTED) {
             throw new IllegalStateException("Can only invoice APPROVED or SUBMITTED purchase orders, current: " + po.getStatus());
@@ -65,13 +68,13 @@ public class B2bInvoiceService implements ManageB2bInvoiceUseCase {
     @Override
     @Transactional(readOnly = true)
     public InvoiceResult getInvoice(String invoiceId, String tenantId) {
-        return toResult(findOrThrow(invoiceId));
+        return toResult(findOrThrow(invoiceId, tenantId));
     }
 
     @Override
     @Transactional
     public InvoiceResult sendInvoice(String invoiceId, String tenantId) {
-        B2bInvoice invoice = findOrThrow(invoiceId);
+        B2bInvoice invoice = findOrThrow(invoiceId, tenantId);
         invoice.send();
         invoice = repository.saveInvoice(invoice);
 
@@ -85,13 +88,14 @@ public class B2bInvoiceService implements ManageB2bInvoiceUseCase {
     @Override
     @Transactional
     public InvoiceResult markInvoicePaid(String invoiceId, String tenantId) {
-        B2bInvoice invoice = findOrThrow(invoiceId);
+        B2bInvoice invoice = findOrThrow(invoiceId, tenantId);
         invoice.markPaid();
         invoice = repository.saveInvoice(invoice);
 
-        // Also mark the associated PO as paid
+        // Also mark the associated PO as paid. SEC-23: tenant-scoped finder as defence-in-depth
+        // (the id comes from an already-tenant-verified invoice; a foreign PO simply no-ops).
         if (invoice.getPurchaseOrderId() != null) {
-            repository.findPurchaseOrderById(invoice.getPurchaseOrderId()).ifPresent(po -> {
+            repository.findPurchaseOrderById(invoice.getPurchaseOrderId(), tenantId).ifPresent(po -> {
                 po.markPaid();
                 repository.savePurchaseOrder(po);
             });
@@ -106,9 +110,10 @@ public class B2bInvoiceService implements ManageB2bInvoiceUseCase {
         return toResult(invoice);
     }
 
-    private B2bInvoice findOrThrow(String invoiceId) {
-        return repository.findInvoiceById(invoiceId)
-                .orElseThrow(() -> new IllegalArgumentException("Invoice not found: " + invoiceId));
+    private B2bInvoice findOrThrow(String invoiceId, String tenantId) {
+        // SEC-23: tenant-scoped finder + 404 on absent OR wrong-tenant.
+        return TenantOwnership.require(
+                repository.findInvoiceById(invoiceId, tenantId), "Invoice");
     }
 
     private InvoiceResult toResult(B2bInvoice inv) {

@@ -3,6 +3,7 @@ package io.nexuspay.b2b.adapter.in.rest;
 import io.nexuspay.b2b.adapter.in.rest.dto.CreateInvoiceRequest;
 import io.nexuspay.b2b.adapter.in.rest.dto.InvoiceResponse;
 import io.nexuspay.b2b.application.port.in.ManageB2bInvoiceUseCase;
+import io.nexuspay.common.tenant.CallerTenant;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -27,11 +28,11 @@ public class B2bInvoiceController {
     @PostMapping
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<InvoiceResponse> createInvoice(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @Valid @RequestBody CreateInvoiceRequest request) {
 
+        // SEC-23: tenant resolved from the authenticated principal, never from a client X-Tenant-Id header.
         var result = invoiceUseCase.createInvoiceFromPO(
-                request.purchaseOrderId(), tenantId, request.invoiceNumber());
+                request.purchaseOrderId(), CallerTenant.require(), request.invoiceNumber());
 
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(result));
     }
@@ -39,30 +40,27 @@ public class B2bInvoiceController {
     @GetMapping("/{invoiceId}")
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<InvoiceResponse> getInvoice(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String invoiceId) {
 
-        var result = invoiceUseCase.getInvoice(invoiceId, tenantId);
+        var result = invoiceUseCase.getInvoice(invoiceId, CallerTenant.require());
         return ResponseEntity.ok(toResponse(result));
     }
 
     @PostMapping("/{invoiceId}/send")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<InvoiceResponse> sendInvoice(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String invoiceId) {
 
-        var result = invoiceUseCase.sendInvoice(invoiceId, tenantId);
+        var result = invoiceUseCase.sendInvoice(invoiceId, CallerTenant.require());
         return ResponseEntity.ok(toResponse(result));
     }
 
     @PostMapping("/{invoiceId}/mark-paid")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<InvoiceResponse> markInvoicePaid(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String invoiceId) {
 
-        var result = invoiceUseCase.markInvoicePaid(invoiceId, tenantId);
+        var result = invoiceUseCase.markInvoicePaid(invoiceId, CallerTenant.require());
         return ResponseEntity.ok(toResponse(result));
     }
 

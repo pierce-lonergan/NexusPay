@@ -1,5 +1,6 @@
 package io.nexuspay.fraud.adapter.in.rest;
 
+import io.nexuspay.common.tenant.CallerTenant;
 import io.nexuspay.fraud.application.port.in.ReviewFraudCaseUseCase;
 import io.nexuspay.fraud.domain.model.RiskAssessment;
 import org.springframework.http.ResponseEntity;
@@ -29,36 +30,38 @@ public class FraudAssessmentController {
     @GetMapping("/pending")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<List<RiskAssessment>> listPendingReviews(
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId,
             @RequestParam(defaultValue = "50") int limit) {
-        return ResponseEntity.ok(reviewUseCase.listPendingReviews(tenantId, limit));
+        // SEC-23: tenant resolved from the authenticated principal, never from a client X-Tenant-Id
+        // header (the old defaultValue="default" silently collapsed an absent header to "default").
+        return ResponseEntity.ok(reviewUseCase.listPendingReviews(CallerTenant.require(), limit));
     }
 
     @GetMapping("/{assessmentId}")
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<RiskAssessment> getAssessment(
-            @PathVariable UUID assessmentId,
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId) {
-        return ResponseEntity.ok(reviewUseCase.getAssessment(assessmentId, tenantId));
+            @PathVariable UUID assessmentId) {
+        return ResponseEntity.ok(reviewUseCase.getAssessment(assessmentId, CallerTenant.require()));
     }
 
     @PostMapping("/{assessmentId}/approve")
     @PreAuthorize("hasRole('admin')")
     public ResponseEntity<RiskAssessment> approveAssessment(
             @PathVariable UUID assessmentId,
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId,
             @AuthenticationPrincipal Jwt jwt) {
+        // SEC-23: tenant resolved from the authenticated principal, never from a client X-Tenant-Id
+        // header. The Jwt is retained ONLY for the reviewedBy audit field — not for authority.
         String reviewedBy = jwt != null ? jwt.getSubject() : "system";
-        return ResponseEntity.ok(reviewUseCase.approveAssessment(assessmentId, tenantId, reviewedBy));
+        return ResponseEntity.ok(reviewUseCase.approveAssessment(assessmentId, CallerTenant.require(), reviewedBy));
     }
 
     @PostMapping("/{assessmentId}/reject")
     @PreAuthorize("hasRole('admin')")
     public ResponseEntity<RiskAssessment> rejectAssessment(
             @PathVariable UUID assessmentId,
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId,
             @AuthenticationPrincipal Jwt jwt) {
+        // SEC-23: tenant resolved from the authenticated principal, never from a client X-Tenant-Id
+        // header. The Jwt is retained ONLY for the reviewedBy audit field — not for authority.
         String reviewedBy = jwt != null ? jwt.getSubject() : "system";
-        return ResponseEntity.ok(reviewUseCase.rejectAssessment(assessmentId, tenantId, reviewedBy));
+        return ResponseEntity.ok(reviewUseCase.rejectAssessment(assessmentId, CallerTenant.require(), reviewedBy));
     }
 }
