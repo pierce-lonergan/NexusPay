@@ -122,7 +122,7 @@ class TenantIsolationIntegrationTest extends IntegrationTestBase {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "url": "https://a.example.com/webhooks",
+                                  "url": "https://example.com/webhooks",
                                   "events": ["payment.captured"]
                                 }
                                 """))

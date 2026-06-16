@@ -33,14 +33,14 @@ class WebhookEndpointIntegrationTest extends IntegrationTestBase {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "url": "https://merchant.example.com/webhooks",
+                                  "url": "https://example.com/webhooks",
                                   "description": "Test endpoint",
                                   "events": ["payment.captured", "refund.completed"]
                                 }
                                 """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").exists())
-                .andExpect(jsonPath("$.url").value("https://merchant.example.com/webhooks"))
+                .andExpect(jsonPath("$.url").value("https://example.com/webhooks"))
                 .andExpect(jsonPath("$.secret").exists())
                 .andExpect(jsonPath("$.events").isArray())
                 .andReturn();
@@ -79,7 +79,7 @@ class WebhookEndpointIntegrationTest extends IntegrationTestBase {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "url": "https://test.com/hooks",
+                                  "url": "https://example.com/hooks",
                                   "events": ["payment.captured"]
                                 }
                                 """))
