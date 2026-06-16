@@ -52,6 +52,15 @@ public class PaymentController {
     /** Server-only metadata key the geography resolver reads. Never client-settable. */
     private static final String TRUSTED_IP_COUNTRY_KEY = "ip_country_trusted";
 
+    /**
+     * INT-3: the response {@code mode} is SERVER-DERIVED from the authenticated key's {@code is_live}
+     * ({@code principal.live()}) — "test" for an sk_test_ key, "live" otherwise (sk_live_/JWT/OIDC). It
+     * is NEVER read from the request body. A null principal defaults to "live" (a real principal).
+     */
+    private static String modeOf(NexusPayPrincipal principal) {
+        return (principal != null && !principal.live()) ? "test" : "live";
+    }
+
     @PostMapping
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     @Operation(summary = "Create a payment intent")
@@ -107,7 +116,7 @@ public class PaymentController {
         String tenantId = principal != null ? principal.tenantId() : null;
         var response = paymentGateway.createPayment(paymentRequest, CallContext.interactive(tenantId));
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ResponseMapper.toPaymentResponse(response));
+                .body(ResponseMapper.toPaymentResponse(response, modeOf(principal)));
     }
 
     @PostMapping("/{id}/confirm")
@@ -128,7 +137,7 @@ public class PaymentController {
         var response = paymentGateway.confirmPayment(id, new ConfirmRequest(
                 req.payment_method_type(), req.payment_method_data(), req.return_url(), idempotencyKey),
                 CallContext.interactive(tenantId));
-        return ResponseEntity.ok(ResponseMapper.toPaymentResponse(response));
+        return ResponseEntity.ok(ResponseMapper.toPaymentResponse(response, modeOf(principal)));
     }
 
     @PostMapping("/{id}/capture")
@@ -144,7 +153,7 @@ public class PaymentController {
         var req = request != null ? request : new CapturePaymentRequest(null);
         var response = paymentGateway.capturePayment(id, new CaptureRequest(
                 req.amount_to_capture(), idempotencyKey));
-        return ResponseEntity.ok(ResponseMapper.toPaymentResponse(response));
+        return ResponseEntity.ok(ResponseMapper.toPaymentResponse(response, modeOf(principal)));
     }
 
     @PostMapping("/{id}/cancel")
@@ -160,7 +169,7 @@ public class PaymentController {
         var req = request != null ? request : new CancelPaymentRequest(null);
         var response = paymentGateway.voidPayment(id, new VoidRequest(
                 req.cancellation_reason(), idempotencyKey));
-        return ResponseEntity.ok(ResponseMapper.toPaymentResponse(response));
+        return ResponseEntity.ok(ResponseMapper.toPaymentResponse(response, modeOf(principal)));
     }
 
     @GetMapping("/{id}")
@@ -172,7 +181,7 @@ public class PaymentController {
         // SEC-07 (B-007): tenant-ownership check BEFORE retrieving from the PSP (404 on mismatch/absent).
         screeningOrigins.assertOwnedBy(id, principal != null ? principal.tenantId() : null);
         var response = paymentGateway.getPayment(id);
-        return ResponseEntity.ok(ResponseMapper.toPaymentResponse(response));
+        return ResponseEntity.ok(ResponseMapper.toPaymentResponse(response, modeOf(principal)));
     }
 
     @PostMapping("/{id}/refunds")

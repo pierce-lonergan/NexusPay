@@ -44,6 +44,10 @@ public record PaymentApiResponse(
         Instant created_at,
 
         @Schema(description = "Arbitrary key-value metadata")
-        Map<String, Object> metadata
+        Map<String, Object> metadata,
+
+        @Schema(description = "Key mode that produced this payment: \"test\" or \"live\". INT-3: "
+                + "SERVER-DERIVED from the authenticated key's is_live — never from the request body.")
+        String mode
 ) {
 }

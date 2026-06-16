@@ -3,6 +3,7 @@ package io.nexuspay.payment.application.screening;
 import io.nexuspay.common.exception.PaymentException;
 import io.nexuspay.fraud.domain.model.RiskDecision;
 import io.nexuspay.payment.adapter.out.hyperswitch.HyperSwitchPaymentAdapter;
+import io.nexuspay.payment.adapter.out.mock.MockPaymentGatewayPort;
 import io.nexuspay.payment.domain.CaptureRequest;
 import io.nexuspay.payment.domain.ConfirmRequest;
 import io.nexuspay.payment.domain.PaymentRequest;
@@ -35,21 +36,35 @@ import static org.mockito.Mockito.when;
 class GatedPaymentGatewayTest {
 
     private HyperSwitchPaymentAdapter delegate;
+    private MockPaymentGatewayPort mockDelegate;
     private PreAuthorizationGate gate;
     private CaptureHoldService holds;
     private ScreeningOriginService origins;
     private io.nexuspay.payment.application.webhook.WebhookMetadataService webhookMetadata;
+    private io.nexuspay.payment.application.webhook.MockWebhookSynthesizer mockSynthesizer;
     private GatedPaymentGateway gateway;
 
     @BeforeEach
     void setUp() {
         delegate = mock(HyperSwitchPaymentAdapter.class);
+        mockDelegate = mock(MockPaymentGatewayPort.class);
         gate = mock(PreAuthorizationGate.class);
         holds = mock(CaptureHoldService.class);
         origins = mock(ScreeningOriginService.class);
         webhookMetadata = mock(io.nexuspay.payment.application.webhook.WebhookMetadataService.class);
+        mockSynthesizer = mock(io.nexuspay.payment.application.webhook.MockWebhookSynthesizer.class);
         when(origins.find(any())).thenReturn(Optional.empty()); // default: no origin → strict fallback
-        gateway = new GatedPaymentGateway(delegate, gate, holds, origins, webhookMetadata);
+        // INT-3: these tests assert the LIVE/screening path. They run on a plain unit thread (no servlet
+        // request, PaymentMode unset) so routeToMock() resolves to the real delegate; the mock
+        // collaborators are supplied but never invoked here. PaymentMode.clear() in tearDown guards against
+        // any leakage from other tests on the same (reused) thread.
+        gateway = new GatedPaymentGateway(delegate, mockDelegate, gate, holds, origins, webhookMetadata,
+                mockSynthesizer);
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void clearMode() {
+        io.nexuspay.common.mode.PaymentMode.clear();
     }
 
     private static PaymentRequest req(Map<String, Object> metadata) {

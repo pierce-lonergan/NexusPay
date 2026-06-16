@@ -25,6 +25,10 @@ public interface CreatePaymentSessionUseCase {
 
     /**
      * @param tenantId              the tenant creating the session
+     * @param live                  INT-3: the SERVER-DERIVED mode of the API key creating the session
+     *                              ({@code is_live}). Threaded into the issued session JWT so the SDK
+     *                              checkout/confirm of a test-mode session routes to the mock, never the
+     *                              real PSP.
      * @param amount                payment amount in minor units (e.g., cents)
      * @param currency              three-letter ISO 4217 currency code
      * @param customerId            optional customer identifier
@@ -36,6 +40,7 @@ public interface CreatePaymentSessionUseCase {
      */
     record CreateSessionCommand(
             String tenantId,
+            boolean live,
             long amount,
             String currency,
             String customerId,

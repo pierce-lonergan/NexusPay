@@ -42,8 +42,12 @@ public class PaymentSessionController {
             @Valid @RequestBody CreatePaymentSessionRequest request,
             @AuthenticationPrincipal NexusPayPrincipal principal) {
 
+        // INT-3: thread the originating API key's SERVER-DERIVED mode (principal.live()) into the session
+        // so the issued JWT carries it. A session created under an sk_test_ key (live=false) MUST have its
+        // SDK checkout/confirm route to the mock — never the real PSP.
         var result = createSessionUseCase.create(new CreateSessionCommand(
                 principal.tenantId(),
+                principal.live(),
                 request.amount(), request.currency(), request.customer_id(),
                 request.success_url(), request.cancel_url(),
                 request.allowed_payment_methods(),

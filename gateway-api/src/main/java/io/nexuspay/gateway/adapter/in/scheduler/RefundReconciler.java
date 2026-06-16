@@ -161,6 +161,12 @@ public class RefundReconciler {
      * propagate across threads, per the DeadLetterReprocessor caveat) still covers the marker write.
      * {@code HyperSwitchPaymentAdapter.createRefund} is blocking, so this holds naturally.</p>
      *
+     * <p>INT-3: this runs on a SYSTEM thread with no request-scoped {@code PaymentMode}, so for a
+     * TEST-originated refund {@code RefundOrchestrationService.executeApprovedRefund} re-applies the
+     * payment's captured mode AND the {@code GatedPaymentGateway} routes any {@code pay_test_*} target to
+     * the mock — so a test refund never reaches {@code HyperSwitchPaymentAdapter} here. Only genuine LIVE
+     * refunds reach the real adapter.</p>
+     *
      * @return {@code true} iff this call drove the refund to executed; {@code false} otherwise (skipped,
      *         pending/failed PSP response, or gateway failure — all re-drivable next cycle).
      */

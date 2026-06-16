@@ -5,6 +5,7 @@ import io.nexuspay.fraud.application.port.in.AssessFraudRiskUseCase;
 import io.nexuspay.fraud.domain.model.FraudAssessmentResult;
 import io.nexuspay.fraud.domain.model.RiskDecision;
 import io.nexuspay.payment.adapter.out.hyperswitch.HyperSwitchPaymentAdapter;
+import io.nexuspay.payment.adapter.out.mock.MockPaymentGatewayPort;
 import io.nexuspay.payment.application.fx.CrossBorderComplianceService;
 import io.nexuspay.payment.application.port.fx.CrossBorderCompliancePort;
 import io.nexuspay.payment.application.port.fx.MerchantCurrencyPrefsRepository;
@@ -12,9 +13,12 @@ import io.nexuspay.payment.application.port.fx.MerchantCurrencyPrefsRepository.M
 import io.nexuspay.payment.domain.PaymentRequest;
 import io.nexuspay.payment.domain.PaymentResponse;
 import io.nexuspay.payment.domain.fx.CountryRestriction;
+import io.nexuspay.common.mode.PaymentMode;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.web.context.request.RequestContextHolder;
 
 import java.time.Instant;
 import java.util.List;
@@ -48,6 +52,8 @@ class GatedPaymentGatewayGeographyTest {
     private CaptureHoldService holds;
     private ScreeningOriginService origins;
     private io.nexuspay.payment.application.webhook.WebhookMetadataService webhookMetadata;
+    private MockPaymentGatewayPort mockDelegate;
+    private io.nexuspay.payment.application.webhook.MockWebhookSynthesizer mockSynthesizer;
     private GatedPaymentGateway gateway;
 
     @BeforeEach
@@ -74,7 +80,28 @@ class GatedPaymentGatewayGeographyTest {
         CrossBorderComplianceService compliance = new CrossBorderComplianceService(sanctionsPort, true);
         ServerGeographyResolver resolver = new ServerGeographyResolver(merchantPrefs);
         PreAuthorizationGate gate = new PreAuthorizationGate(compliance, fraud, resolver);
-        gateway = new GatedPaymentGateway(delegate, gate, holds, origins, webhookMetadata);
+        // INT-3: these tests run on a plain unit thread (no servlet request bound, PaymentMode unset) so
+        // routeToMock() resolves to the REAL delegate (system/default-LIVE). The mock collaborators are
+        // supplied but never invoked here — the live geography/screening path is unchanged.
+        mockDelegate = mock(MockPaymentGatewayPort.class);
+        mockSynthesizer = mock(io.nexuspay.payment.application.webhook.MockWebhookSynthesizer.class);
+        gateway = new GatedPaymentGateway(delegate, mockDelegate, gate, holds, origins, webhookMetadata,
+                mockSynthesizer);
+        // These live-path tests rely on routeToMock() resolving to the REAL delegate, which requires
+        // PaymentMode UNSET and NO servlet request bound. JUnit reuses worker threads across classes, so a
+        // prior test (e.g. the routing test, which binds a MockHttpServletRequest) could leave ambient
+        // state that flips routeToMock() to the mock and make these assertions pass vacuously / flakily.
+        // Clear both BEFORE each test so the live path can never be polluted by a prior test.
+        PaymentMode.clear();
+        RequestContextHolder.resetRequestAttributes();
+    }
+
+    @AfterEach
+    void tearDown() {
+        // Symmetric cleanup: never leak this class's (unset) assumptions or any bound request onto the
+        // next test's thread. Mirrors GatedPaymentGatewayModeRoutingTest's teardown.
+        PaymentMode.clear();
+        RequestContextHolder.resetRequestAttributes();
     }
 
     private void merchantCountry(String tenantId, String country) {

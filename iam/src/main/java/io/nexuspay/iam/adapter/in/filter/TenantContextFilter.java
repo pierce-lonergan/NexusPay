@@ -1,5 +1,6 @@
 package io.nexuspay.iam.adapter.in.filter;
 
+import io.nexuspay.common.mode.PaymentMode;
 import io.nexuspay.iam.domain.NexusPayPrincipal;
 import io.nexuspay.iam.domain.TenantContext;
 import jakarta.servlet.FilterChain;
@@ -53,10 +54,25 @@ public class TenantContextFilter extends OncePerRequestFilter {
                 MDC.put(MDC_TENANT_KEY, tenantId);
                 log.trace("Tenant context set: {}", tenantId);
             }
+            // INT-3: belt-and-suspenders mode stamp for the JWT/OIDC (and any non-API-key) ingress that
+            // the @Order(1) ApiKeyAuthenticationFilter did not stamp. Only set when STILL UNSET so the
+            // API-key filter's already-stamped mode is never clobbered. A NexusPayPrincipal from JWT/OIDC
+            // carries live=true by default, so a console actor is explicitly LIVE (not unset-fail-closed).
+            if (PaymentMode.isUnset()) {
+                Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+                Object principal = auth != null ? auth.getPrincipal() : null;
+                if (principal instanceof NexusPayPrincipal np) {
+                    PaymentMode.set(np.live());
+                }
+            }
             chain.doFilter(request, response);
         } finally {
             TenantContext.clear();
             MDC.remove(MDC_TENANT_KEY);
+            // INT-3: clear the request-scoped mode holder so it never leaks onto a pooled thread. Safe to
+            // call unconditionally — clear() is a ThreadLocal.remove() (the API-key filter also clears
+            // only what it set; a double clear is harmless).
+            PaymentMode.clear();
         }
     }
 

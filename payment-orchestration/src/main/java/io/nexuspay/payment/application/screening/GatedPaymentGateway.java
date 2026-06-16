@@ -1,8 +1,11 @@
 package io.nexuspay.payment.application.screening;
 
 import io.nexuspay.common.exception.PaymentException;
+import io.nexuspay.common.mode.PaymentMode;
 import io.nexuspay.payment.adapter.out.hyperswitch.HyperSwitchPaymentAdapter;
+import io.nexuspay.payment.adapter.out.mock.MockPaymentGatewayPort;
 import io.nexuspay.payment.application.port.PaymentGatewayPort;
+import io.nexuspay.payment.application.webhook.MockWebhookSynthesizer;
 import io.nexuspay.payment.application.webhook.WebhookMetadataService;
 import io.nexuspay.payment.domain.CaptureRequest;
 import io.nexuspay.payment.domain.ConfirmRequest;
@@ -11,10 +14,12 @@ import io.nexuspay.payment.domain.PaymentResponse;
 import io.nexuspay.payment.domain.RefundRequest;
 import io.nexuspay.payment.domain.RefundResponse;
 import io.nexuspay.payment.domain.VoidRequest;
+import io.nexuspay.payment.domain.event.PaymentEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
+import org.springframework.web.context.request.RequestContextHolder;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -52,21 +57,79 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
     private static final String META_TENANT_ID = "tenant_id";
 
     private final PaymentGatewayPort delegate;
+    /** INT-3: deterministic in-memory fake PSP used for TEST-mode (sk_test_) payments. */
+    private final MockPaymentGatewayPort mockDelegate;
     private final PreAuthorizationGate gate;
     private final CaptureHoldService captureHolds;
     private final ScreeningOriginService screeningOrigins;
     private final WebhookMetadataService webhookMetadata;
+    /** INT-3: writes the same OutboxEvent shape as the real webhook controller for terminal mock ops. */
+    private final MockWebhookSynthesizer mockWebhookSynthesizer;
 
     public GatedPaymentGateway(HyperSwitchPaymentAdapter delegate,
+                               MockPaymentGatewayPort mockDelegate,
                                PreAuthorizationGate gate,
                                CaptureHoldService captureHolds,
                                ScreeningOriginService screeningOrigins,
-                               WebhookMetadataService webhookMetadata) {
+                               WebhookMetadataService webhookMetadata,
+                               MockWebhookSynthesizer mockWebhookSynthesizer) {
         this.delegate = delegate;
+        this.mockDelegate = mockDelegate;
         this.gate = gate;
         this.captureHolds = captureHolds;
         this.screeningOrigins = screeningOrigins;
         this.webhookMetadata = webhookMetadata;
+        this.mockWebhookSynthesizer = mockWebhookSynthesizer;
+    }
+
+    /**
+     * INT-3: the ONE place the mock-vs-real routing decision is made, evaluated on EVERY port call (not
+     * gated on any dev profile — it is key-mode routing). The fail-closed direction differs by execution
+     * context:
+     * <ul>
+     *   <li>request that affirmatively resolved a TEST key → mock;</li>
+     *   <li>request that affirmatively resolved a LIVE key → real PSP (a determinable LIVE key ALWAYS
+     *       reaches HyperSwitch — the explicit invariant carve-out);</li>
+     *   <li>UNSET on a servlet REQUEST thread (an unauthenticated/edge path that still reached a payment
+     *       op) → mock (FAIL CLOSED — never risk a real charge); and</li>
+     *   <li>UNSET on a system/consumer/scheduler thread (no servlet request) → real PSP — system threads
+     *       are real, never test.</li>
+     * </ul>
+     */
+    private boolean routeToMock() {
+        if (PaymentMode.isTestExplicit()) {
+            return true;
+        }
+        if (PaymentMode.isLiveExplicit()) {
+            return false;
+        }
+        // UNSET: a request thread fails closed to the mock; a system/consumer thread resolves to the
+        // real PSP. The two are distinguished by whether a servlet request is bound to this thread.
+        return isRequestThread();
+    }
+
+    /** True when a servlet request is bound to the current thread (vs. a Kafka/scheduler/system thread). */
+    private static boolean isRequestThread() {
+        return RequestContextHolder.getRequestAttributes() != null;
+    }
+
+    /**
+     * INT-3 defense-in-depth fail-safe for the DEFERRED refund path. An above-threshold refund of a TEST
+     * payment is not executed on the originating request thread — it is deferred to a maker-checker
+     * approval that later runs on the APPROVER's thread (a Keycloak/OIDC console actor defaults to LIVE)
+     * or the {@code RefundReconciler}'s SYSTEM thread (mode UNSET → resolves LIVE). On EITHER thread the
+     * originating test key's {@code PaymentMode} is gone, so {@link #routeToMock()} alone would send a
+     * {@code pay_test_*} refund to HyperSwitch.
+     *
+     * <p>A {@code pay_test_}/{@code re_test_} id is, by construction, a MOCK artifact the real PSP never
+     * minted (the real adapter uses opaque connector ids). So a refund/read whose target id carries the
+     * test prefix MUST route to the mock regardless of the executing thread's mode. This makes the
+     * guarantee depend on the server-minted id itself, not solely on the request-scoped holder.</p>
+     */
+    private static boolean isTestModeId(String id) {
+        return id != null
+                && (id.startsWith(MockPaymentGatewayPort.PAY_PREFIX)
+                        || id.startsWith(MockPaymentGatewayPort.REFUND_PREFIX));
     }
 
     /**
@@ -110,6 +173,26 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
 
     private PaymentResponse doCreate(PaymentRequest request, String tenantId, ScreeningMode mode,
                                      Map<String, Object> merchantMeta) {
+        // INT-3: a TEST key routes the actual create to the deterministic mock — NEVER HyperSwitch, in
+        // EVERY profile. We still record the screening ORIGIN (trusted tenant+mode) and the INT-1 V4030
+        // metadata so a test webhook round-trips the real tenant + userId/packId — but we SKIP the
+        // fraud/sanctions GATE (it is a money-out control; the mock moves no real money, hits no PSP).
+        if (routeToMock()) {
+            PaymentResponse response = mockDelegate.createPayment(request);
+            if (response != null && response.gatewayPaymentId() != null) {
+                screeningOrigins.record(response.gatewayPaymentId(), new CallContext(tenantId, mode));
+                // live=false: the V4030 __livemode marker drives the delivered webhook's top-level livemode.
+                webhookMetadata.record(response.gatewayPaymentId(), tenantId, merchantMeta, false);
+                // Ordering guarantee: synthesize the outbox event ONLY AFTER origin+metadata are persisted,
+                // so the 1s OutboxRelay poll cannot deliver before the metadata row exists (which would
+                // ship {} metadata + a "default" tenant). An auto-capture create is a terminal money state.
+                if (response.isSuccessful()) {
+                    mockWebhookSynthesizer.onTerminal(response, tenantId, PaymentEvent.PAYMENT_CAPTURED);
+                }
+            }
+            return response;
+        }
+
         if (tenantId == null || tenantId.isBlank()) {
             log.warn("createPayment (ref={}, mode={}) has no trusted tenant — geography resolver "
                     + "will fail closed to a mandatory review", request.idempotencyKey(), mode);
@@ -151,7 +234,9 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
             // checkout all create their intent here — so it covers every webhook-emitting payment. The
             // store sanitizes (PAN/card + source/workflow/tenant_id stripped) and caps size; a persist
             // failure NEVER fails the payment (delivery just sends {} metadata).
-            webhookMetadata.record(response.gatewayPaymentId(), tenantId, merchantMeta);
+            // INT-3: this is the LIVE path (routeToMock() was false) -> stamp __livemode=true so the
+            // delivered webhook's top-level livemode is server-sourced for real payments too.
+            webhookMetadata.record(response.gatewayPaymentId(), tenantId, merchantMeta, true);
             if (hold) {
                 captureHolds.hold(response.gatewayPaymentId(), tenantId, decision.fraudAssessmentId());
             }
@@ -180,6 +265,11 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
     }
 
     private PaymentResponse doConfirm(String paymentId, ConfirmRequest request) {
+        // INT-3: a TEST key confirms against the mock and SKIPS the re-screen (no money-out, no PSP). The
+        // id fail-safe also routes a pay_test_* confirm to the mock on any non-test-request thread.
+        if (routeToMock() || isTestModeId(paymentId)) {
+            return mockDelegate.confirmPayment(paymentId, request);
+        }
         // ALWAYS screen on confirm (B2): sanctions is a hard block in every mode, and confirm is
         // the first point a real instrument may appear (a server intent created with no PM/BIN).
         // Load the intent defensively (M3): getPayment is circuit-broken with no fallback.
@@ -261,6 +351,15 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
 
     @Override
     public PaymentResponse capturePayment(String paymentId, CaptureRequest request) {
+        // INT-3: a TEST key captures against the mock — NEVER the HyperSwitch delegate or the capture-hold
+        // (the hold is a live fraud-review control). Capture is a terminal money state -> synthesize
+        // PaymentCaptured (payment.succeeded) so the test webhook loop fires. The id fail-safe also routes
+        // a pay_test_* capture to the mock on a non-test-request thread.
+        if (routeToMock() || isTestModeId(paymentId)) {
+            PaymentResponse r = mockDelegate.capturePayment(paymentId, request);
+            mockWebhookSynthesizer.onTerminal(r, resolveTenant(paymentId), PaymentEvent.PAYMENT_CAPTURED);
+            return r;
+        }
         if (captureHolds.isHeld(paymentId)) {
             log.warn("Capture refused for payment {} — held pending fraud review", paymentId);
             throw new PaymentException("Capture blocked pending fraud review", "capture_hold_review");
@@ -270,22 +369,66 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
 
     @Override
     public PaymentResponse voidPayment(String paymentId, VoidRequest request) {
+        // INT-3: a TEST key voids against the mock. Cancelled is not money-out, but synthesize
+        // PaymentVoided (payment.canceled) for loop fidelity with the real path. The id fail-safe also
+        // routes a pay_test_* void to the mock on a non-test-request thread.
+        if (routeToMock() || isTestModeId(paymentId)) {
+            PaymentResponse r = mockDelegate.voidPayment(paymentId, request);
+            mockWebhookSynthesizer.onTerminal(r, resolveTenant(paymentId), PaymentEvent.PAYMENT_VOIDED);
+            return r;
+        }
         return delegate.voidPayment(paymentId, request); // free pre-capture compensation — no screen
     }
 
     @Override
     public PaymentResponse getPayment(String paymentId) {
+        // INT-3: a TEST key reads from the mock store — never a network call to HyperSwitch. The id
+        // fail-safe also reads a pay_test_* id from the mock on a non-test-request thread.
+        if (routeToMock() || isTestModeId(paymentId)) {
+            return mockDelegate.getPayment(paymentId);
+        }
         return delegate.getPayment(paymentId);
     }
 
     @Override
     public RefundResponse createRefund(RefundRequest request) {
+        // INT-3: a TEST key refunds against the mock and synthesizes RefundCompleted (payment.refunded);
+        // the originating test payment's origin row supplies the trusted tenant.
+        //
+        // DEFERRED-PATH FAIL-SAFE (BLOCKER): an above-threshold refund is executed later by the approver
+        // (console actor → LIVE) or the RefundReconciler (system thread → LIVE), NOT on the originating
+        // test request thread — so routeToMock() alone is gone by then. We ALSO route to the mock when the
+        // TARGET PAYMENT id is a mock artifact (pay_test_*), so a test payment's refund can NEVER reach
+        // HyperSwitch through the maker-checker/reconciler path. fail-safe || thread-mode.
+        if (routeToMock() || isTestModeId(request != null ? request.paymentId() : null)) {
+            RefundResponse r = mockDelegate.createRefund(request);
+            mockWebhookSynthesizer.onRefundTerminal(r, resolveTenant(request.paymentId()),
+                    PaymentEvent.REFUND_COMPLETED);
+            return r;
+        }
         return delegate.createRefund(request);
     }
 
     @Override
     public RefundResponse getRefund(String refundId) {
+        // INT-3: a TEST key reads the refund from the mock store — never a network call. The id fail-safe
+        // covers a deferred/system reader: a re_test_* id is a mock artifact, so read it from the mock.
+        if (routeToMock() || isTestModeId(refundId)) {
+            return mockDelegate.getRefund(refundId);
+        }
         return delegate.getRefund(refundId);
+    }
+
+    /**
+     * INT-3: resolves the TRUSTED tenant for a synthesized test webhook from the server-owned screening
+     * origin store keyed by the payment id — the SAME source the real {@code HyperSwitchWebhookController}
+     * uses, never client metadata. Returns {@code null} when absent (the synthesizer then falls back to
+     * "default" — a delivery gap, never a cross-tenant leak).
+     */
+    private String resolveTenant(String paymentId) {
+        return screeningOrigins.find(paymentId)
+                .map(ScreeningOriginService.Origin::tenantId)
+                .orElse(null);
     }
 
     /**

@@ -18,11 +18,25 @@ final class ResponseMapper {
     private ResponseMapper() {
     }
 
+    /**
+     * Maps a payment with no explicit mode (mode dropped by NON_NULL). Retained for any caller without
+     * an authenticated principal; the REST endpoints use {@link #toPaymentResponse(PaymentResponse,
+     * String)} to stamp the server-derived mode.
+     */
     static PaymentApiResponse toPaymentResponse(PaymentResponse p) {
+        return toPaymentResponse(p, null);
+    }
+
+    /**
+     * INT-3: maps a payment and stamps the SERVER-DERIVED key {@code mode} ("test"/"live"). The caller
+     * derives {@code mode} from the authenticated principal's {@code live()} flag, never from the request
+     * body. A {@code null} mode is dropped by the DTO's NON_NULL include.
+     */
+    static PaymentApiResponse toPaymentResponse(PaymentResponse p, String mode) {
         return new PaymentApiResponse(
                 p.gatewayPaymentId(), p.status(), p.amount(), p.currency(),
                 p.captureMethod(), p.customerId(), p.connectorName(),
-                p.errorCode(), p.errorMessage(), p.createdAt(), p.metadata()
+                p.errorCode(), p.errorMessage(), p.createdAt(), p.metadata(), mode
         );
     }
 

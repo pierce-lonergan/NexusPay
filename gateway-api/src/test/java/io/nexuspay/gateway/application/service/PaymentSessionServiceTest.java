@@ -20,7 +20,9 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -46,14 +48,19 @@ class PaymentSessionServiceTest {
         service = new PaymentSessionService(repository, tokenIssuer, DEFAULT_EXPIRY);
         // repo.save echoes its argument back, matching JPA-style adapters.
         when(repository.save(any(PaymentSession.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(tokenIssuer.issueToken(anyString(), anyString()))
+        // INT-3: the service now threads the session's mode into the 3-arg issueToken(id, tenant, live).
+        when(tokenIssuer.issueToken(anyString(), anyString(), anyBoolean()))
                 .thenAnswer(inv -> new SessionToken("jwt", inv.getArgument(0), inv.getArgument(1),
-                        Instant.now().plus(DEFAULT_EXPIRY)));
+                        Instant.now().plus(DEFAULT_EXPIRY), inv.getArgument(2)));
     }
 
     private static CreateSessionCommand command(List<String> methods) {
+        return command(methods, true);
+    }
+
+    private static CreateSessionCommand command(List<String> methods, boolean live) {
         return new CreateSessionCommand(
-                "t1", 12345L, "EUR", "cus_1",
+                "t1", live, 12345L, "EUR", "cus_1",
                 "https://ok", "https://cancel",
                 methods, Map.of("logo", "x"), Map.of("order", "o1"));
     }
@@ -94,7 +101,17 @@ class PaymentSessionServiceTest {
         // Result carries both the session and the issued token.
         assertThat(result.session()).isSameAs(saved);
         assertThat(result.token().token()).isEqualTo("jwt");
-        verify(tokenIssuer).issueToken(saved.getId(), "t1");
+        verify(tokenIssuer).issueToken(saved.getId(), "t1", true);
+    }
+
+    @Test
+    void create_threadsTestModeIntoIssuedToken() {
+        // INT-3: a session created under an sk_test_ key (live=false) MUST issue a token carrying
+        // live=false so SDK checkout routes to the mock, never the real PSP.
+        CreateSessionResult result = service.create(command(List.of("card"), false));
+
+        assertThat(result.token().live()).isFalse();
+        verify(tokenIssuer).issueToken(anyString(), eq("t1"), eq(false));
     }
 
     @Test

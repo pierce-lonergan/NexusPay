@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nexuspay.common.domain.ApiError;
 import io.nexuspay.common.domain.ApiErrorResponse;
 import io.nexuspay.common.domain.SessionToken;
+import io.nexuspay.common.mode.PaymentMode;
 import io.nexuspay.iam.application.service.SessionTokenIssuer;
 import io.nexuspay.iam.domain.NexusPayPrincipal;
 import io.nexuspay.iam.domain.TenantContext;
@@ -85,13 +86,16 @@ public class SessionTokenAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
 
-        // Create session-scoped principal
+        // INT-3: build the principal with the SERVER-DERIVED mode carried in the signed session JWT (the
+        // 6-arg ctor — the 5-arg ctor would default live=true and silently route a test-mode SDK checkout
+        // to the real PSP). A session created under an sk_test_ key carries live=false.
         var principal = new NexusPayPrincipal(
                 sessionToken.sessionId(),   // userId = sessionId for session-scoped auth
                 sessionToken.tenantId(),
                 "session",
                 NexusPayPrincipal.AuthMethod.SESSION_TOKEN,
-                sessionToken.sessionId()
+                sessionToken.sessionId(),
+                sessionToken.live()
         );
 
         var authorities = List.of(new SimpleGrantedAuthority("ROLE_SESSION"));
@@ -100,14 +104,21 @@ public class SessionTokenAuthenticationFilter extends OncePerRequestFilter {
 
         // Set tenant context for RLS
         TenantContext.set(sessionToken.tenantId());
+        // INT-3: stamp the request-scoped payment mode from the signed session claim so the @Primary
+        // GatedPaymentGateway routes /v1/checkout/confirm to the mock for a test-mode session. This filter
+        // runs @Order(0) and TenantContextFilter's belt-and-suspenders fallback only fires when the mode
+        // is UNSET, so once we set it here that fallback never clobbers a test session to LIVE. Cleared in
+        // the finally below so it never leaks onto the next request on this pooled thread.
+        PaymentMode.set(sessionToken.live());
 
-        log.debug("Session token authenticated: session={}, tenant={}",
-                sessionToken.sessionId(), sessionToken.tenantId());
+        log.debug("Session token authenticated: session={}, tenant={}, live={}",
+                sessionToken.sessionId(), sessionToken.tenantId(), sessionToken.live());
 
         try {
             filterChain.doFilter(request, response);
         } finally {
             TenantContext.clear();
+            PaymentMode.clear();
         }
     }
 
