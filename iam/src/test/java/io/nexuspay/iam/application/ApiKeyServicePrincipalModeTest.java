@@ -38,7 +38,7 @@ class ApiKeyServicePrincipalModeTest {
     @Test
     void testKeyEntity_yieldsTestPrincipal_liveFalse() {
         // A real sk_test_ key whose entity is_live=false -> principal.live()==false.
-        String rawKey = "sk_test_abcdef0123456789";
+        String rawKey = "sk_test_unitk1";
         ApiKeyService service = serviceWith(entity(rawKey, false), rawKey);
 
         NexusPayPrincipal principal = service.authenticate(rawKey);
@@ -50,7 +50,7 @@ class ApiKeyServicePrincipalModeTest {
 
     @Test
     void liveKeyEntity_yieldsLivePrincipal_liveTrue() {
-        String rawKey = "sk_live_abcdef0123456789";
+        String rawKey = "sk_live_unitk1";
         ApiKeyService service = serviceWith(entity(rawKey, true), rawKey);
 
         NexusPayPrincipal principal = service.authenticate(rawKey);
@@ -64,7 +64,7 @@ class ApiKeyServicePrincipalModeTest {
         // A key whose RAW STRING says sk_test_ but whose ENTITY is_live=true must yield LIVE — the
         // mode comes from the column, never from parsing the string. (Defensive: in production the prefix
         // and is_live agree, but this proves the source of truth.)
-        String rawKey = "sk_test_serverDerivedProof";
+        String rawKey = "sk_test_unitk2";
         ApiKeyService service = serviceWith(entity(rawKey, true), rawKey);
 
         assertThat(service.authenticate(rawKey).live())
