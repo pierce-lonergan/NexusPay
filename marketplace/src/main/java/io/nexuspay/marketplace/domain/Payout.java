@@ -24,6 +24,14 @@ public class Payout {
     private String externalReference;
     private Instant createdAt;
 
+    // SEC-25: PROCESSING-recovery bookkeeping. processingSince is stamped by the SEC-11 claim UPDATE
+    // (the single source of "when did this row enter PROCESSING" — created_at is creation time, not
+    // claim time); the rest mirror B-022's RefundReconciler bounded-retry fields.
+    private Instant processingSince;
+    private int reconcileAttempts;
+    private Instant nextReconcileAt;
+    private String lastReconcileError;
+
     public static Payout create(String connectedAccountId, String tenantId, long amount,
                                  String currency, PayoutMethod method) {
         Payout payout = new Payout();
@@ -36,6 +44,16 @@ public class Payout {
         payout.method = method;
         payout.createdAt = Instant.now();
         return payout;
+    }
+
+    /**
+     * SEC-25: the deterministic PSP idempotency key for a payout — {@code "payout-<id>"} (B-009 style).
+     * One source of truth used by BOTH the original disburse ({@code PayoutService.processPendingPayouts})
+     * and EVERY reconciler re-drive ({@code PayoutReconcileService.redrive}), so a re-drive racing a
+     * late-completing original both send the byte-identical key and the PSP dedups → money moves once.
+     */
+    public static String idempotencyKey(String payoutId) {
+        return "payout-" + payoutId;
     }
 
     public void markProcessing() {
@@ -92,4 +110,16 @@ public class Payout {
 
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+
+    public Instant getProcessingSince() { return processingSince; }
+    public void setProcessingSince(Instant processingSince) { this.processingSince = processingSince; }
+
+    public int getReconcileAttempts() { return reconcileAttempts; }
+    public void setReconcileAttempts(int reconcileAttempts) { this.reconcileAttempts = reconcileAttempts; }
+
+    public Instant getNextReconcileAt() { return nextReconcileAt; }
+    public void setNextReconcileAt(Instant nextReconcileAt) { this.nextReconcileAt = nextReconcileAt; }
+
+    public String getLastReconcileError() { return lastReconcileError; }
+    public void setLastReconcileError(String lastReconcileError) { this.lastReconcileError = lastReconcileError; }
 }

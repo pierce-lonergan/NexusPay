@@ -751,3 +751,18 @@ under the same tenant; the adapter routes through the existing tenant-aware ensu
 tenant-scoped). No migration needed (existing tenant-aware overload + tenant_id columns). New
 LedgerChargebackAdapterTest pins tenantId on all 3 flows (+ asserts never DEFAULT_TENANT, balanced postings) —
 fails on the vulnerable code. 0 BLOCKERS, 2 SHOULD_FIX (adapter test), applied. ADR-036.
+
+## ADR-037 | 2026-06-16 | SEC-25: payout disburse-before-commit reconciler (T3)
+PayoutService commits the SEC-11 atomic claim (PENDING->PROCESSING) and only then disburses + writes the terminal
+markPaid/markFailed; a crash in that window strands the row PROCESSING forever (the scheduler's finder selects only
+PENDING, so it's never re-driven — money un-disbursed, no double-pay). New leader-locked @Scheduled PayoutReconciler
+(+ PayoutReconcileService) mirrors B-022's RefundReconciler and reuses the marketplace fail-closed SchedulerLock
+(atomic Valkey owner-checked release, B-018/SEC-11): it finds payouts PROCESSING longer than a threshold (new
+processing_since column, V4032) and re-drives each. NO double-pay: the disburse now ALWAYS carries a deterministic
+idempotency key (payout-<id>, Payout.idempotencyKey) on BOTH the original path (PayoutService) and every reconciler
+re-drive, so the PSP dedups (B-009); defense-in-depth re-checks status FOR UPDATE before re-driving. Terminal
+transitions use the existing PAID/FAILED (conditional SQL UPDATEs); transient errors keep it PROCESSING + record
+last_reconcile_error for a bounded next pass. V4032 adds processing_since + reconcile tracking (+ index). Tests:
+stuck-PROCESSING recovered to terminal, idempotent re-drive (same key, no second disburse), leader-locked single-run,
+threshold doesn't grab fresh payouts; SERIALIZABLE soak @Tag("simulation"). 0 BLOCKERS, 5 SHOULD_FIX (failure_reason
+truncation vs column width, PSP-call-in-tx contract, race hardening), applied. Migration V4032. ADR-037.

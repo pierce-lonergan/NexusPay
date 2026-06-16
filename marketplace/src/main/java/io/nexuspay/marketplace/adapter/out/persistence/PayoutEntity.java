@@ -53,6 +53,21 @@ public class PayoutEntity {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    // SEC-25 (V4032): PROCESSING-recovery bookkeeping. processing_since is stamped by the SEC-11 claim
+    // UPDATE so the reconciler can tell HOW LONG a row has been PROCESSING (created_at is creation time,
+    // not claim time). The rest mirror B-022's pending_approvals reconcile columns.
+    @Column(name = "processing_since")
+    private Instant processingSince;
+
+    @Column(name = "reconcile_attempts", nullable = false)
+    private int reconcileAttempts;
+
+    @Column(name = "next_reconcile_at")
+    private Instant nextReconcileAt;
+
+    @Column(name = "last_reconcile_error")
+    private String lastReconcileError;
+
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
 
@@ -88,4 +103,16 @@ public class PayoutEntity {
 
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+
+    public Instant getProcessingSince() { return processingSince; }
+    public void setProcessingSince(Instant processingSince) { this.processingSince = processingSince; }
+
+    public int getReconcileAttempts() { return reconcileAttempts; }
+    public void setReconcileAttempts(int reconcileAttempts) { this.reconcileAttempts = reconcileAttempts; }
+
+    public Instant getNextReconcileAt() { return nextReconcileAt; }
+    public void setNextReconcileAt(Instant nextReconcileAt) { this.nextReconcileAt = nextReconcileAt; }
+
+    public String getLastReconcileError() { return lastReconcileError; }
+    public void setLastReconcileError(String lastReconcileError) { this.lastReconcileError = lastReconcileError; }
 }

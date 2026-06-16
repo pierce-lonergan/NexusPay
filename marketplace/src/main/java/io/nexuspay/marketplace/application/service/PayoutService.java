@@ -28,6 +28,12 @@ public class PayoutService implements SchedulePayoutUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(PayoutService.class);
 
+    // SEC-25: payouts.failure_reason is VARCHAR(256) (V4002:68). An oversized PSP failureReason or
+    // exception message must be capped before markFailed/savePayout, or the terminal UPDATE throws a
+    // value-too-long DataException and the row never cleanly reaches FAILED (same hazard the reconciler
+    // guards). Cap matches the column width.
+    private static final int FAILURE_REASON_MAX_LEN = 256;
+
     private final MarketplaceRepository repository;
     private final PayoutExecutionPort payoutExecution;
     private final MarketplaceEventPublisher eventPublisher;
@@ -140,7 +146,11 @@ public class PayoutService implements SchedulePayoutUseCase {
                 var result = payoutExecution.execute(
                         new PayoutExecutionPort.PayoutExecutionRequest(
                                 payout.getId(), payout.getConnectedAccountId(),
-                                payout.getAmount(), payout.getCurrency(), payout.getMethod()));
+                                payout.getAmount(), payout.getCurrency(), payout.getMethod(),
+                                // SEC-25: deterministic key the PayoutReconciler will REUSE byte-for-byte
+                                // on every re-drive, so a crash between this claim+disburse and the
+                                // terminal save is recovered without double-paying (PSP dedups the key).
+                                Payout.idempotencyKey(payout.getId())));
 
                 if (result.success()) {
                     payout.markPaid(result.externalReference());
@@ -150,9 +160,9 @@ public class PayoutService implements SchedulePayoutUseCase {
                             payout.getTenantId());
                     log.info("Payout executed: id={}, ref={}", payout.getId(), result.externalReference());
                 } else {
-                    payout.markFailed(result.failureReason());
+                    payout.markFailed(truncateReason(result.failureReason()));
                     eventPublisher.publishEvent("Payout", payout.getId(), "PayoutFailed",
-                            Map.of("reason", result.failureReason(),
+                            Map.of("reason", String.valueOf(result.failureReason()),
                                     "tenantId", payout.getTenantId()),
                             payout.getTenantId());
                     log.warn("Payout failed: id={}, reason={}", payout.getId(), result.failureReason());
@@ -160,7 +170,7 @@ public class PayoutService implements SchedulePayoutUseCase {
 
                 repository.savePayout(payout);
             } catch (Exception e) {
-                payout.markFailed(e.getMessage());
+                payout.markFailed(truncateReason(e.getMessage()));
                 repository.savePayout(payout);
                 log.error("Payout processing error: id={}, error={}", payout.getId(), e.getMessage(), e);
             }
@@ -169,6 +179,14 @@ public class PayoutService implements SchedulePayoutUseCase {
         if (!pendingPayouts.isEmpty()) {
             log.info("Processed {} pending payouts", pendingPayouts.size());
         }
+    }
+
+    /** Caps a failure reason to the failure_reason column width (256) so the terminal save can't throw. */
+    private static String truncateReason(String reason) {
+        if (reason == null) {
+            return null;
+        }
+        return reason.length() <= FAILURE_REASON_MAX_LEN ? reason : reason.substring(0, FAILURE_REASON_MAX_LEN);
     }
 
     private PayoutResult toPayoutResult(Payout p) {

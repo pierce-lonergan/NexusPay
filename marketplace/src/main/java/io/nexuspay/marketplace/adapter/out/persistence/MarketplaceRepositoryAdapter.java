@@ -154,7 +154,46 @@ public class MarketplaceRepositoryAdapter implements MarketplaceRepository {
     public boolean claimPayoutForProcessing(String id) {
         // SEC-11: @Modifying needs an active tx (supplied by the scheduler's @SystemTransactional).
         // rows-affected==1 means this replica/cycle won the PENDING -> PROCESSING transition.
+        // SEC-25: the claim UPDATE also stamps processing_since (the reconciler's stuck clock).
         return payoutRepo.claimForProcessing(id) == 1;
+    }
+
+    // --- SEC-25: stuck-PROCESSING recovery ---
+
+    @Override
+    public List<Payout> findStuckProcessingPayouts(Instant cutoff, Instant now, int maxAttempts, int batchSize) {
+        return payoutRepo.findStuckProcessing(cutoff, now, maxAttempts, batchSize).stream()
+                .map(this::toDomain).toList();
+    }
+
+    @Override
+    public List<Payout> findExhaustedProcessingPayouts(int maxAttempts) {
+        return payoutRepo.findExhaustedProcessing(maxAttempts).stream()
+                .map(this::toDomain).toList();
+    }
+
+    @Override
+    @Transactional
+    public Optional<Payout> reloadStuckPayoutForUpdate(String id) {
+        return payoutRepo.findProcessingByIdForUpdate(id).map(this::toDomain);
+    }
+
+    @Override
+    @Transactional
+    public boolean markPayoutPaid(String id, String tenantId, String externalReference) {
+        return payoutRepo.markPaidById(id, tenantId, externalReference) == 1;
+    }
+
+    @Override
+    @Transactional
+    public boolean markPayoutFailed(String id, String tenantId, String reason) {
+        return payoutRepo.markFailedById(id, tenantId, reason) == 1;
+    }
+
+    @Override
+    @Transactional
+    public void recordPayoutReconcileFailure(String id, String tenantId, Instant nextReconcileAt, String error) {
+        payoutRepo.recordReconcileFailureById(id, tenantId, nextReconcileAt, error);
     }
 
     // --- PlatformFee ---
@@ -284,6 +323,11 @@ public class MarketplaceRepositoryAdapter implements MarketplaceRepository {
         e.setFailureReason(p.getFailureReason());
         e.setExternalReference(p.getExternalReference());
         e.setCreatedAt(p.getCreatedAt());
+        // SEC-25: PROCESSING-recovery bookkeeping.
+        e.setProcessingSince(p.getProcessingSince());
+        e.setReconcileAttempts(p.getReconcileAttempts());
+        e.setNextReconcileAt(p.getNextReconcileAt());
+        e.setLastReconcileError(p.getLastReconcileError());
         return e;
     }
 
@@ -301,6 +345,11 @@ public class MarketplaceRepositoryAdapter implements MarketplaceRepository {
         p.setFailureReason(e.getFailureReason());
         p.setExternalReference(e.getExternalReference());
         p.setCreatedAt(e.getCreatedAt());
+        // SEC-25: PROCESSING-recovery bookkeeping.
+        p.setProcessingSince(e.getProcessingSince());
+        p.setReconcileAttempts(e.getReconcileAttempts());
+        p.setNextReconcileAt(e.getNextReconcileAt());
+        p.setLastReconcileError(e.getLastReconcileError());
         return p;
     }
 
