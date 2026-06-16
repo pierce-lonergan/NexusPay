@@ -5,6 +5,7 @@ import io.nexuspay.b2b.adapter.in.rest.dto.PurchaseOrderResponse;
 import io.nexuspay.b2b.application.port.in.ManagePurchaseOrderUseCase;
 import io.nexuspay.b2b.domain.LineItem;
 import io.nexuspay.b2b.domain.PaymentTerms;
+import io.nexuspay.common.tenant.CallerTenant;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -31,7 +32,6 @@ public class PurchaseOrderController {
     @PostMapping
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<PurchaseOrderResponse> createPurchaseOrder(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @Valid @RequestBody CreatePurchaseOrderRequest request) {
 
         PaymentTerms terms = request.terms() != null
@@ -45,9 +45,10 @@ public class PurchaseOrderController {
                     .toList()
                 : List.of();
 
+        // SEC-23: tenant resolved from the authenticated principal, never from a client X-Tenant-Id header.
         var result = purchaseOrderUseCase.createPurchaseOrder(
                 new ManagePurchaseOrderUseCase.CreatePurchaseOrderCommand(
-                        tenantId, request.buyerId(), request.sellerId(),
+                        CallerTenant.require(), request.buyerId(), request.sellerId(),
                         request.poNumber(), request.currency(), terms,
                         request.taxAmount(), lineItems));
 
@@ -57,40 +58,36 @@ public class PurchaseOrderController {
     @GetMapping("/{poId}")
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<PurchaseOrderResponse> getPurchaseOrder(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String poId) {
 
-        var result = purchaseOrderUseCase.getPurchaseOrder(poId, tenantId);
+        var result = purchaseOrderUseCase.getPurchaseOrder(poId, CallerTenant.require());
         return ResponseEntity.ok(toResponse(result));
     }
 
     @PostMapping("/{poId}/submit")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<PurchaseOrderResponse> submitPurchaseOrder(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String poId) {
 
-        var result = purchaseOrderUseCase.submitPurchaseOrder(poId, tenantId);
+        var result = purchaseOrderUseCase.submitPurchaseOrder(poId, CallerTenant.require());
         return ResponseEntity.ok(toResponse(result));
     }
 
     @PostMapping("/{poId}/approve")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<PurchaseOrderResponse> approvePurchaseOrder(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String poId) {
 
-        var result = purchaseOrderUseCase.approvePurchaseOrder(poId, tenantId);
+        var result = purchaseOrderUseCase.approvePurchaseOrder(poId, CallerTenant.require());
         return ResponseEntity.ok(toResponse(result));
     }
 
     @PostMapping("/{poId}/cancel")
     @PreAuthorize("hasRole('admin')")
     public ResponseEntity<Void> cancelPurchaseOrder(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String poId) {
 
-        purchaseOrderUseCase.cancelPurchaseOrder(poId, tenantId);
+        purchaseOrderUseCase.cancelPurchaseOrder(poId, CallerTenant.require());
         return ResponseEntity.noContent().build();
     }
 

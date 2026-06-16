@@ -62,6 +62,11 @@ public class FraudAssessmentRepositoryAdapter implements FraudAssessmentReposito
     }
 
     @Override
+    public Optional<RiskAssessment> findByIdAndTenantId(UUID id, String tenantId) {
+        return jpaRepo.findByIdAndTenantId(id, tenantId).map(this::toDomain);
+    }
+
+    @Override
     public List<RiskAssessment> findPendingReviews(String tenantId, int limit) {
         return jpaRepo.findByTenantIdAndReviewStatus(tenantId, "PENDING_REVIEW",
                         PageRequest.of(0, limit))

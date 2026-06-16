@@ -18,5 +18,8 @@ public interface JpaFraudAssessmentRepository extends JpaRepository<FraudAssessm
 
     Optional<FraudAssessmentEntity> findByTenantIdAndPaymentId(String tenantId, String paymentId);
 
+    // SEC-23: tenant-scoped by-id lookup — empty when absent OR owned by another tenant.
+    Optional<FraudAssessmentEntity> findByIdAndTenantId(UUID id, String tenantId);
+
     List<FraudAssessmentEntity> findByTenantIdAndReviewStatus(String tenantId, String reviewStatus, Pageable pageable);
 }

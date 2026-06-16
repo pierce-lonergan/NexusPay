@@ -4,6 +4,7 @@ import io.nexuspay.b2b.application.port.in.ManagePurchaseOrderUseCase;
 import io.nexuspay.b2b.application.port.out.B2bEventPublisher;
 import io.nexuspay.b2b.application.port.out.B2bRepository;
 import io.nexuspay.b2b.domain.*;
+import io.nexuspay.common.exception.ResourceNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -75,7 +76,7 @@ class PurchaseOrderServiceTest {
     @Test
     void getPurchaseOrder_returnsResult() {
         PurchaseOrder po = PurchaseOrder.create("tenant-1", "buyer-1", "seller-1", "PO-003", "USD", PaymentTerms.NET_30);
-        when(repository.findPurchaseOrderById(po.getId())).thenReturn(Optional.of(po));
+        when(repository.findPurchaseOrderById(po.getId(), "tenant-1")).thenReturn(Optional.of(po));
 
         var result = service.getPurchaseOrder(po.getId(), "tenant-1");
 
@@ -85,15 +86,15 @@ class PurchaseOrderServiceTest {
 
     @Test
     void getPurchaseOrder_throwsWhenNotFound() {
-        when(repository.findPurchaseOrderById("po_missing")).thenReturn(Optional.empty());
+        when(repository.findPurchaseOrderById("po_missing", "tenant-1")).thenReturn(Optional.empty());
 
-        assertThrows(IllegalArgumentException.class, () -> service.getPurchaseOrder("po_missing", "tenant-1"));
+        assertThrows(ResourceNotFoundException.class, () -> service.getPurchaseOrder("po_missing", "tenant-1"));
     }
 
     @Test
     void submitPurchaseOrder_changesStatusToSubmitted() {
         PurchaseOrder po = PurchaseOrder.create("tenant-1", "buyer-1", "seller-1", "PO-004", "USD", PaymentTerms.NET_30);
-        when(repository.findPurchaseOrderById(po.getId())).thenReturn(Optional.of(po));
+        when(repository.findPurchaseOrderById(po.getId(), "tenant-1")).thenReturn(Optional.of(po));
         when(repository.savePurchaseOrder(any())).thenAnswer(inv -> inv.getArgument(0));
 
         var result = service.submitPurchaseOrder(po.getId(), "tenant-1");
@@ -106,7 +107,7 @@ class PurchaseOrderServiceTest {
     void approvePurchaseOrder_changesStatusAndCalculatesDueDate() {
         PurchaseOrder po = PurchaseOrder.create("tenant-1", "buyer-1", "seller-1", "PO-005", "USD", PaymentTerms.NET_30);
         po.submit();
-        when(repository.findPurchaseOrderById(po.getId())).thenReturn(Optional.of(po));
+        when(repository.findPurchaseOrderById(po.getId(), "tenant-1")).thenReturn(Optional.of(po));
         when(repository.savePurchaseOrder(any())).thenAnswer(inv -> inv.getArgument(0));
 
         var result = service.approvePurchaseOrder(po.getId(), "tenant-1");
@@ -119,7 +120,7 @@ class PurchaseOrderServiceTest {
     @Test
     void cancelPurchaseOrder_changesStatusToCancelled() {
         PurchaseOrder po = PurchaseOrder.create("tenant-1", "buyer-1", "seller-1", "PO-006", "USD", PaymentTerms.NET_30);
-        when(repository.findPurchaseOrderById(po.getId())).thenReturn(Optional.of(po));
+        when(repository.findPurchaseOrderById(po.getId(), "tenant-1")).thenReturn(Optional.of(po));
         when(repository.savePurchaseOrder(any())).thenAnswer(inv -> inv.getArgument(0));
 
         service.cancelPurchaseOrder(po.getId(), "tenant-1");
@@ -134,7 +135,7 @@ class PurchaseOrderServiceTest {
     void submitPurchaseOrder_throwsWhenNotDraft() {
         PurchaseOrder po = PurchaseOrder.create("tenant-1", "buyer-1", "seller-1", "PO-007", "USD", PaymentTerms.NET_30);
         po.submit(); // Now SUBMITTED
-        when(repository.findPurchaseOrderById(po.getId())).thenReturn(Optional.of(po));
+        when(repository.findPurchaseOrderById(po.getId(), "tenant-1")).thenReturn(Optional.of(po));
 
         assertThrows(IllegalStateException.class, () -> service.submitPurchaseOrder(po.getId(), "tenant-1"));
     }

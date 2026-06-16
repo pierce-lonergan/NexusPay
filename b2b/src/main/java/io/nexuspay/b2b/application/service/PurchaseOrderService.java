@@ -4,6 +4,7 @@ import io.nexuspay.b2b.application.port.in.ManagePurchaseOrderUseCase;
 import io.nexuspay.b2b.application.port.out.B2bEventPublisher;
 import io.nexuspay.b2b.application.port.out.B2bRepository;
 import io.nexuspay.b2b.domain.PurchaseOrder;
+import io.nexuspay.common.tenant.TenantOwnership;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -56,13 +57,13 @@ public class PurchaseOrderService implements ManagePurchaseOrderUseCase {
     @Override
     @Transactional(readOnly = true)
     public PurchaseOrderResult getPurchaseOrder(String poId, String tenantId) {
-        return toResult(findOrThrow(poId));
+        return toResult(findOrThrow(poId, tenantId));
     }
 
     @Override
     @Transactional
     public PurchaseOrderResult submitPurchaseOrder(String poId, String tenantId) {
-        PurchaseOrder po = findOrThrow(poId);
+        PurchaseOrder po = findOrThrow(poId, tenantId);
         po.submit();
         po = repository.savePurchaseOrder(po);
 
@@ -76,7 +77,7 @@ public class PurchaseOrderService implements ManagePurchaseOrderUseCase {
     @Override
     @Transactional
     public PurchaseOrderResult approvePurchaseOrder(String poId, String tenantId) {
-        PurchaseOrder po = findOrThrow(poId);
+        PurchaseOrder po = findOrThrow(poId, tenantId);
         po.approve();
         po = repository.savePurchaseOrder(po);
 
@@ -91,7 +92,7 @@ public class PurchaseOrderService implements ManagePurchaseOrderUseCase {
     @Override
     @Transactional
     public void cancelPurchaseOrder(String poId, String tenantId) {
-        PurchaseOrder po = findOrThrow(poId);
+        PurchaseOrder po = findOrThrow(poId, tenantId);
         po.cancel();
         repository.savePurchaseOrder(po);
 
@@ -101,9 +102,10 @@ public class PurchaseOrderService implements ManagePurchaseOrderUseCase {
         log.info("PO cancelled: id={}", poId);
     }
 
-    private PurchaseOrder findOrThrow(String poId) {
-        return repository.findPurchaseOrderById(poId)
-                .orElseThrow(() -> new IllegalArgumentException("Purchase order not found: " + poId));
+    private PurchaseOrder findOrThrow(String poId, String tenantId) {
+        // SEC-23: tenant-scoped finder + 404 on absent OR wrong-tenant (no existence oracle).
+        return TenantOwnership.require(
+                repository.findPurchaseOrderById(poId, tenantId), "Purchase order");
     }
 
     private PurchaseOrderResult toResult(PurchaseOrder po) {

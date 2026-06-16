@@ -42,5 +42,8 @@ public interface FraudAssessmentRepository {
      */
     Optional<RiskAssessment> findByTenantIdAndPaymentId(String tenantId, String paymentId);
 
+    /** SEC-23: tenant-scoped by-id lookup — empty when absent OR owned by another tenant. */
+    Optional<RiskAssessment> findByIdAndTenantId(UUID id, String tenantId);
+
     List<RiskAssessment> findPendingReviews(String tenantId, int limit);
 }
