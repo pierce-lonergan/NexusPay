@@ -29,20 +29,26 @@ public class SettlementIngestionService {
     private static final Logger log = LoggerFactory.getLogger(SettlementIngestionService.class);
 
     private final ReconciliationRepository repository;
+    private final ReconciliationRunLifecycle runLifecycle;
     private final ParseFailureRecorder parseFailureRecorder;
     private final Map<String, SettlementParserPort> parsers;
     private final Map<String, SettlementFilePort> fileSources;
 
     public SettlementIngestionService(ReconciliationRepository repository,
+                                      ReconciliationRunLifecycle runLifecycle,
                                       ParseFailureRecorder parseFailureRecorder,
                                       List<SettlementParserPort> parserList,
                                       List<SettlementFilePort> fileSourceList) {
         this.repository = repository;
+        this.runLifecycle = runLifecycle;
         this.parseFailureRecorder = parseFailureRecorder;
         this.parsers = parserList.stream()
                 .collect(Collectors.toMap(SettlementParserPort::provider, Function.identity()));
-        this.fileSources = fileSourceList.stream()
-                .collect(Collectors.toMap(SettlementFilePort::source, Function.identity()));
+        this.fileSources = fileSources(fileSourceList);
+    }
+
+    private static Map<String, SettlementFilePort> fileSources(List<SettlementFilePort> list) {
+        return list.stream().collect(Collectors.toMap(SettlementFilePort::source, Function.identity()));
     }
 
     /**
@@ -66,10 +72,13 @@ public class SettlementIngestionService {
             throw new IllegalArgumentException("No file source registered: " + source);
         }
 
-        // Create reconciliation run
+        // Create reconciliation run. SEC-17: commit the run row in its OWN transaction
+        // (REQUIRES_NEW, separate bean) BEFORE writing settlement records / parse-failure
+        // exceptions, so the parse-failure exceptions' FK (reconciliation_run_id) resolves
+        // against a COMMITTED parent (an FK insert blocks on an uncommitted parent under READ
+        // COMMITTED) and so a later mid-pipeline failure can mark the run FAILED via a clean UPDATE.
         String fileName = path.contains("/") ? path.substring(path.lastIndexOf('/') + 1) : path;
-        ReconciliationRun run = ReconciliationRun.create(tenantId, provider, fileName);
-        repository.saveRun(run);
+        ReconciliationRun run = runLifecycle.createAndCommit(tenantId, provider, fileName);
 
         log.info("Ingesting settlement file: provider={}, source={}, path={}, runId={}",
                 provider, source, path, run.getId());
@@ -104,8 +113,9 @@ public class SettlementIngestionService {
             throw new IllegalArgumentException("No parser registered for provider: " + provider);
         }
 
-        ReconciliationRun run = ReconciliationRun.create(tenantId, provider, fileName);
-        repository.saveRun(run);
+        // SEC-17: commit the run row in its OWN transaction (REQUIRES_NEW, separate bean)
+        // BEFORE writing settlement records / parse-failure exceptions (see ingest()).
+        ReconciliationRun run = runLifecycle.createAndCommit(tenantId, provider, fileName);
 
         ParseResult result = parser.parse(input, tenantId, run.getId());
         repository.saveAllSettlementRecords(result.records());

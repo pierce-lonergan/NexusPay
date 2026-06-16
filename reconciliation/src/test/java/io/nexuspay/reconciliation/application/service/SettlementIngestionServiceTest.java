@@ -45,6 +45,11 @@ import static org.mockito.Mockito.when;
 class SettlementIngestionServiceTest {
 
     private final ReconciliationRepository repository = mock(ReconciliationRepository.class);
+    // SEC-17: a REAL lifecycle over the mocked repository — createAndCommit() builds the run and
+    // calls repository.saveRun (a mock no-op), returning a run with a real assigned id, exactly as
+    // the old inline ReconciliationRun.create()+saveRun() did. The REQUIRES_NEW boundary is asserted
+    // separately (run-row pre-commit) in the app-module IT; here it is a plain object under test.
+    private final ReconciliationRunLifecycle runLifecycle = new ReconciliationRunLifecycle(repository);
     private final ParseFailureRecorder parseFailureRecorder = new ParseFailureRecorder(repository);
     private final SettlementParserPort stripeParser = new StripeCsvParser();
     private final SettlementFilePort fileSource = mock(SettlementFilePort.class);
@@ -52,13 +57,13 @@ class SettlementIngestionServiceTest {
     private SettlementIngestionService service() {
         when(fileSource.source()).thenReturn("local");
         return new SettlementIngestionService(
-                repository, parseFailureRecorder, List.of(stripeParser), List.of(fileSource));
+                repository, runLifecycle, parseFailureRecorder, List.of(stripeParser), List.of(fileSource));
     }
 
     private SettlementIngestionService serviceWith(ParseFailureRecorder recorder) {
         when(fileSource.source()).thenReturn("local");
         return new SettlementIngestionService(
-                repository, recorder, List.of(stripeParser), List.of(fileSource));
+                repository, runLifecycle, recorder, List.of(stripeParser), List.of(fileSource));
     }
 
     private InputStream csv(String content) {

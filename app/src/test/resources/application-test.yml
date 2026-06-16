@@ -1,4 +1,13 @@
 spring:
+  datasource:
+    hikari:
+      # SEC-17 regression guard: bound how long any statement waits on a row/PK lock.
+      # The lost-failure-record defect (a REQUIRES_NEW recorder re-inserting the run PK the
+      # outer/work tx still held uncommitted) HANGS forever under PG's default lock_timeout=0.
+      # With a short lock_timeout a regression surfaces as a FAST LockTimeout failure instead of
+      # an indefinite build hang. The shipped fix (run row pre-committed, recorder does a
+      # non-blocking UPDATE) never contends, so this never trips on correct code.
+      connection-init-sql: "SET lock_timeout = '5s'"
   jpa:
     hibernate:
       ddl-auto: validate

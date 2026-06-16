@@ -48,7 +48,14 @@ public class FraudEventAnalyticsConsumer {
                         decision, psp, tenantId, data.get("risk_score"));
             }
 
-            // Future: persist fraud analytics to dedicated rollup table
+            // Future: persist fraud analytics to dedicated rollup table.
+            // SEC-18: this consumer performs NO additive rollup upsert today, so there is nothing to
+            // double-count and no dedup is wired. When a fraud rollup upsert is added here, it MUST be
+            // guarded — inject ProcessedEventRepository and wrap the additive write with
+            //   if (processedEvents.markProcessed(eventId, "FRAUD_DAILY", tenantId)) { ...upsert... }
+            // (reserving rollup_kind FRAUD_DAILY), exactly as the payment/routing consumers do, so a
+            // Kafka redelivery / DLT replay cannot inflate the fraud metric. The dedup is currently a
+            // documented no-op (dormant until the fraud rollup lands).
         } catch (Exception e) {
             LOG.error("Failed to process fraud event for analytics: {}", e.getMessage(), e);
             throw new RuntimeException("Analytics fraud consumer processing failed", e);
