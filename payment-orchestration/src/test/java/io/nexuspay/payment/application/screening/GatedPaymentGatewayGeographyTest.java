@@ -47,6 +47,7 @@ class GatedPaymentGatewayGeographyTest {
     private MerchantCurrencyPrefsRepository merchantPrefs;
     private CaptureHoldService holds;
     private ScreeningOriginService origins;
+    private io.nexuspay.payment.application.webhook.WebhookMetadataService webhookMetadata;
     private GatedPaymentGateway gateway;
 
     @BeforeEach
@@ -57,6 +58,7 @@ class GatedPaymentGatewayGeographyTest {
         merchantPrefs = mock(MerchantCurrencyPrefsRepository.class);
         holds = mock(CaptureHoldService.class);
         origins = mock(ScreeningOriginService.class);
+        webhookMetadata = mock(io.nexuspay.payment.application.webhook.WebhookMetadataService.class);
         lenient().when(origins.find(any())).thenReturn(Optional.empty()); // overridden per confirm test
 
         // screen is healthy/available; nothing restricted unless a test says so
@@ -72,7 +74,7 @@ class GatedPaymentGatewayGeographyTest {
         CrossBorderComplianceService compliance = new CrossBorderComplianceService(sanctionsPort, true);
         ServerGeographyResolver resolver = new ServerGeographyResolver(merchantPrefs);
         PreAuthorizationGate gate = new PreAuthorizationGate(compliance, fraud, resolver);
-        gateway = new GatedPaymentGateway(delegate, gate, holds, origins);
+        gateway = new GatedPaymentGateway(delegate, gate, holds, origins, webhookMetadata);
     }
 
     private void merchantCountry(String tenantId, String country) {

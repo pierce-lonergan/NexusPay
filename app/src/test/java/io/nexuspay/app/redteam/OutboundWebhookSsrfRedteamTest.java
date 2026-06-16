@@ -72,7 +72,7 @@ class OutboundWebhookSsrfRedteamTest extends IntegrationTestBase {
                 {
                   "url": "%s",
                   "description": "ssrf attack target",
-                  "events": ["payment.captured"]
+                  "events": ["payment.succeeded"]
                 }
                 """.formatted(internalUrl);
 
@@ -100,7 +100,7 @@ class OutboundWebhookSsrfRedteamTest extends IntegrationTestBase {
                 {
                   "url": "https://example.com/webhooks/payments",
                   "description": "legitimate merchant endpoint",
-                  "events": ["payment.captured"]
+                  "events": ["payment.succeeded"]
                 }
                 """;
 

@@ -35,7 +35,7 @@ class WebhookEndpointIntegrationTest extends IntegrationTestBase {
                                 {
                                   "url": "https://example.com/webhooks",
                                   "description": "Test endpoint",
-                                  "events": ["payment.captured", "refund.completed"]
+                                  "events": ["payment.succeeded", "payment.refunded"]
                                 }
                                 """))
                 .andExpect(status().isCreated())
@@ -80,7 +80,7 @@ class WebhookEndpointIntegrationTest extends IntegrationTestBase {
                         .content("""
                                 {
                                   "url": "https://example.com/hooks",
-                                  "events": ["payment.captured"]
+                                  "events": ["payment.succeeded"]
                                 }
                                 """))
                 .andExpect(status().isForbidden());

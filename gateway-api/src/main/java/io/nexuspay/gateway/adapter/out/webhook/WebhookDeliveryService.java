@@ -3,10 +3,12 @@ package io.nexuspay.gateway.adapter.out.webhook;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nexuspay.common.event.Topics;
+import io.nexuspay.common.event.WebhookEventTaxonomy;
 import io.nexuspay.common.net.WebhookUrlValidator;
 import io.nexuspay.common.rls.TenantWorkRunner;
 import io.nexuspay.gateway.adapter.out.persistence.JpaWebhookEndpointRepository;
 import io.nexuspay.gateway.adapter.out.persistence.WebhookEndpointEntity;
+import io.nexuspay.payment.application.webhook.WebhookMetadataPort;
 import org.apache.hc.client5.http.DnsResolver;
 import org.apache.hc.client5.http.config.ConnectionConfig;
 import org.apache.hc.client5.http.config.RequestConfig;
@@ -91,6 +93,12 @@ public class WebhookDeliveryService {
     private final boolean rlsEnforced;
     private final RestClient restClient;
 
+    /** INT-1: read port for server-owned merchant correlation metadata (data.metadata enrichment). */
+    private final WebhookMetadataPort webhookMetadata;
+
+    /** INT-1: builds the canonical public envelope from the internal outbox payload at send time. */
+    private final WebhookEnvelopeSerializer envelopeSerializer;
+
     /**
      * SEC-14 test seam: the delivery-time SSRF guard. Returns the validated, pin-able address set for
      * a URL or throws to reject the delivery. Production wires {@link WebhookUrlValidator}; tests can
@@ -113,24 +121,28 @@ public class WebhookDeliveryService {
     public WebhookDeliveryService(JpaWebhookEndpointRepository endpointRepository,
                                    ObjectMapper objectMapper,
                                    TenantWorkRunner tenantWork,
+                                   WebhookMetadataPort webhookMetadata,
                                    @Value("${nexuspay.multi-tenancy.rls.enforce:false}") boolean rlsEnforced) {
-        this(endpointRepository, objectMapper, tenantWork, rlsEnforced,
+        this(endpointRepository, objectMapper, tenantWork, webhookMetadata, rlsEnforced,
                 WebhookUrlValidator::validateAndResolve);
     }
 
     /**
      * Test/seam constructor (package-private): lets a test inject a relaxed-but-still-resolving guard
-     * for the loopback receiver WITHOUT weakening the production validator. The IP pin and
-     * redirect-disable are identical on both paths.
+     * for the loopback receiver WITHOUT weakening the production validator, plus a stub
+     * {@link WebhookMetadataPort}. The IP pin and redirect-disable are identical on both paths.
      */
     WebhookDeliveryService(JpaWebhookEndpointRepository endpointRepository,
                            ObjectMapper objectMapper,
                            TenantWorkRunner tenantWork,
+                           WebhookMetadataPort webhookMetadata,
                            boolean rlsEnforced,
                            Function<String, List<InetAddress>> urlGuard) {
         this.endpointRepository = endpointRepository;
         this.objectMapper = objectMapper;
         this.tenantWork = tenantWork;
+        this.webhookMetadata = webhookMetadata;
+        this.envelopeSerializer = new WebhookEnvelopeSerializer(objectMapper);
         this.rlsEnforced = rlsEnforced;
         this.urlGuard = urlGuard;
 
@@ -181,6 +193,16 @@ public class WebhookDeliveryService {
             return;
         }
 
+        // INT-1: translate the INTERNAL PascalCase type to the dotted, merchant-facing canonical name
+        // ONCE, right after extraction. An internal type with no canonical mapping is NOT deliverable on
+        // the public contract — drop it before any endpoint lookup (the §3.3 unknown-type drop). This is
+        // the ONLY place translation happens; the internal Kafka value bytes are never changed.
+        String dottedType = WebhookEventTaxonomy.toDotted(eventType);
+        if (dottedType == null) {
+            log.debug("Skipping event with no canonical webhook mapping: {}", eventType);
+            return;
+        }
+
         // SEC-09 (B-009): the tenant filter is now UNCONDITIONAL — application-level authorization that does
         // NOT depend on rls.enforce. The consumer ALWAYS resolves the event's tenant and reads ONLY that
         // tenant's enabled endpoints (findAllByTenantIdAndEnabledTrue), closing the cross-tenant fan-out
@@ -200,23 +222,81 @@ public class WebhookDeliveryService {
         // header-less payments are covered by the V4029 origin backfill on the producer side.
         // HTTP POSTs stay OUTSIDE any tx.
         String tenant = extractTenant(record);
-        List<WebhookEndpointEntity> endpoints = rlsEnforced
-                ? tenantWork.callInTenant(tenant, () -> endpointRepository.findAllByTenantIdAndEnabledTrue(tenant))
-                : endpointRepository.findAllByTenantIdAndEnabledTrue(tenant);
-        if (endpoints.isEmpty()) return;
 
-        String payload = record.value();
+        // INT-1: parse the internal outbox value ONCE — used both for the metadata lookup key
+        // (aggregate_id) and to build the canonical envelope. A malformed body is not deliverable.
+        JsonNode outbox;
+        try {
+            outbox = objectMapper.readTree(record.value());
+        } catch (Exception e) {
+            log.debug("Skipping event with unparseable payload: {}", e.getMessage());
+            return;
+        }
+        String aggregateId = textOrNull(outbox.path("aggregate_id"));
+
+        // SEC-09 / INT-1: load the owning tenant's endpoints AND look up that payment's merchant metadata
+        // for the SAME resolved tenant. BOTH reads are tenant-scoped at the APPLICATION layer, independent
+        // of rls.enforce (which is DORMANT by default): the endpoint read uses
+        // findAllByTenantIdAndEnabledTrue(tenant), and the metadata read passes that same tenant into
+        // find(aggregateId, tenant), which returns {} unless the stored row's tenant_id matches (see
+        // WebhookMetadataService.find / ownedBy — mirrors ScreeningOriginService.assertOwnedBy). Under
+        // rlsEnforced both ALSO run inside callInTenant so the V4030 RLS policy binds the rows as
+        // defense-in-depth — but the cross-tenant guarantee no longer DEPENDS on that dormant flag.
+        TenantScopedLoad loaded = rlsEnforced
+                ? tenantWork.callInTenant(tenant, () -> loadEndpointsAndMetadata(tenant, aggregateId))
+                : loadEndpointsAndMetadata(tenant, aggregateId);
+        List<WebhookEndpointEntity> endpoints = loaded.endpoints();
+        if (endpoints.isEmpty()) return;
+        Map<String, Object> metadata = loaded.metadata();
+
+        // INT-1: build the canonical envelope ONCE per record — it is identical for every endpoint of this
+        // tenant. Only the per-secret HMAC signature and the POST are per-endpoint. The HMAC is computed
+        // over EXACTLY these transformed bytes (see deliverToEndpoint), preserving SEC's signature
+        // guarantee on the bytes the merchant actually receives.
+        String transformedBody;
+        try {
+            transformedBody = envelopeSerializer.serialize(outbox, dottedType, metadata);
+        } catch (Exception e) {
+            log.warn("Failed to build canonical webhook envelope for event={} aggregate={}: {}",
+                    dottedType, aggregateId, e.getMessage());
+            return;
+        }
 
         for (WebhookEndpointEntity endpoint : endpoints) {
-            if (!subscribesToEvent(endpoint, eventType)) continue;
+            // INT-1: subscriptions are stored as the merchant-registered DOTTED name (the validator
+            // enforces canonical names), so match on the dotted type; "*"/empty still = all.
+            if (!subscribesToEvent(endpoint, dottedType)) continue;
 
             try {
-                deliverToEndpoint(endpoint, payload, eventType);
+                deliverToEndpoint(endpoint, transformedBody, dottedType);
             } catch (Exception e) {
                 log.warn("Webhook delivery failed: endpoint={} url={} event={}: {}",
-                        endpoint.getId(), endpoint.getUrl(), eventType, e.getMessage());
+                        endpoint.getId(), endpoint.getUrl(), dottedType, e.getMessage());
             }
         }
+    }
+
+    /** Result of the tenant-scoped load: the owning tenant's endpoints + that payment's metadata. */
+    private record TenantScopedLoad(List<WebhookEndpointEntity> endpoints, Map<String, Object> metadata) {
+    }
+
+    /**
+     * INT-1: loads the tenant's enabled endpoints and the payment's merchant metadata in ONE tenant
+     * scope (the caller wraps this in {@code callInTenant} when RLS is enforced). The metadata defaults
+     * to {@code {}} when there is no aggregate id or no stored row, so delivery never fails on absence.
+     */
+    private TenantScopedLoad loadEndpointsAndMetadata(String tenant, String aggregateId) {
+        List<WebhookEndpointEntity> endpoints = endpointRepository.findAllByTenantIdAndEnabledTrue(tenant);
+        // INT-1: pass the resolved delivery tenant so the metadata read is tenant-checked at the app layer
+        // (returns {} for a row owned by another tenant), independent of rls.enforce.
+        Map<String, Object> metadata = aggregateId == null ? Map.of() : webhookMetadata.find(aggregateId, tenant);
+        return new TenantScopedLoad(endpoints, metadata != null ? metadata : Map.of());
+    }
+
+    private static String textOrNull(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) return null;
+        String s = node.asText();
+        return s.isEmpty() ? null : s;
     }
 
     private void deliverToEndpoint(WebhookEndpointEntity endpoint, String payload, String eventType) {
