@@ -17,6 +17,7 @@ import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuil
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
@@ -98,7 +99,17 @@ public class WebhookDeliveryService {
      */
     private final Function<String, List<InetAddress>> urlGuard;
 
-    /** Production constructor — full SSRF validation via {@link WebhookUrlValidator}. */
+    /**
+     * Production constructor — full SSRF validation via {@link WebhookUrlValidator}.
+     *
+     * <p>{@code @Autowired} is REQUIRED: this class has a second (package-private) seam constructor
+     * for tests, so Spring sees two candidate constructors and cannot pick one by default — it would
+     * fall back to a non-existent no-arg constructor and fail bean instantiation
+     * ({@code NoSuchMethodException}), collapsing the whole application context. Marking the intended
+     * injection constructor disambiguates it. (Caught by CI integration tests, not unit tests: the
+     * unit test calls the seam constructor directly, so the ambiguity only surfaces under Spring.)</p>
+     */
+    @Autowired
     public WebhookDeliveryService(JpaWebhookEndpointRepository endpointRepository,
                                    ObjectMapper objectMapper,
                                    TenantWorkRunner tenantWork,
