@@ -119,6 +119,21 @@ public class CheckoutController {
                     .filter(s -> !s.isExpired())
                     .orElseThrow(() -> new SessionExpiredException(principal.sessionId()));
 
+            // INT-3: the response `mode` ("test"/"live") is SERVER-DERIVED from the authenticated key's
+            // is_live (principal.live()) — never read from the request body.
+            String mode = modeOf(principal);
+
+            // INT-6 Invariant 4 — IDEMPOTENT RE-CONFIRM: a COMPLETE session short-circuits to its
+            // ALREADY-RECORDED outcome. completeSession() stored the gateway payment id in
+            // paymentIntentId; we re-derive the confirm status via a READ-ONLY getPayment (the session is
+            // the ownership boundary — its principal owns its paymentIntentId), so a double-confirm never
+            // re-charges, never re-synthesizes a webhook, and never calls completeSession again.
+            if (PaymentSession.STATUS_COMPLETE.equals(session.getStatus())
+                    && session.getPaymentIntentId() != null) {
+                var recorded = paymentGateway.getPayment(session.getPaymentIntentId());
+                return ResponseEntity.ok(ResponseMapper.toConfirmResponse(recorded, mode));
+            }
+
             // Resolve the tokenized instrument by id (server-side token store). The token id — never raw
             // PAN — is the payment_method_data reference forwarded to the PSP; sanitize() in the metadata
             // store strips any PAN that slips through regardless.
@@ -134,17 +149,33 @@ public class CheckoutController {
                     "checkout-" + session.getId(),                // idempotency derived from session id
                     session.getMetadata());
 
+            // INT-6 Invariant 3 — gate errors are NOT caught here: a PaymentException raised by the
+            // @Primary GatedPaymentGateway (cross_border_blocked, fraud_blocked, *_review_hold, ...)
+            // propagates to GlobalExceptionHandler.handlePaymentException, which renders the INT-2
+            // envelope { error: { type, code, message, request_id } } with the correct status. Catching
+            // it here would risk double-mapping and a wrong return type.
             var response = paymentGateway.createPayment(paymentRequest,
                     CallContext.interactive(principal.tenantId()));
 
             sessionService.completeSession(principal.sessionId(), response.gatewayPaymentId());
 
-            return sessionService.findById(principal.sessionId())
-                    .map(s -> ResponseEntity.ok(ResponseMapper.toSessionStatusResponse(s)))
-                    .orElse(ResponseEntity.status(HttpStatus.GONE).build());
+            // INT-6 Invariant 1/2 — return the proper, status-accurate ConfirmResponse the SDK consumes
+            // (status ∈ {succeeded, processing, requires_action, failed}, plus paymentId/mode/livemode),
+            // derived from the GATEWAY payment status — not the (always "complete") session status.
+            return ResponseEntity.ok(ResponseMapper.toConfirmResponse(response, mode));
         } catch (SessionExpiredException e) {
             return sessionExpired();
         }
+    }
+
+    /**
+     * INT-3/INT-6: the response {@code mode} is SERVER-DERIVED from the authenticated session key's
+     * {@code is_live} ({@code principal.live()}) — "test" for an sk_test_ session, "live" otherwise. It
+     * is NEVER read from the request body. A null principal defaults to "live" (a real principal). Mirrors
+     * {@code PaymentController.modeOf} (intentional 1-liner duplication — no shared collaborator, L-054).
+     */
+    private static String modeOf(NexusPayPrincipal principal) {
+        return (principal != null && !principal.live()) ? "test" : "live";
     }
 
     // --- INT-2 error envelope helpers ({ error: { type, code, message, request_id } }) ---

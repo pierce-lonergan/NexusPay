@@ -1,5 +1,6 @@
 package io.nexuspay.gateway.adapter.in.rest;
 
+import io.nexuspay.common.domain.ApiError;
 import io.nexuspay.gateway.adapter.in.rest.dto.*;
 import io.nexuspay.gateway.adapter.out.persistence.WebhookDeliveryEntity;
 import io.nexuspay.gateway.adapter.out.persistence.WebhookEndpointEntity;
@@ -10,6 +11,8 @@ import io.nexuspay.ledger.domain.JournalEntry;
 import io.nexuspay.ledger.domain.LedgerAccount;
 import io.nexuspay.payment.domain.PaymentResponse;
 import io.nexuspay.payment.domain.RefundResponse;
+
+import java.util.Map;
 
 /**
  * Maps domain/module objects to gateway API DTOs.
@@ -141,6 +144,83 @@ final class ResponseMapper {
                 s.getId(), s.getStatus(), s.getAmount(), s.getCurrency(),
                 s.getPaymentIntentId(), s.getAllowedPaymentMethods(), null
         );
+    }
+
+    /**
+     * INT-6: maps a gateway {@link PaymentResponse} to the SDK confirm result the {@code @nexuspay/js}
+     * client consumes. The {@code status} is DERIVED from the gateway payment status (never the session
+     * status, which is always {@code "complete"} and meaningless to {@code confirm()}):
+     *
+     * <ul>
+     *   <li>{@code succeeded} &rarr; {@code "succeeded"} — captured, terminal money state;</li>
+     *   <li>{@code failed}/{@code cancelled} &rarr; {@code "failed"} (carries {@code error});</li>
+     *   <li>{@code requires_capture} (a fraud/compliance HOLD), {@code requires_action} (3DS),
+     *       {@code requires_confirmation}, {@code requires_payment_method} &rarr; {@code "requires_action"} —
+     *       a held payment is NEVER reported as {@code succeeded};</li>
+     *   <li>{@code processing} &rarr; {@code "processing"};</li>
+     *   <li>anything else / null &rarr; {@code "processing"} (fail-safe — never default to
+     *       {@code "succeeded"}).</li>
+     * </ul>
+     *
+     * <p>{@code nextAction} is derived from the intent metadata's {@code next_action} ({@code {type,url}})
+     * and populated ONLY for {@code requires_action}; {@code error} is built from the payment's
+     * {@code errorCode}/{@code errorMessage} and populated ONLY for {@code failed}. {@code mode} is the
+     * SERVER-DERIVED key mode ("test"/"live"); {@code livemode} mirrors it.
+     */
+    static ConfirmResponse toConfirmResponse(PaymentResponse p, String mode) {
+        String raw = p.status() == null ? "" : p.status();
+        String confirmStatus = switch (raw) {
+            case PaymentResponse.STATUS_SUCCEEDED -> "succeeded";
+            case PaymentResponse.STATUS_FAILED, PaymentResponse.STATUS_CANCELLED -> "failed";
+            // PaymentResponse has no STATUS_REQUIRES_ACTION constant (HyperSwitch surfaces the raw
+            // "requires_action" string for a 3DS/next-action intent), so it is matched as a literal here
+            // alongside the held/confirmation/payment-method states.
+            case PaymentResponse.STATUS_REQUIRES_CAPTURE,
+                 "requires_action",
+                 PaymentResponse.STATUS_REQUIRES_CONFIRMATION,
+                 PaymentResponse.STATUS_REQUIRES_PAYMENT_METHOD -> "requires_action";
+            case PaymentResponse.STATUS_PROCESSING -> "processing";
+            // Fail-safe: an unknown/null gateway status is NEVER reported as succeeded (Invariant 2).
+            default -> "processing";
+        };
+
+        ConfirmResponse.NextAction nextAction = "requires_action".equals(confirmStatus)
+                ? nextActionFromMetadata(p.metadata())
+                : null;
+        ConfirmResponse.ConfirmError error = "failed".equals(confirmStatus)
+                ? new ConfirmResponse.ConfirmError(
+                        ApiError.TYPE_PAYMENT,
+                        p.errorCode() != null ? p.errorCode() : "payment_failed",
+                        p.errorMessage() != null ? p.errorMessage() : "Payment failed")
+                : null;
+
+        boolean livemode = "live".equals(mode);
+        return new ConfirmResponse(confirmStatus, p.gatewayPaymentId(), mode, livemode, nextAction, error);
+    }
+
+    /**
+     * INT-6: derives the 3DS / redirect {@code nextAction} from the intent metadata. The domain
+     * {@link PaymentResponse} has no dedicated {@code next_action} field, but a live HyperSwitch intent
+     * surfaces a {@code next_action} map ({@code {type,url}}) in the metadata blob. Defensive: returns
+     * {@code null} when absent or shaped unexpectedly (the held {@code requires_capture} case has no
+     * redirect — the client shows "under review" from the status alone).
+     */
+    private static ConfirmResponse.NextAction nextActionFromMetadata(Map<String, Object> metadata) {
+        if (metadata == null) {
+            return null;
+        }
+        Object raw = metadata.get("next_action");
+        if (!(raw instanceof Map<?, ?> na)) {
+            return null;
+        }
+        Object type = na.get("type");
+        Object url = na.get("url");
+        if (type == null && url == null) {
+            return null;
+        }
+        return new ConfirmResponse.NextAction(
+                type != null ? String.valueOf(type) : null,
+                url != null ? String.valueOf(url) : null);
     }
 
     private static String mapApprovalStatus(String status) {

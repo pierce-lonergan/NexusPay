@@ -85,13 +85,20 @@ export interface TokenizeResult {
 // --- Confirm ---
 
 export interface ConfirmResult {
-  status: 'succeeded' | 'requires_action' | 'failed';
-  paymentIntentId?: string;
+  status: 'succeeded' | 'processing' | 'requires_action' | 'failed';
+  /** Gateway payment id (INT-6): `pay_test_*` in test mode, opaque connector id in live. */
+  paymentId?: string;
+  /** Key mode that produced this payment (INT-3): server-derived, never client-set. */
+  mode?: 'test' | 'live';
+  /** `true` when `mode === 'live'` (INT-3); mirrors the webhook envelope's livemode flag. */
+  livemode?: boolean;
   nextAction?: {
     type: 'redirect' | 'three_d_secure';
     url?: string;
   };
   error?: NexusPayError;
+  /** @deprecated kept for back-compat; the server now sends `paymentId`. */
+  paymentIntentId?: string;
 }
 
 // --- Payment Method Types ---
@@ -106,7 +113,16 @@ export type PaymentMethodType =
 // --- Errors ---
 
 export interface NexusPayError {
-  type: 'authentication_error' | 'api_error' | 'validation_error' | 'network_error' | 'session_error' | 'rate_limit_error';
+  // INT-6: `payment_error` matches the server confirm error envelope ({ type: 'payment_error', ... }),
+  // so a `ConfirmResult.error` (a NexusPayError) can carry the gateway's failure type verbatim.
+  type:
+    | 'authentication_error'
+    | 'api_error'
+    | 'validation_error'
+    | 'network_error'
+    | 'session_error'
+    | 'rate_limit_error'
+    | 'payment_error';
   code: string;
   message: string;
 }
