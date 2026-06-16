@@ -288,6 +288,17 @@ nexuspay:
     payout-scheduler:
       enabled: ${NEXUSPAY_PAYOUT_SCHEDULER_ENABLED:false}
       interval-ms: ${NEXUSPAY_PAYOUT_SCHEDULER_INTERVAL_MS:60000}
+    # SEC-25: recovers payouts stranded PROCESSING after a crash between the SEC-11 claim and the
+    # terminal disburse-result write. Leader-locked (MarketplaceSchedulerLock), re-drives with the
+    # deterministic "payout-<id>" key so the PSP dedups (no double-pay). enabled defaults true via
+    # @ConditionalOnProperty matchIfMissing; pinned here for explicitness/ops override.
+    payout-reconciler:
+      enabled: ${NEXUSPAY_PAYOUT_RECONCILER_ENABLED:true}
+      fixed-delay-ms: ${NEXUSPAY_PAYOUT_RECONCILER_FIXED_DELAY_MS:60000}
+      signal-delay-ms: ${NEXUSPAY_PAYOUT_RECONCILER_SIGNAL_DELAY_MS:900000}
+      stuck-threshold-ms: ${NEXUSPAY_PAYOUT_RECONCILER_STUCK_THRESHOLD_MS:300000}
+      max-attempts: ${NEXUSPAY_PAYOUT_RECONCILER_MAX_ATTEMPTS:5}
+      batch-size: ${NEXUSPAY_PAYOUT_RECONCILER_BATCH_SIZE:100}
     kyc:
       provider: ${NEXUSPAY_KYC_PROVIDER:stub}
   b2b:

@@ -45,8 +45,42 @@ public interface MarketplaceRepository {
      * SEC-11: atomically claim a payout for disbursement (PENDING -> PROCESSING). Returns true only
      * for the single winner whose conditional UPDATE affected exactly one row; every concurrent
      * replica/cycle gets false and must NOT disburse. This is the exactly-once-disbursement guarantee.
+     * SEC-25: the same UPDATE now also stamps {@code processing_since = now()}.
      */
     boolean claimPayoutForProcessing(String id);
+
+    // --- SEC-25: stuck-PROCESSING recovery (cross-tenant discovery + tenant-bound terminal writes) ---
+
+    /**
+     * SEC-25: payouts stuck PROCESSING since before {@code cutoff}, not attempt-exhausted, past their
+     * backoff gate ({@code next_reconcile_at <= now}), oldest first, bounded by {@code batchSize}.
+     * Cross-tenant — call under {@code @SystemTransactional}.
+     */
+    List<Payout> findStuckProcessingPayouts(Instant cutoff, Instant now, int maxAttempts, int batchSize);
+
+    /** SEC-25: the attempts-exhausted PROCESSING tail surfaced to operators. Cross-tenant. */
+    List<Payout> findExhaustedProcessingPayouts(int maxAttempts);
+
+    /**
+     * SEC-25 intra-cycle guard: re-load FOR UPDATE, present only if STILL PROCESSING (empty if the
+     * original cycle or a concurrent pass already finalized it). Call inside the row's tenant.
+     */
+    Optional<Payout> reloadStuckPayoutForUpdate(String id);
+
+    /**
+     * SEC-25 terminal transition PROCESSING -> PAID, conditional on PROCESSING + tenant. Returns true
+     * iff THIS call flipped the row. Call bound to the row's tenant (RLS WITH CHECK).
+     */
+    boolean markPayoutPaid(String id, String tenantId, String externalReference);
+
+    /** SEC-25 terminal transition PROCESSING -> FAILED, conditional on PROCESSING + tenant. */
+    boolean markPayoutFailed(String id, String tenantId, String reason);
+
+    /**
+     * SEC-25 transient-failure bookkeeping: bump attempts, set backoff gate + last error, leave the row
+     * PROCESSING (re-drivable). Conditional on PROCESSING + tenant. Call bound to the row's tenant.
+     */
+    void recordPayoutReconcileFailure(String id, String tenantId, Instant nextReconcileAt, String error);
 
     // --- PlatformFee ---
     PlatformFee savePlatformFee(PlatformFee fee);
