@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import java.time.Instant;
-import java.util.Optional;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -25,7 +25,7 @@ class ApiKeyServicePrincipalModeTest {
 
     private ApiKeyService serviceWith(ApiKeyEntity entity, String keyPrefix) {
         JpaApiKeyRepository repo = mock(JpaApiKeyRepository.class);
-        when(repo.findByKeyPrefixAndRevokedAtIsNull(anyString())).thenReturn(Optional.of(entity));
+        when(repo.findByKeyPrefixAndRevokedAtIsNull(anyString())).thenReturn(List.of(entity));
         return new ApiKeyService(repo);
     }
 

@@ -67,24 +67,30 @@ public class ApiKeyService {
         }
 
         String prefix = rawKey.substring(0, Math.min(rawKey.length(), PREFIX_DISPLAY_LENGTH));
-        var entity = apiKeyRepository.findByKeyPrefixAndRevokedAtIsNull(prefix)
-                .orElseThrow(() -> AuthorizationException.invalidApiKey());
+        List<ApiKeyEntity> candidates = apiKeyRepository.findByKeyPrefixAndRevokedAtIsNull(prefix);
 
-        if (!passwordEncoder.matches(rawKey, entity.getKeyHash())) {
-            throw AuthorizationException.invalidApiKey();
+        // SEC-22: a 12-char key_prefix may be shared by >1 un-revoked key. Iterate the (typically
+        // size-1) candidate list and bcrypt-match each — never throw on multiple candidates. At most
+        // one hash can match a given raw key, so first-match is unambiguous. The single terminal
+        // throw below is reached identically for 0 candidates, N candidates none matching, or a
+        // revoked-only prefix (revoked rows are excluded by the query) — uniform failure, no oracle.
+        for (ApiKeyEntity candidate : candidates) {
+            if (passwordEncoder.matches(rawKey, candidate.getKeyHash())) {
+                // INT-3: the mode is SERVER-DERIVED from the matched entity's is_live column — never
+                // inferred from the raw key string. A sk_test_ key (is_live=false) yields a TEST
+                // principal whose payment ops route to the mock gateway; a sk_live_ key yields a LIVE
+                // principal that reaches HyperSwitch.
+                return new NexusPayPrincipal(
+                        candidate.getId(),
+                        candidate.getTenantId(),
+                        candidate.getRole(),
+                        NexusPayPrincipal.AuthMethod.API_KEY,
+                        null,
+                        candidate.isLive()
+                );
+            }
         }
-
-        // INT-3: the mode is SERVER-DERIVED from the matched entity's is_live column — never inferred
-        // from the raw key string. A sk_test_ key (is_live=false) yields a TEST principal whose payment
-        // ops route to the mock gateway; a sk_live_ key yields a LIVE principal that reaches HyperSwitch.
-        return new NexusPayPrincipal(
-                entity.getId(),
-                entity.getTenantId(),
-                entity.getRole(),
-                NexusPayPrincipal.AuthMethod.API_KEY,
-                null,
-                entity.isLive()
-        );
+        throw AuthorizationException.invalidApiKey();
     }
 
     @Transactional
