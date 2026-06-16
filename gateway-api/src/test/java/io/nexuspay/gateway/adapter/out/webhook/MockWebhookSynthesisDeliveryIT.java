@@ -5,7 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import io.nexuspay.common.event.Topics;
 import io.nexuspay.common.rls.TenantWorkRunner;
+import io.nexuspay.gateway.adapter.out.persistence.JpaWebhookDeliveryRepository;
 import io.nexuspay.gateway.adapter.out.persistence.JpaWebhookEndpointRepository;
+import io.nexuspay.gateway.adapter.out.persistence.WebhookDeliveryEntity;
 import io.nexuspay.gateway.adapter.out.persistence.WebhookEndpointEntity;
 import io.nexuspay.payment.adapter.out.outbox.OutboxEvent;
 import io.nexuspay.payment.adapter.out.outbox.OutboxEventRepository;
@@ -129,7 +131,12 @@ class MockWebhookSynthesisDeliveryIT {
 
     /** Delivery service whose INT-1 metadata port returns the stored correlation map + __livemode. */
     private WebhookDeliveryService deliveryWithMetadata(Map<String, Object> storedMeta) {
-        return new WebhookDeliveryService(endpointRepository, objectMapper, tenantWork,
+        // INT-4: a mocked delivery repo whose saveAndFlush echoes the row so recordDelivery returns a PENDING
+        // row and the synthesized event still drives a real loopback delivery.
+        JpaWebhookDeliveryRepository deliveryRepository = mock(JpaWebhookDeliveryRepository.class);
+        when(deliveryRepository.saveAndFlush(any(WebhookDeliveryEntity.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+        return new WebhookDeliveryService(endpointRepository, deliveryRepository, objectMapper, tenantWork,
                 (gatewayPaymentId, tenant) -> storedMeta, false, loopbackPermittingGuard());
     }
 

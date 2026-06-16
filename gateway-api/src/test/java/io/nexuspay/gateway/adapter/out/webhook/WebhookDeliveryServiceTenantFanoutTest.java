@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import io.nexuspay.common.event.Topics;
 import io.nexuspay.common.rls.TenantWorkRunner;
+import io.nexuspay.gateway.adapter.out.persistence.JpaWebhookDeliveryRepository;
 import io.nexuspay.gateway.adapter.out.persistence.JpaWebhookEndpointRepository;
+import io.nexuspay.gateway.adapter.out.persistence.WebhookDeliveryEntity;
 import io.nexuspay.gateway.adapter.out.persistence.WebhookEndpointEntity;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.header.internals.RecordHeader;
@@ -23,6 +25,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -62,9 +65,14 @@ class WebhookDeliveryServiceTenantFanoutTest {
         repository = mock(JpaWebhookEndpointRepository.class);
         tenantWork = mock(TenantWorkRunner.class);
         ObjectMapper objectMapper = new ObjectMapper();
+        // INT-4: a mocked delivery repo whose saveAndFlush echoes the row so recordDelivery returns a PENDING
+        // row and a tenant-A event still drives a real POST to /a.
+        JpaWebhookDeliveryRepository deliveryRepository = mock(JpaWebhookDeliveryRepository.class);
+        when(deliveryRepository.saveAndFlush(any(WebhookDeliveryEntity.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
         // INT-1: seam ctor now takes a WebhookMetadataPort (find(gatewayPaymentId, tenant)); this test
         // asserts tenant routing only, so it returns empty metadata regardless.
-        service = new WebhookDeliveryService(repository, objectMapper, tenantWork,
+        service = new WebhookDeliveryService(repository, deliveryRepository, objectMapper, tenantWork,
                 (gatewayPaymentId, tenant) -> java.util.Map.of(), false,
                 loopbackPermittingGuard());
 

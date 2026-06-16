@@ -4,9 +4,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nexuspay.common.event.Topics;
 import io.nexuspay.common.event.WebhookEventTaxonomy;
+import io.nexuspay.common.net.WebhookUrlValidationException;
 import io.nexuspay.common.net.WebhookUrlValidator;
 import io.nexuspay.common.rls.TenantWorkRunner;
+import io.nexuspay.common.id.PrefixedId;
+import io.nexuspay.gateway.adapter.out.persistence.JpaWebhookDeliveryRepository;
 import io.nexuspay.gateway.adapter.out.persistence.JpaWebhookEndpointRepository;
+import io.nexuspay.gateway.adapter.out.persistence.WebhookDeliveryEntity;
 import io.nexuspay.gateway.adapter.out.persistence.WebhookEndpointEntity;
 import io.nexuspay.payment.application.webhook.WebhookMetadataPort;
 import org.apache.hc.client5.http.DnsResolver;
@@ -21,11 +25,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatusCode;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClient;
 
 import javax.crypto.Mac;
@@ -38,6 +44,7 @@ import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
@@ -48,8 +55,12 @@ import java.util.function.Function;
  * to all enabled webhook endpoints that subscribe to the event type.
  * Each delivery is HMAC-SHA256 signed using the endpoint's secret.
  *
- * Retry/backoff for failed deliveries is deferred to Phase 2.
- * Currently logs failures without retry.
+ * <p><strong>INT-4 at-least-once reliability:</strong> each matching event is first RECORDED as a PENDING
+ * {@code webhook_deliveries} row (one per (endpoint, stable event id), idempotent), then ATTEMPTED via the
+ * shared {@link #send} path. A transient failure schedules an exponential-backoff retry; the leader-locked
+ * {@code WebhookDeliveryRetrier} re-drives due rows through the SAME {@link #send}; exhausting max attempts
+ * parks the row DEAD (a DLQ, never dropped). A DELIVERED row is never auto-re-sent — re-delivery is an
+ * explicit admin replay only.</p>
  *
  * <p><strong>SSRF hardening (SEC-14):</strong> every delivery re-validates the target URL via
  * {@link WebhookUrlValidator#validateAndResolve(String)} (anti-DNS-rebinding second gate) AND pins the
@@ -79,7 +90,7 @@ public class WebhookDeliveryService {
     /**
      * SEC-14 IP PIN: per-thread host -> validator-approved IPs for the delivery currently in flight.
      *
-     * <p>{@code deliverToEndpoint} runs synchronously on the Kafka consumer thread and the POST
+     * <p>{@link #send} runs synchronously (on the Kafka consumer thread or the retrier thread) and the POST
      * completes before it returns, so a {@link ThreadLocal} safely scopes the pin to a single
      * delivery. The custom {@link PinnedDnsResolver} reads this map at connect time and returns the
      * EXACT addresses the validator approved for the host — never performing its own DNS lookup. The
@@ -88,6 +99,7 @@ public class WebhookDeliveryService {
     private static final ThreadLocal<Map<String, InetAddress[]>> PINNED_ADDRESSES = new ThreadLocal<>();
 
     private final JpaWebhookEndpointRepository endpointRepository;
+    private final JpaWebhookDeliveryRepository deliveryRepository;
     private final ObjectMapper objectMapper;
     private final TenantWorkRunner tenantWork;
     private final boolean rlsEnforced;
@@ -119,11 +131,12 @@ public class WebhookDeliveryService {
      */
     @Autowired
     public WebhookDeliveryService(JpaWebhookEndpointRepository endpointRepository,
+                                   JpaWebhookDeliveryRepository deliveryRepository,
                                    ObjectMapper objectMapper,
                                    TenantWorkRunner tenantWork,
                                    WebhookMetadataPort webhookMetadata,
                                    @Value("${nexuspay.multi-tenancy.rls.enforce:false}") boolean rlsEnforced) {
-        this(endpointRepository, objectMapper, tenantWork, webhookMetadata, rlsEnforced,
+        this(endpointRepository, deliveryRepository, objectMapper, tenantWork, webhookMetadata, rlsEnforced,
                 WebhookUrlValidator::validateAndResolve);
     }
 
@@ -133,12 +146,14 @@ public class WebhookDeliveryService {
      * {@link WebhookMetadataPort}. The IP pin and redirect-disable are identical on both paths.
      */
     WebhookDeliveryService(JpaWebhookEndpointRepository endpointRepository,
+                           JpaWebhookDeliveryRepository deliveryRepository,
                            ObjectMapper objectMapper,
                            TenantWorkRunner tenantWork,
                            WebhookMetadataPort webhookMetadata,
                            boolean rlsEnforced,
                            Function<String, List<InetAddress>> urlGuard) {
         this.endpointRepository = endpointRepository;
+        this.deliveryRepository = deliveryRepository;
         this.objectMapper = objectMapper;
         this.tenantWork = tenantWork;
         this.webhookMetadata = webhookMetadata;
@@ -251,7 +266,7 @@ public class WebhookDeliveryService {
 
         // INT-1: build the canonical envelope ONCE per record — it is identical for every endpoint of this
         // tenant. Only the per-secret HMAC signature and the POST are per-endpoint. The HMAC is computed
-        // over EXACTLY these transformed bytes (see deliverToEndpoint), preserving SEC's signature
+        // over EXACTLY these transformed bytes (see send), preserving SEC's signature
         // guarantee on the bytes the merchant actually receives.
         String transformedBody;
         try {
@@ -262,17 +277,51 @@ public class WebhookDeliveryService {
             return;
         }
 
+        // INT-4: the rows' event_id is the INT-1 STABLE id (anchored on the PSP original_event_id) so a
+        // Kafka redelivery / DLT replay of the SAME logical event collapses onto the SAME (endpoint,event)
+        // unique key — never a second send.
+        String stableEventId = WebhookEnvelopeSerializer.stableId(outbox);
+
+        // INT-4: record-then-attempt per subscribed endpoint. Under rlsEnforced the recorder/recordOutcome
+        // writes (and the load above) all run inside the SAME tenant scope so the V4031 RLS WITH CHECK binds
+        // the webhook_deliveries rows to the trusted header tenant (SEC-1b: never body-derived). The HTTP
+        // POSTs themselves stay OUTSIDE any tenant transaction.
         for (WebhookEndpointEntity endpoint : endpoints) {
             // INT-1: subscriptions are stored as the merchant-registered DOTTED name (the validator
             // enforces canonical names), so match on the dotted type; "*"/empty still = all.
             if (!subscribesToEvent(endpoint, dottedType)) continue;
 
+            // 1. RECORD one PENDING row per subscribed endpoint (idempotent on (endpoint_id,event_id)).
+            //    A row that already exists (redelivery / concurrent recorder / already DELIVERED) -> null,
+            //    so the consumer NEVER re-sends it (invariants #1, #6); only the retrier or an explicit
+            //    replay re-attempts.
+            WebhookDeliveryEntity delivery = rlsEnforced
+                    ? tenantWork.callInTenant(tenant,
+                        () -> recordDelivery(tenant, endpoint, stableEventId, dottedType, transformedBody))
+                    : recordDelivery(tenant, endpoint, stableEventId, dottedType, transformedBody);
+            if (delivery == null) continue;
+
+            // 2. ATTEMPT now via the shared SSRF-safe + canonical + signed send.
             try {
-                deliverToEndpoint(endpoint, transformedBody, dottedType);
+                SendOutcome outcome = send(endpoint, delivery.getCanonicalBody(), dottedType);
+                recordOutcomeScoped(tenant, delivery, outcome);
             } catch (Exception e) {
+                // Belt: one endpoint must never kill the consumer thread. Treat as transient so the retrier
+                // re-drives it (and surfaces in metrics) rather than silently dropping the delivery.
                 log.warn("Webhook delivery failed: endpoint={} url={} event={}: {}",
                         endpoint.getId(), endpoint.getUrl(), dottedType, e.getMessage());
+                recordOutcomeScoped(tenant, delivery,
+                        new SendOutcome.TransientFailure(null, e.getClass().getSimpleName()));
             }
+        }
+    }
+
+    /** Applies an outcome inside the row's tenant scope when RLS is enforced (no-op wrapper otherwise). */
+    private void recordOutcomeScoped(String tenant, WebhookDeliveryEntity delivery, SendOutcome outcome) {
+        if (rlsEnforced) {
+            tenantWork.runInTenant(tenant, () -> recordOutcome(delivery, outcome));
+        } else {
+            recordOutcome(delivery, outcome);
         }
     }
 
@@ -299,68 +348,183 @@ public class WebhookDeliveryService {
         return s.isEmpty() ? null : s;
     }
 
-    private void deliverToEndpoint(WebhookEndpointEntity endpoint, String payload, String eventType) {
-        // SEC-14 SECOND GATE (delivery-time, anti-DNS-rebinding): re-resolve AND re-validate the target
-        // URL immediately before the POST. Registration validation alone is bypassable — a host that
-        // resolved to a public IP at registration can rebind to an internal/metadata IP by delivery
-        // time, so this re-check must run on every delivery. On reject the guard throws
-        // WebhookUrlValidationException, which onPaymentEvent's per-endpoint try/catch logs+skips, so no
-        // server-side request is ever made to the internal target.
-        //
-        // FIX 2 (true IP pin): validateAndResolve returns the EXACT InetAddress[] it just validated from
-        // a SINGLE DNS resolution. We pin those addresses (keyed by host) into a ThreadLocal that the
-        // PinnedDnsResolver consults at connect time, so the TCP socket goes to ONE OF THE VALIDATED IPs
-        // — the check and the fetch share the SAME resolution; the JDK/Apache never re-resolves the host
-        // independently at connect. TLS SNI and the Host header stay the hostname, so cert validation is
-        // unaffected. The pin is cleared in finally so it never leaks to the next delivery.
-        List<InetAddress> validated = urlGuard.apply(endpoint.getUrl());
-        String host = hostOf(endpoint.getUrl());
+    // ============================ INT-4 shared send + persistence ============================
 
-        String signature = computeSignature(payload, endpoint.getSecret());
+    /**
+     * INT-4: outcome of ONE HTTP attempt, mapped by the caller to the persisted {@code Status}. Sealed so
+     * the {@code recordOutcome} switch is exhaustive.
+     */
+    public sealed interface SendOutcome {
+        /** 2xx — terminal success. */
+        record Delivered(int statusCode) implements SendOutcome {}
+        /** Retryable (5xx/408/429, network, refused 3xx) — schedule a backoff retry or DEAD when exhausted. */
+        record TransientFailure(Integer statusCode, String error) implements SendOutcome {}
+        /** Non-retryable (4xx≠408/429, SSRF-now-private) — go DEAD immediately; recover via replay. */
+        record PermanentFailure(Integer statusCode, String error) implements SendOutcome {}
+    }
+
+    /**
+     * INT-4 shared send unit — used by BOTH the initial consumer path ({@link #onPaymentEvent}) and the
+     * {@code WebhookDeliveryRetrier}, so a retry is EXACTLY as SSRF-safe and canonical as a first attempt
+     * (it IS this same method). Re-validates + IP-pins the URL (SEC-4b), POSTs the EXACT {@code canonicalBody}
+     * with the HMAC computed over those bytes using the endpoint's CURRENT secret (rotation takes effect next
+     * attempt), redirects disabled, any 3xx is a failure (refused, not followed).
+     *
+     * @param endpoint      the CURRENT endpoint row (current URL + current secret)
+     * @param canonicalBody the exact INT-1 envelope bytes to sign + POST
+     * @param eventType     dotted canonical type (X-NexusPay-Event header)
+     */
+    public SendOutcome send(WebhookEndpointEntity endpoint, String canonicalBody, String eventType) {
+        // SEC-4b second gate / anti-DNS-rebinding: re-resolve AND re-validate immediately before the POST.
+        final List<InetAddress> validated;
+        try {
+            validated = urlGuard.apply(endpoint.getUrl());
+        } catch (WebhookUrlValidationException e) {
+            // The URL now resolves to a non-public/unresolvable address. NOT transient — do not bang an
+            // SSRF target on a 30s timer. PermanentFailure -> DEAD. A merchant who fixes DNS uses replay.
+            return new SendOutcome.PermanentFailure(null, "ssrf-guard: " + e.getMessage());
+        }
+        String host = hostOf(endpoint.getUrl());
+        String signature = computeSignature(canonicalBody, endpoint.getSecret());  // CURRENT secret, per attempt
         String timestamp = Instant.now().toString();
 
+        // FIX 2 (true IP pin): pin to the EXACT InetAddress[] the validator just resolved+approved (keyed by
+        // host), consulted by PinnedDnsResolver at connect time so the socket goes to a validated IP and the
+        // host is never independently re-resolved. TLS SNI/Host stay the hostname so the cert still validates.
         Map<String, InetAddress[]> pin = Map.of(host, validated.toArray(new InetAddress[0]));
         PINNED_ADDRESSES.set(pin);
         try {
-            restClient.post()
+            return restClient.post()
                     .uri(endpoint.getUrl())
                     .header("X-NexusPay-Signature", signature)
                     .header("X-NexusPay-Timestamp", timestamp)
                     .header("X-NexusPay-Event", eventType)
-                    .body(payload)
-                    .retrieve()
-                    // FIX 1: redirect-following is OFF at the client (above), so a malicious 3xx is
-                    // returned, not followed. RestClient does NOT throw on 3xx by default — it would
-                    // be (mis)read as a successful bodiless delivery. Treat ANY 3xx as a delivery
-                    // FAILURE so it is logged + skipped (and surfaces in metrics), never silently OK.
-                    .onStatus(HttpStatusCode::is3xxRedirection, (req, resp) -> {
-                        throw new WebhookDeliveryException(
-                                "endpoint returned a redirect (" + resp.getStatusCode()
-                                        + ") — refusing to follow (SSRF guard)");
-                    })
-                    .toBodilessEntity();
+                    .body(canonicalBody)
+                    // exchange() lets us inspect the status WITHOUT onStatus throwing, so we can map every
+                    // status to an outcome. Redirect-following is OFF at the client (disableRedirectHandling
+                    // + setRedirectsEnabled(false)), so a malicious 3xx is RETURNED, not followed — we map it
+                    // to a TransientFailure (refused), preserving the SSRF guard while letting a transient
+                    // 3xx-misconfig self-heal on retry.
+                    .exchange((req, resp) -> {
+                        int code = resp.getStatusCode().value();
+                        if (resp.getStatusCode().is2xxSuccessful()) {
+                            return new SendOutcome.Delivered(code);
+                        }
+                        if (resp.getStatusCode().is3xxRedirection()) {
+                            return new SendOutcome.TransientFailure(code,
+                                    "endpoint returned redirect " + code + " — refusing to follow (SSRF guard)");
+                        }
+                        if (resp.getStatusCode().is4xxClientError() && code != 408 && code != 429) {
+                            // 4xx (except 408/429) won't fix on retry -> DEAD now; recover via replay.
+                            return new SendOutcome.PermanentFailure(code, "client error " + code);
+                        }
+                        // 5xx, 408, 429, or anything else server-side -> retryable.
+                        return new SendOutcome.TransientFailure(code, "server/other status " + code);
+                    });
+        } catch (Exception e) {
+            // connect timeout, read timeout, connection refused, DNS pin miss, etc. -> retryable.
+            return new SendOutcome.TransientFailure(null, classify(e));
         } finally {
             PINNED_ADDRESSES.remove();
         }
+    }
 
-        log.debug("Webhook delivered: endpoint={} event={}", endpoint.getId(), eventType);
+    /** Compact, bounded classification of a thrown transport exception (never the body/secret). */
+    private static String classify(Exception e) {
+        String msg = e.getMessage();
+        String summary = e.getClass().getSimpleName() + (msg != null ? ": " + msg : "");
+        return summary.length() <= 256 ? summary : summary.substring(0, 256);
+    }
+
+    /**
+     * INT-4: records ONE PENDING delivery row, idempotent on {@code (endpoint_id, event_id)} (L-041).
+     * Returns {@code null} when a row already exists (redelivery / concurrent recorder / already DELIVERED) so
+     * the consumer never re-attempts it — only the retrier (FAILED+due) or an explicit replay re-sends.
+     */
+    @Transactional
+    WebhookDeliveryEntity recordDelivery(String tenant, WebhookEndpointEntity ep, String eventId,
+                                         String dottedType, String canonicalBody) {
+        // Fast path: a prior recording exists -> the consumer does NOT re-attempt (the retrier/idempotency
+        // owns it; a DELIVERED row is never re-sent here).
+        if (deliveryRepository.findByEndpointIdAndEventId(ep.getId(), eventId).isPresent()) {
+            return null;
+        }
+        WebhookDeliveryEntity row = WebhookDeliveryEntity.pending(PrefixedId.webhookDelivery(), tenant,
+                ep.getId(), eventId, dottedType, canonicalBody);
+        try {
+            // saveAndFlush (NOT save): the pre-assigned @Id makes save() do merge() and DEFER the INSERT past
+            // this try/catch (L-041), so a concurrent recorder's unique-violation would escape. Flushing forces
+            // the violation HERE.
+            return deliveryRepository.saveAndFlush(row);
+        } catch (DataIntegrityViolationException dup) {
+            if (!isDeliveryIdemViolation(dup)) {
+                throw dup;   // a genuine/unrelated integrity error (FK to a missing endpoint, etc.) must propagate
+            }
+            // A concurrent recorder won the (endpoint_id,event_id) race; do not double-attempt.
+            return null;
+        }
+    }
+
+    /** Name of the unique index enforcing (endpoint_id, event_id) idempotency (V4031). */
+    private static final String DELIVERY_IDEM_CONSTRAINT = "uq_webhook_deliveries_endpoint_event";
+
+    /**
+     * Narrows the dup-key no-op to OUR idempotency constraint only (mirrors L-041 / CreateJournalEntryUseCase):
+     * Spring's {@link DuplicateKeyException} (SQLSTATE 23505) OR the constraint name anywhere in the chain. Any
+     * other {@link DataIntegrityViolationException} returns {@code false} and is re-thrown.
+     */
+    private static boolean isDeliveryIdemViolation(DataIntegrityViolationException ex) {
+        if (ex instanceof DuplicateKeyException) {
+            return true;
+        }
+        for (Throwable t = ex; t != null; t = t.getCause()) {
+            String msg = t.getMessage();
+            if (msg != null && msg.contains(DELIVERY_IDEM_CONSTRAINT)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * INT-4: the ONE shared state transition for an attempt outcome, used by both the consumer and the
+     * retrier. Delivered -> DELIVERED; PermanentFailure -> DEAD now; TransientFailure -> increment the attempt
+     * then DEAD if exhausted (DLQ — never dropped) else FAILED + exponential backoff.
+     */
+    @Transactional
+    public void recordOutcome(WebhookDeliveryEntity d, SendOutcome outcome) {
+        switch (outcome) {
+            case SendOutcome.Delivered del -> d.markDelivered(del.statusCode());
+            case SendOutcome.PermanentFailure pf -> d.markDead(pf.statusCode(), pf.error());
+            case SendOutcome.TransientFailure tf -> {
+                d.incrementAttempt();
+                if (d.getAttemptCount() >= d.getMaxAttempts()) {
+                    d.markDead(tf.statusCode(), tf.error());
+                } else {
+                    d.markTransientFailure(tf.statusCode(), tf.error(), nextAttemptAt(d.getAttemptCount()));
+                }
+            }
+        }
+        deliveryRepository.save(d);
+    }
+
+    /**
+     * INT-4 backoff: base 30s * 2^(attempt-1), capped at 1h, with half-to-full jitter. {@code attempt} is
+     * 1-based (the post-increment {@code attempt_count}). With max_attempts=8 the cumulative window is
+     * ~30s,1m,2m,4m,8m,16m,32m ≈ 1h05m before DEAD.
+     */
+    static Instant nextAttemptAt(int attempt) {
+        long base = 30L;                                  // seconds
+        long exp = Math.min(attempt - 1, 12);             // cap the shift so it never overflows
+        long delay = Math.min(base << exp, 3600L);        // cap at 1h
+        long jittered = ThreadLocalRandom.current().nextLong(delay / 2, delay + 1); // half-to-full jitter
+        return Instant.now().plusSeconds(jittered);
     }
 
     /** Lower-cased host of the URL, matched against the pin map key. */
     private static String hostOf(String url) {
         String host = URI.create(url).getHost();
         return host == null ? "" : host.toLowerCase(java.util.Locale.ROOT);
-    }
-
-    /**
-     * Thrown when a delivery must be treated as failed for a security reason (e.g. the endpoint
-     * returned a 3xx redirect, which the SSRF guard refuses to follow). Caught by the per-endpoint
-     * try/catch in {@link #onPaymentEvent}, which logs and skips the endpoint.
-     */
-    static final class WebhookDeliveryException extends RuntimeException {
-        WebhookDeliveryException(String message) {
-            super(message);
-        }
     }
 
     /**

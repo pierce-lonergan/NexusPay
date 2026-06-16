@@ -26,6 +26,7 @@ public final class PrefixedId {
     public static final String API_KEY = "key_";
     public static final String AUDIT = "aud_";
     public static final String WEBHOOK_ENDPOINT = "we_";
+    public static final String WEBHOOK_DELIVERY = "whd_";
     public static final String RECONCILIATION_RUN = "rec_";
     public static final String SETTLEMENT_RECORD = "stl_";
     public static final String RECONCILIATION_EXCEPTION = "rex_";
@@ -98,6 +99,10 @@ public final class PrefixedId {
 
     public static String webhookEndpoint() {
         return generate(WEBHOOK_ENDPOINT);
+    }
+
+    public static String webhookDelivery() {
+        return generate(WEBHOOK_DELIVERY);
     }
 
     public static String reconciliationRun() {

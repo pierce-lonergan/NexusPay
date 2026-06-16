@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import io.nexuspay.common.event.Topics;
 import io.nexuspay.common.rls.TenantWorkRunner;
+import io.nexuspay.gateway.adapter.out.persistence.JpaWebhookDeliveryRepository;
 import io.nexuspay.gateway.adapter.out.persistence.JpaWebhookEndpointRepository;
+import io.nexuspay.gateway.adapter.out.persistence.WebhookDeliveryEntity;
 import io.nexuspay.gateway.adapter.out.persistence.WebhookEndpointEntity;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.header.internals.RecordHeader;
@@ -29,6 +31,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -58,6 +61,7 @@ import static org.mockito.Mockito.when;
 class WebhookDeliveryServiceTest {
 
     private JpaWebhookEndpointRepository repository;
+    private JpaWebhookDeliveryRepository deliveryRepository;
     private TenantWorkRunner tenantWork;
     private ObjectMapper objectMapper;
     private WebhookDeliveryService service;
@@ -72,6 +76,11 @@ class WebhookDeliveryServiceTest {
     @BeforeEach
     void setUp() throws IOException {
         repository = mock(JpaWebhookEndpointRepository.class);
+        // INT-4: the consumer now RECORDS a PENDING delivery before attempting. A mocked delivery repo
+        // whose saveAndFlush echoes the row (default findByEndpointIdAndEventId -> Optional.empty()) lets
+        // recordDelivery return a non-null PENDING row so the existing routing/HMAC assertions still drive a
+        // real POST; recordOutcome's save() is a no-op against the mock.
+        deliveryRepository = recordingDeliveryRepo();
         tenantWork = mock(TenantWorkRunner.class);
         objectMapper = new ObjectMapper();
         // rlsEnforced=false. SEC-09 (B-009): even with RLS dormant the consumer now filters endpoints by
@@ -82,7 +91,7 @@ class WebhookDeliveryServiceTest {
         // INT-1: seam ctor now takes a WebhookMetadataPort. These existing tests assert routing/HMAC, not
         // enrichment, so stub it to return empty metadata ({} -> data.metadata == {}). The port now takes
         // (gatewayPaymentId, tenant) — the tenant is the app-layer ownership check (see WebhookMetadataPort).
-        service = new WebhookDeliveryService(repository, objectMapper, tenantWork,
+        service = new WebhookDeliveryService(repository, deliveryRepository, objectMapper, tenantWork,
                 (gatewayPaymentId, tenant) -> java.util.Map.of(), false,
                 loopbackPermittingGuard());
 
@@ -128,6 +137,18 @@ class WebhookDeliveryServiceTest {
                         "test guard: host unresolvable: " + host);
             }
         };
+    }
+
+    /**
+     * INT-4: a mocked delivery repo whose saveAndFlush ECHOES the entity (so recordDelivery returns a
+     * non-null PENDING row and the attempt proceeds). findByEndpointIdAndEventId defaults to empty, so the
+     * idempotency fast-path never short-circuits these routing/HMAC tests.
+     */
+    private static JpaWebhookDeliveryRepository recordingDeliveryRepo() {
+        JpaWebhookDeliveryRepository repo = mock(JpaWebhookDeliveryRepository.class);
+        when(repo.saveAndFlush(any(WebhookDeliveryEntity.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+        return repo;
     }
 
     private WebhookEndpointEntity endpoint(String id, String path, String secret, List<String> events) {
@@ -176,7 +197,7 @@ class WebhookDeliveryServiceTest {
         java.util.Map<String, Object> stubMeta = new java.util.LinkedHashMap<>();
         stubMeta.put("userId", "u_42");
         stubMeta.put("packId", "gold");
-        var enriched = new WebhookDeliveryService(repository, objectMapper, tenantWork,
+        var enriched = new WebhookDeliveryService(repository, deliveryRepository, objectMapper, tenantWork,
                 (gatewayPaymentId, tenant) -> stubMeta,
                 false, loopbackPermittingGuard());
 

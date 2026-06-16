@@ -73,4 +73,15 @@ public class WebhookEndpointEntity {
         this.enabled = enabled;
         this.updatedAt = Instant.now();
     }
+
+    /**
+     * INT-4: rotate the signing secret (immediate rotation — one live secret at a time). The next webhook
+     * attempt (initial or retry) signs with this new secret because {@code WebhookDeliveryService.send}
+     * reads {@code getSecret()} live per attempt. The at-least-once retrier + admin replay cover the
+     * merchant's update window, so no dual-signature grace is kept (the cleaner security posture).
+     */
+    public void rotateSecret(String newSecret) {
+        this.secret = newSecret;
+        this.updatedAt = Instant.now();
+    }
 }

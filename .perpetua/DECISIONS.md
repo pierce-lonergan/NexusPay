@@ -620,3 +620,18 @@ is stamped on payment responses + the canonical webhook envelope. Adversarial re
 carries a signed `livemode` claim (fail-closed to test when absent) threaded through PaymentSession*; (2) the
 above-threshold approved-refund path (executeApprovedRefund) reached the real PSP → now mode-routed. 2 BLOCKERS +
 4 SHOULD_FIX, all applied. No migration. ADR-027.
+
+## ADR-028 | 2026-06-16 | INT-4: outbound webhook delivery reliability (T3)
+Outbound webhook delivery was fire-once-and-log (no retry/DLQ) — a merchant outage = permanently lost events.
+INT-4 makes it persisted at-least-once. New webhook_deliveries table (V4031, gateway leaf; global max was V4030)
+records one row per (endpoint,event) — unique (endpoint_id,event_id) + saveAndFlush dup-key no-op (L-041) = no
+double-record; status PENDING→DELIVERED/FAILED→DEAD; RLS-policied + tenant-scoped. The SEC-4b SSRF-pinned +
+INT-1 canonical-transform + per-attempt HMAC re-sign send was REFACTORED into one shared method used by both the
+Kafka consumer and a new leader-locked @Scheduled WebhookDeliveryRetrier (atomic Valkey owner-checked release,
+B-018) that re-attempts FAILED rows with exponential backoff+jitter, →DEAD (DLQ) at max attempts. Signature uses
+the endpoint's CURRENT secret each attempt (so rotation takes effect next try). Tenant-scoped list + admin replay
+API (404 no-oracle, secret never exposed) + a secret-rotation endpoint (new whsec_ once). Adversarial review found
++ fixed a real lost-delivery hole (PENDING rows orphaned by a pre-outcome crash were never swept → now re-driven
+after a staleness threshold, with a crash-recovery test) and a lock-expiry-mid-batch double-send (now an atomic
+per-row claimForRetry conditional UPDATE — exactly one leader claims a row). 1 BLOCKER + 3 SHOULD_FIX, all applied.
+Migration V4031. ADR-028.
