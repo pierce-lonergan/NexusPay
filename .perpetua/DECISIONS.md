@@ -766,3 +766,17 @@ last_reconcile_error for a bounded next pass. V4032 adds processing_since + reco
 stuck-PROCESSING recovered to terminal, idempotent re-drive (same key, no second disburse), leader-locked single-run,
 threshold doesn't grab fresh payouts; SERIALIZABLE soak @Tag("simulation"). 0 BLOCKERS, 5 SHOULD_FIX (failure_reason
 truncation vs column width, PSP-call-in-tx contract, race hardening), applied. Migration V4032. ADR-037.
+
+## ADR-038 | 2026-06-16 | SEC-BATCH-5a: payment idempotency (SEC-12 + SEC-15) (T3)
+SEC-12 (double-charge on retry): capture/void/refund passed the OPTIONAL Idempotency-Key header raw — a null key
+meant no PSP dedup, so a network retry could double-capture/refund/void. PaymentController.resolveKey now returns
+the caller key verbatim when present (authoritative) else derives a DETERMINISTIC key: capture-{id}-{amount|full},
+void-{id}, refund-{id}-{amount} — so a retry of the SAME logical op sends the SAME key (PSP dedups) while distinct
+ops/amounts don't collide (intentional same-amount partial refunds still need an explicit caller key — documented).
+SEC-15 (lost redelivery): HyperSwitchWebhookController claimed the Valkey dedup key (setIfAbsent) BEFORE the
+@Transactional DB work committed; Valkey isn't transactional, so a rollback left the eventId suppressed for the TTL
+and the retryable webhook was never redelivered. Fix: keep the claim-first (concurrent-dup safety) but register a
+TransactionSynchronization afterCompletion that DELETEs the dedup key when status != COMMITTED — a rolled-back/failed
+webhook is now redeliverable; a successfully-committed one stays deduped. Inbound HMAC-SHA512 + tenant stamping +
+outbox untouched. 9 SEC-12 + 4 SEC-15 tests (fail on the vulnerable code). No migration. 0 BLOCKERS, 0 SHOULD_FIX.
+ADR-038.

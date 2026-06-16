@@ -16,6 +16,8 @@ import org.slf4j.MDC;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.bind.annotation.*;
 
 import javax.crypto.Mac;
@@ -130,6 +132,55 @@ public class HyperSwitchWebhookController {
             return ResponseEntity.ok().build();
         }
 
+        // SEC-15: the claim above is NOT transactional (Valkey is not enlisted in the DB tx). If this
+        // @Transactional handler rolls back AFTER the claim (a DB/outbox failure, a constraint violation,
+        // or any unchecked exception before commit) the eventId would stay suppressed for DEDUP_TTL (24h)
+        // and the legitimate, RETRYABLE webhook would never be redelivered -> a lost capture/refund.
+        // Release the claim UNLESS the tx COMMITS:
+        //   * In a Spring-managed tx (the production @Transactional path) register an afterCompletion
+        //     synchronization that deletes the dedup key on any non-COMMITTED status (ROLLED_BACK or the
+        //     heuristic UNKNOWN). A COMMITTED tx keeps the key, so a true duplicate of a SUCCESSFULLY
+        //     processed event stays deduped for the TTL (invariant 3 preserved).
+        //   * With no active synchronization (e.g. a direct unit-test call with no tx manager) fall back
+        //     to try/catch: release the claim if the post-claim body throws. Defense-in-depth.
+        // The claim stays FIRST (above) so genuinely-concurrent duplicates are still rejected during
+        // processing — the no-double-processing window is unchanged.
+        final String dedupKey = DEDUP_PREFIX + eventId;
+        boolean syncRegistered = false;
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCompletion(int status) {
+                    if (status != TransactionSynchronization.STATUS_COMMITTED) {
+                        // ROLLED_BACK or UNKNOWN -> the event was NOT durably recorded; release the claim
+                        // so HyperSwitch's redelivery is processed instead of being suppressed for 24h.
+                        redisTemplate.delete(dedupKey);
+                    }
+                }
+            });
+            syncRegistered = true;
+        }
+
+        try {
+            return processClaimedWebhook(webhook, payload, eventId, eventType, paymentId);
+        } catch (RuntimeException e) {
+            if (!syncRegistered) {
+                // No tx synchronization is driving the release; do it here so the claim is freed even on
+                // the no-active-tx path (keeps the existing direct-call tests + defense-in-depth honest).
+                redisTemplate.delete(dedupKey);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Persists the claimed webhook + writes the canonical outbox row (SEC-09 tenant stamping) inside the
+     * caller's transaction. Extracted from {@link #handleWebhook} so the SEC-15 dedup-release wrapping is
+     * a single, readable seam around the durable writes. Throws on a serialization/persistence failure so
+     * the caller can release the Valkey claim (the tx rolls back).
+     */
+    private ResponseEntity<Void> processClaimedWebhook(InboundWebhook webhook, JsonNode payload,
+            String eventId, String eventType, String paymentId) {
         webhookRepository.save(webhook);
 
         // Step 4: Write to event_outbox
