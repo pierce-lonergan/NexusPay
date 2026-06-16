@@ -72,6 +72,13 @@ public class MarketplaceRepositoryAdapter implements MarketplaceRepository {
     }
 
     @Override
+    public SplitPayment saveAndFlushSplitPayment(SplitPayment splitPayment) {
+        // SEC-20: flush synchronously so the uq_split_payments_tenant_payment violation surfaces here,
+        // inside the create attempt's transaction, not deferred to commit.
+        return toDomain(splitPaymentRepo.saveAndFlush(toEntity(splitPayment)));
+    }
+
+    @Override
     public Optional<SplitPayment> findSplitPaymentById(String id) {
         return splitPaymentRepo.findById(id).map(e -> {
             SplitPayment sp = toDomain(e);
@@ -87,6 +94,16 @@ public class MarketplaceRepositoryAdapter implements MarketplaceRepository {
             SplitPayment sp = toDomain(e);
             List<SplitRule> rules = findRulesBySplitPaymentId(id);
             sp.setRules(rules);
+            return sp;
+        });
+    }
+
+    @Override
+    public Optional<SplitPayment> findSplitPaymentByTenantAndPaymentId(String tenantId, String paymentId) {
+        // SEC-20: load the (tenant, payment) split + its rules for idempotent re-return.
+        return splitPaymentRepo.findByTenantIdAndPaymentId(tenantId, paymentId).map(e -> {
+            SplitPayment sp = toDomain(e);
+            sp.setRules(findRulesBySplitPaymentId(sp.getId()));
             return sp;
         });
     }

@@ -815,3 +815,38 @@ aggregation, `::DECIMAL`/`::INTEGER`/`::DATE`). The SEC-18 dedup logic itself wa
 NOTE: the marker adapter uses INSERT ... ON CONFLICT (event_id, rollup_kind) DO NOTHING (single-statement claim, no
 23505 on our own dup) rather than saveAndFlush — so a multi-rollup event (PaymentFailed → AUTH_RATE then DECLINE)
 never poisons the shared tx on a concurrent dup of the first marker.
+
+## ADR-040 | 2026-06-16 | SEC-BATCH-5c: fee BigDecimal HALF_EVEN + split idempotency + /internal IP rate-limit (T3)
+SEC-19 (float money math): PlatformFee.calculateFee and SplitPayment.resolveAmounts computed fees/legs with
+(long)(amount * percent.doubleValue() / 100.0) — float loses fractional minor units and biases collected fees.
+Fixed via a new pure helper common/.../domain/MoneyRounding.percentageOfMinorUnits(amountMinor, percent, mode) =
+BigDecimal multiply/divide-by-100 at scale 0 (minor units already encode the currency exponent → correct for
+JPY/BHD) with RoundingMode.HALF_EVEN (banker's; avoids HALF_UP's systematic upward bias when collecting many
+fees). The FX path keeps its existing HALF_UP (B-014) — out of scope, untouched.
+SEC-20 (split idempotency): split_payments had no UNIQUE(tenant_id,payment_id) and createSplitPayment had no
+lookup → a retry double-created the split tree. V4034 pre-dedups (FK-safe: child split_rules/platform_fees of
+loser parents first, then losers, survivor=latest created_at) then adds UNIQUE(tenant_id,payment_id) (fraud V4023
+precedent). SplitPaymentService now read-through-dedups (return existing) and, on the concurrent race, the write
+runs in a SplitPaymentWriter @Transactional(REQUIRES_NEW) whose unique-violation rollback does not poison the
+outer tx — the outer catch re-fetches the winner and returns it idempotently (never a 500).
+SEC-21 (/internal rate-limit): the two HMAC-only inbound webhook endpoints (/internal/webhooks/{hyperswitch,
+disputes}) had no rate limit (RateLimitFilter explicitly skips /internal/). New InternalWebhookRateLimitFilter
+@Order(9) reuses the Valkey token-bucket Lua, keyed per CLIENT IP, fail-OPEN on Redis down (dropping real PSP
+money-events is worse than brief flood exposure; HMAC still gates authenticity). X-Forwarded-For spoofing handled:
+trust-forwarded-for DEFAULT false (getRemoteAddr); when true, the RIGHTMOST XFF entry (the hop the single trusted
+proxy appended — spoof-resistant; leftmost entries are client-controlled).
+REVIEW (4 adversarial lenses): 1 BLOCKER + 2 SHOULD_FIX + 2 NIT. BLOCKER (money-math): switching each PERCENTAGE
+leg from truncation (always DOWN) to HALF_EVEN (can round UP) made equal-thirds splits (33.33/33.33/33.34) sum to
+MORE than total, tripping the pre-existing over-allocation guard → IllegalStateException on VALID splits the old
+code resolved. Fixed: detect genuine over-allocation against the EXACT un-rounded BigDecimal sum (rounding cannot
+inflate it), and reconcile the rounding delta via largest-remainder redistributeDelta() (never drives a leg
+negative; legs sum EXACTLY to total). L-058. SHOULD_FIX: narrowed the idempotency catch to ONLY the
+uq_split_payments_tenant_payment violation (DuplicateKeyException or constraint name in the cause chain) so an
+unrelated FK/NOT-NULL DataIntegrityViolation is NOT masked as the benign race (mirror FraudAssessmentService);
+documented the rate-limit sizing. ORCHESTRATOR follow-through on the two remaining items: raised the per-IP
+default 60→600/min (against a flood 60 vs 600 are equally effective, but 60/min=1/s needlessly 429s a legitimate
+PSP burst — availability of money-events wins); fixed the inaccurate "BEFORE Spring Security" javadoc (Security
+FilterChainProxy runs at -100, earlier — but /internal is permitAll so this is the first EFFECTIVE gate); added
+app/.../SplitPaymentIdempotencyIT (real-Postgres: retried create returns same split + one row; distinct payments
+get distinct splits) for the NIT that the concurrent-race unit test was a no-op without a real tx manager.
+Migration V4034. ADR-040. CI is the oracle (no local Gradle).

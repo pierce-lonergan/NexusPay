@@ -2,17 +2,16 @@ package io.nexuspay.marketplace.application.service;
 
 import io.nexuspay.common.tenant.TenantOwnership;
 import io.nexuspay.marketplace.application.port.in.CreateSplitPaymentUseCase;
-import io.nexuspay.marketplace.application.port.out.MarketplaceEventPublisher;
 import io.nexuspay.marketplace.application.port.out.MarketplaceRepository;
 import io.nexuspay.marketplace.domain.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Service for creating and managing split payments across connected accounts.
@@ -26,12 +25,12 @@ public class SplitPaymentService implements CreateSplitPaymentUseCase {
     private static final Logger log = LoggerFactory.getLogger(SplitPaymentService.class);
 
     private final MarketplaceRepository repository;
-    private final MarketplaceEventPublisher eventPublisher;
+    private final SplitPaymentWriter writer;
 
     public SplitPaymentService(MarketplaceRepository repository,
-                                MarketplaceEventPublisher eventPublisher) {
+                                SplitPaymentWriter writer) {
         this.repository = repository;
-        this.eventPublisher = eventPublisher;
+        this.writer = writer;
     }
 
     @Override
@@ -39,86 +38,73 @@ public class SplitPaymentService implements CreateSplitPaymentUseCase {
     public SplitPaymentResult createSplitPayment(CreateSplitCommand command) {
         validateSplitRules(command.rules());
 
-        // Look up the platform account to determine fee structure
-        long platformFeeAmount = 0;
+        // SEC-20: idempotency read-through. A retried create for the same (tenant, payment) must NOT
+        // double-create the split row tree — return the existing split mapped to a result. The V4034
+        // UNIQUE(tenant_id, payment_id) is the concurrency backstop for retries that race past this read
+        // (handled below via DataIntegrityViolationException).
+        var existing = repository.findSplitPaymentByTenantAndPaymentId(
+                command.tenantId(), command.paymentId());
+        if (existing.isPresent()) {
+            log.info("Split payment already exists, returning idempotently: id={}, payment={}, tenant={}",
+                    existing.get().getId(), command.paymentId(), command.tenantId());
+            return toResult(existing.get());
+        }
 
-        // Create split payment
-        SplitPayment splitPayment = SplitPayment.create(
-                command.paymentId(), command.tenantId(),
-                command.totalAmount(), command.currency());
-        splitPayment = repository.saveSplitPayment(splitPayment);
-
-        // Create split rules and calculate platform fee from first account's settings
-        List<SplitRuleResult> ruleResults = new ArrayList<>();
-        for (SplitRuleCommand ruleCmd : command.rules()) {
-            // SEC-BATCH-1: each referenced connected account must belong to the caller tenant, else a
-            // tenant could build a split crediting foreign accounts. 404 on absent OR wrong-tenant.
-            ConnectedAccount account = TenantOwnership.require(
-                    repository.findAccountById(ruleCmd.connectedAccountId(), command.tenantId()),
-                    "Connected account");
-
-            // Calculate platform fee from first account (platform fee is tenant-level)
-            if (platformFeeAmount == 0 && account.getPlatformFeePercent() != null) {
-                platformFeeAmount = PlatformFee.calculateFee(
-                        command.totalAmount(), account.getPlatformFeePercent(),
-                        account.getPlatformFeeFixed());
+        try {
+            // SEC-20: the write runs in its OWN (REQUIRES_NEW) transaction so that a unique-violation
+            // rollback does NOT poison THIS transaction — letting the re-fetch below run cleanly.
+            return writer.create(command);
+        } catch (DataIntegrityViolationException e) {
+            // SEC-BATCH-5c (idempotency SHOULD_FIX): only swallow the SPECIFIC (tenant_id, payment_id)
+            // uniqueness race. The writer's REQUIRES_NEW transaction can raise a
+            // DataIntegrityViolationException for OTHER reasons (e.g. the split_rules FK firing when a
+            // referenced connected_accounts row is concurrently deleted, or a future NOT-NULL/check/other
+            // unique constraint). Treating those as the benign race would re-fetch an empty Optional ->
+            // 404, MASKING a genuine integrity bug in a money path. Mirror FraudAssessmentService: re-throw
+            // anything that is not the tenant/payment unique violation.
+            if (!isTenantPaymentConstraintViolation(e)) {
+                throw e;
             }
-
-            SplitRule rule = SplitRule.create(
-                    splitPayment.getId(), ruleCmd.connectedAccountId(),
-                    ruleCmd.splitType(), ruleCmd.amount(), ruleCmd.percentage(),
-                    command.currency());
-            splitPayment.addRule(rule);
+            // SEC-20: concurrent retry — two callers both passed the pre-check, the UNIQUE rejected the
+            // loser's insert (its REQUIRES_NEW tx rolled back). Re-fetch and return the winner's split
+            // idempotently in this still-clean transaction; never surface a 500.
+            SplitPayment winner = TenantOwnership.require(
+                    repository.findSplitPaymentByTenantAndPaymentId(command.tenantId(), command.paymentId()),
+                    "Split payment");
+            log.info("Concurrent split-payment create lost the unique race, returning existing: "
+                    + "id={}, payment={}, tenant={}", winner.getId(), command.paymentId(), command.tenantId());
+            return toResult(winner);
         }
+    }
 
-        // Resolve calculated amounts based on total (minus platform fee)
-        long distributableAmount = command.totalAmount() - platformFeeAmount;
-        splitPayment.setTotalAmount(distributableAmount);
-        splitPayment.resolveAmounts();
-        splitPayment.setTotalAmount(command.totalAmount()); // Restore original
+    /** Name of the unique index that enforces (tenant_id, payment_id) uniqueness (V4034). */
+    private static final String TENANT_PAYMENT_CONSTRAINT = "uq_split_payments_tenant_payment";
 
-        // Persist rules
-        for (SplitRule rule : splitPayment.getRules()) {
-            rule = repository.saveSplitRule(rule);
-            ruleResults.add(new SplitRuleResult(
-                    rule.getId(), rule.getConnectedAccountId(),
-                    rule.getSplitType(), rule.getCalculatedAmount(), rule.getCurrency()));
+    /**
+     * SEC-BATCH-5c: narrow the SEC-20 backstop catch to the SPECIFIC unique-constraint race so an
+     * unrelated integrity error is not swallowed as a benign duplicate (mirrors
+     * {@code FraudAssessmentService.isTenantIdemConstraintViolation}). Two complementary signals:
+     * <ul>
+     *   <li>Spring's {@link DuplicateKeyException} — the dedicated duplicate-key subtype the JPA
+     *       exception translator raises for a unique violation (PostgreSQL SQLSTATE 23505); or</li>
+     *   <li>the {@link #TENANT_PAYMENT_CONSTRAINT} name appearing anywhere in the exception chain's
+     *       messages — covers a bare {@link DataIntegrityViolationException} carrying the constraint
+     *       name.</li>
+     * </ul>
+     * Any other {@link DataIntegrityViolationException} (a different unique index, a NOT-NULL/FK
+     * violation, ...) returns {@code false} and is re-thrown by the caller.
+     */
+    private static boolean isTenantPaymentConstraintViolation(DataIntegrityViolationException ex) {
+        if (ex instanceof DuplicateKeyException) {
+            return true;
         }
-
-        // Record platform fee if applicable
-        if (platformFeeAmount > 0) {
-            // SEC-BATCH-1: re-load the platform-fee account tenant-scoped (already validated in the
-            // loop above, but keep the read tenant-isolated for defence in depth).
-            ConnectedAccount firstAccount = repository.findAccountById(
-                    command.rules().get(0).connectedAccountId(), command.tenantId()).orElse(null);
-            PlatformFee fee = PlatformFee.create(
-                    splitPayment.getId(), command.tenantId(), platformFeeAmount,
-                    command.currency(),
-                    firstAccount != null ? firstAccount.getPlatformFeePercent() : null,
-                    firstAccount != null ? firstAccount.getPlatformFeeFixed() : 0);
-            fee.setDescription("Platform fee for payment " + command.paymentId());
-            repository.savePlatformFee(fee);
+        for (Throwable t = ex; t != null; t = t.getCause()) {
+            String msg = t.getMessage();
+            if (msg != null && msg.contains(TENANT_PAYMENT_CONSTRAINT)) {
+                return true;
+            }
         }
-
-        splitPayment.markProcessing();
-        repository.saveSplitPayment(splitPayment);
-
-        eventPublisher.publishEvent("SplitPayment", splitPayment.getId(), "SplitPaymentCreated",
-                Map.of("paymentId", command.paymentId(),
-                        "totalAmount", command.totalAmount(),
-                        "currency", command.currency(),
-                        "ruleCount", command.rules().size(),
-                        "platformFee", platformFeeAmount,
-                        "tenantId", command.tenantId()),
-                command.tenantId());
-
-        log.info("Split payment created: id={}, payment={}, rules={}, fee={}, tenant={}",
-                splitPayment.getId(), command.paymentId(), command.rules().size(),
-                platformFeeAmount, command.tenantId());
-
-        return new SplitPaymentResult(
-                splitPayment.getId(), command.paymentId(), splitPayment.getStatus(),
-                command.totalAmount(), command.currency(), ruleResults, platformFeeAmount);
+        return false;
     }
 
     @Override
@@ -127,14 +113,22 @@ public class SplitPaymentService implements CreateSplitPaymentUseCase {
         // SEC-BATCH-1: tenant-scoped by-id read — 404 on absent OR wrong-tenant.
         SplitPayment sp = TenantOwnership.require(
                 repository.findSplitPaymentById(splitPaymentId, tenantId), "Split payment");
+        return toResult(sp);
+    }
 
+    /**
+     * SEC-20: maps a persisted {@link SplitPayment} (with its rules loaded) plus its recorded platform
+     * fee to a {@link SplitPaymentResult}. Shared by {@link #getSplitPayment} and the idempotent
+     * re-return paths of {@link #createSplitPayment}.
+     */
+    private SplitPaymentResult toResult(SplitPayment sp) {
         List<SplitRuleResult> ruleResults = sp.getRules().stream()
                 .map(r -> new SplitRuleResult(
                         r.getId(), r.getConnectedAccountId(),
                         r.getSplitType(), r.getCalculatedAmount(), r.getCurrency()))
                 .toList();
 
-        long feeAmount = repository.findFeesBySplitPaymentId(splitPaymentId)
+        long feeAmount = repository.findFeesBySplitPaymentId(sp.getId())
                 .map(PlatformFee::getFeeAmount).orElse(0L);
 
         return new SplitPaymentResult(
