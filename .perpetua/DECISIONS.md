@@ -797,3 +797,21 @@ PER rollup_kind (so one event updating several rollups still counts each once) a
 unchanged. Real-Postgres ITs: failed-run durable record survives rollback; same event twice = counters unchanged,
 distinct event still increments (a vacuous routing test was caught + fixed). 6 BLOCKERS (the REQUIRES_NEW
 self-deadlock, one root cause across lenses) + 5 SHOULD_FIX, all applied. Migration V4033. ADR-039.
+
+CI ITERATION (first PR-#27 CI run RED — both invisible to the no-Gradle static review, surfaced by real-Postgres CI):
+(1) OOM. The SEC-17 IT's lone `@MockBean ThreeWayMatchingService` forked a SECOND full Testcontainers context into
+Spring's cache (it was the only @MockBean among 24 app ITs); the extra ~300MB context OOM'd the `:app:test` JVM and
+cascaded as a flood of unrelated gate FAILEDs (SEC-11/HyperSwitch/SEC-18) + 08001 + CannotCreateTransaction during
+teardown. Fixed by replacing the @MockBean with FaultInjectableThreeWayMatchingService — a @Primary armable double in
+the SHARED TestSecurityConfig (ThreadLocal-armed, delegates to super by default, inert for every other IT), keeping
+the context-cache key identical → one context. The INT-3 MockPaymentGatewayPort precedent. L-057.
+(2) Pre-existing L-056 grammar bug. The SEC-18 ITs are the FIRST to drive analytics' real native auth-rate upsert
+against Postgres (the prior unit tests MOCK the repo), exposing a latent `(...)::DECIMAL` cast in
+AnalyticsRepositoryAdapters.upsertHourly (committed 2026-03-27, untouched by this batch) — the exact L-056 `::`-vs-
+`:param` collision that SEC-25's "repo-wide scan (clean)" MISSED because it only matched the `::timestamptz` form. So
+the auth-rate rollup threw SQLGrammarException on every PaymentFailed/routing event in prod (revenue passed: no cast).
+Swept ALL 6 analytics SQL casts → ANSI CAST(... AS ...): upsertHourly + RollupJobService (hourly→daily→monthly
+aggregation, `::DECIMAL`/`::INTEGER`/`::DATE`). The SEC-18 dedup logic itself was correct; only the cast blocked it.
+NOTE: the marker adapter uses INSERT ... ON CONFLICT (event_id, rollup_kind) DO NOTHING (single-statement claim, no
+23505 on our own dup) rather than saveAndFlush — so a multi-rollup event (PaymentFailed → AUTH_RATE then DECLINE)
+never poisons the shared tx on a concurrent dup of the first marker.

@@ -1,8 +1,12 @@
 package io.nexuspay.app.config;
 
 import io.nexuspay.iam.domain.NexusPayPrincipal;
+import io.nexuspay.reconciliation.application.port.out.LedgerQueryPort;
+import io.nexuspay.reconciliation.application.port.out.PaymentQueryPort;
+import io.nexuspay.reconciliation.application.service.ThreeWayMatchingService;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -18,6 +22,22 @@ import java.util.Map;
  */
 @TestConfiguration
 public class TestSecurityConfig {
+
+    /**
+     * SEC-17: armable fault-injection seam over {@link ThreeWayMatchingService}, {@code @Primary} so the
+     * orchestrator autowires it. Lives HERE (the shared test config) rather than as a per-test
+     * {@code @MockBean} on purpose — a {@code @MockBean} would fork a second full Testcontainers context
+     * into Spring's cache and OOM the {@code :app:test} JVM. Default behavior is identical to the real
+     * service; a test arms a per-thread fault via
+     * {@link FaultInjectableThreeWayMatchingService#armFault} and clears it in a {@code finally}. Inert
+     * for every other IT. See {@link FaultInjectableThreeWayMatchingService} for the full rationale.
+     */
+    @Bean
+    @Primary
+    public ThreeWayMatchingService faultInjectableMatchingService(PaymentQueryPort paymentQueryPort,
+                                                                  LedgerQueryPort ledgerQueryPort) {
+        return new FaultInjectableThreeWayMatchingService(paymentQueryPort, ledgerQueryPort);
+    }
 
     @Bean
     public JwtDecoder jwtDecoder() {

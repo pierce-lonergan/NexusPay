@@ -1,5 +1,6 @@
 package io.nexuspay.app;
 
+import io.nexuspay.app.config.FaultInjectableThreeWayMatchingService;
 import io.nexuspay.app.config.TestSecurityConfig;
 import io.nexuspay.reconciliation.application.port.out.ReconciliationRepository;
 import io.nexuspay.reconciliation.application.service.ReconciliationOrchestrator;
@@ -12,7 +13,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 
 import java.io.ByteArrayInputStream;
@@ -22,16 +22,15 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.Mockito.when;
 
 /**
  * SEC-17 GATE: a reconciliation run that fails mid-pipeline must leave a DURABLE trace — the run row
  * is committed in {@code FAILED} status AND a {@code SYSTEM_ERROR} failure-reason exception is
  * persisted, both surviving the outer transaction's rollback.
  *
- * <p><strong>Fault:</strong> {@link ThreeWayMatchingService#reconcile(List)} is mocked to throw
- * AFTER the run has been started ({@code RUNNING}) inside the orchestrator's outer
+ * <p><strong>Fault:</strong> {@link ThreeWayMatchingService#reconcile(List)} is armed (via the shared
+ * {@link FaultInjectableThreeWayMatchingService} double — NOT a context-forking {@code @MockBean}) to
+ * throw AFTER the run has been started ({@code RUNNING}) inside the orchestrator's outer
  * {@code @Transactional} ({@code REQUIRED}) boundary. The orchestrator rethrows, marking the shared
  * transaction rollback-only.</p>
  *
@@ -52,11 +51,6 @@ class ReconciliationFailureDurabilityIT extends IntegrationTestBase {
     @Autowired
     private ReconciliationRepository repository;
 
-    // Mock the matching service so reconcile() throws inside the orchestrator's outer transaction,
-    // AFTER the run has been created + started. The throw drives the catch -> failureRecorder path.
-    @MockBean
-    private ThreeWayMatchingService matchingService;
-
     @BeforeEach
     void requireDocker() {
         Assumptions.assumeTrue(DOCKER_AVAILABLE,
@@ -74,15 +68,20 @@ class ReconciliationFailureDurabilityIT extends IntegrationTestBase {
         String tenantId = "sec17_" + UUID.randomUUID();
         RuntimeException boom = new IllegalStateException("matching engine exploded (SEC-17 fault)");
 
-        when(matchingService.reconcile(anyList())).thenThrow(boom);
-
-        // Act: the original exception must propagate out of the @Transactional proxy.
-        assertThatThrownBy(() -> orchestrator.runFromUpload(
-                tenantId, "stripe", "sec17.csv",
-                new ByteArrayInputStream(STRIPE_CSV.getBytes(StandardCharsets.UTF_8))))
-                .as("the run-failure cause must propagate (outer tx rolls back the work)")
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("SEC-17 fault");
+        // Arm the shared fault double on THIS thread; reconcile() runs synchronously on it, so the
+        // orchestrator hits the throw inside its outer transaction. ALWAYS disarm in finally.
+        FaultInjectableThreeWayMatchingService.armFault(boom);
+        try {
+            // Act: the original exception must propagate out of the @Transactional proxy.
+            assertThatThrownBy(() -> orchestrator.runFromUpload(
+                    tenantId, "stripe", "sec17.csv",
+                    new ByteArrayInputStream(STRIPE_CSV.getBytes(StandardCharsets.UTF_8))))
+                    .as("the run-failure cause must propagate (outer tx rolls back the work)")
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("SEC-17 fault");
+        } finally {
+            FaultInjectableThreeWayMatchingService.clearFault();
+        }
 
         // The REQUIRES_NEW recorder committed the run id post-rollback; query it back by tenant.
         List<ReconciliationRun> runs = repository.findRunsByTenant(tenantId, 10, 0);

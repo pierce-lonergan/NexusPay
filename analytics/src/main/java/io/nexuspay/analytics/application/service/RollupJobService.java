@@ -43,9 +43,9 @@ public class RollupJobService {
                        card_type, issuing_region, currency, payment_method,
                        SUM(total_attempts), SUM(total_approved), SUM(total_declined), SUM(total_errors),
                        CASE WHEN SUM(total_attempts) > 0
-                            THEN SUM(total_approved)::DECIMAL / SUM(total_attempts)
+                            THEN CAST(SUM(total_approved) AS DECIMAL) / SUM(total_attempts)
                             ELSE 0 END,
-                       AVG(avg_latency_ms)::INTEGER, MAX(p95_latency_ms)
+                       CAST(AVG(avg_latency_ms) AS INTEGER), MAX(p95_latency_ms)
                 FROM analytics.auth_rate_hourly
                 WHERE DATE(bucket_hour) = CURRENT_DATE - INTERVAL '1 day'
                 GROUP BY tenant_id, DATE(bucket_hour), psp_connector, card_brand, card_type,
@@ -79,16 +79,16 @@ public class RollupJobService {
                      issuing_region, currency, payment_method, total_attempts, total_approved,
                      total_declined, total_errors, auth_rate)
                 SELECT gen_random_uuid(), tenant_id,
-                       DATE_TRUNC('month', bucket_date)::DATE, psp_connector, card_brand,
+                       CAST(DATE_TRUNC('month', bucket_date) AS DATE), psp_connector, card_brand,
                        card_type, issuing_region, currency, payment_method,
                        SUM(total_attempts), SUM(total_approved), SUM(total_declined), SUM(total_errors),
                        CASE WHEN SUM(total_attempts) > 0
-                            THEN SUM(total_approved)::DECIMAL / SUM(total_attempts)
+                            THEN CAST(SUM(total_approved) AS DECIMAL) / SUM(total_attempts)
                             ELSE 0 END
                 FROM analytics.auth_rate_daily
                 WHERE bucket_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
                   AND bucket_date < DATE_TRUNC('month', CURRENT_DATE)
-                GROUP BY tenant_id, DATE_TRUNC('month', bucket_date)::DATE, psp_connector,
+                GROUP BY tenant_id, CAST(DATE_TRUNC('month', bucket_date) AS DATE), psp_connector,
                          card_brand, card_type, issuing_region, currency, payment_method
                 ON CONFLICT (tenant_id, bucket_month, psp_connector, card_brand, card_type,
                              issuing_region, currency, payment_method)
