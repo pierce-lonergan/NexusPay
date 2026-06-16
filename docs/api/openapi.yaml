@@ -1,0 +1,1066 @@
+openapi: 3.1.0
+info:
+  title: NexusPay API
+  version: v1
+  description: >-
+    Curated OpenAPI for the merchant integration surface (payments, refunds,
+    payment sessions, webhook endpoints/deliveries, API keys).
+
+
+    This document is hand-maintained for readability and TypeScript codegen. The
+    live `GET /v1/api-docs` (springdoc) is the complete authoritative spec —
+    snapshot it with `curl localhost:8090/v1/api-docs -o openapi.json` and
+    generate types with `openapi-typescript`.
+
+
+    Conventions:
+      - All monetary amounts are **integers in minor units** (e.g. cents: 5000 = $50.00).
+      - Timestamps are ISO-8601 (`Instant`) EXCEPT the webhook envelope `created`
+        field, which is **epoch seconds** (see `WebhookEvent`).
+      - Response wire keys are **snake_case** for every DTO EXCEPT the SDK
+        `ConfirmResponse` (camelCase, pinned `@JsonProperty`), which is the
+        `/v1/checkout/confirm` body consumed by `@nexuspay/js` and is not part of
+        this merchant-server surface.
+      - `mode` / `livemode` are SERVER-DERIVED from the authenticated key's
+        `is_live` flag (test for `sk_test_`), never read from the request body.
+
+servers:
+  - url: http://localhost:8090
+    description: Local dev (lite stack)
+
+tags:
+  - name: Payments
+    description: Payment lifecycle operations
+  - name: Payment Sessions
+    description: Manage checkout SDK payment sessions
+  - name: Refunds
+    description: Refund creation (201 created, or 202 maker-checker approval)
+  - name: Webhook Endpoints
+    description: Manage merchant webhook URLs and inspect deliveries
+  - name: API Keys
+    description: Manage API keys
+
+paths:
+  /v1/payment-sessions:
+    post:
+      tags: [Payment Sessions]
+      summary: Create a payment session for the checkout SDK
+      description: >-
+        Roles: admin, operator. The returned `client_secret` is the session JWT
+        the browser SDK loads; it is present ONLY on this create response (never
+        on GET). The session inherits the API key's server-derived mode.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaymentSessionRequest'
+      responses:
+        '201':
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentSessionResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/payment-sessions/{id}:
+    get:
+      tags: [Payment Sessions]
+      summary: Retrieve a payment session
+      description: 'Roles: admin, operator, viewer. `client_secret` is NOT returned here.'
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: Session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentSessionResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/payment-sessions/{id}/expire:
+    post:
+      tags: [Payment Sessions]
+      summary: Force-expire a payment session
+      description: 'Roles: admin, operator.'
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '204':
+          description: Session expired (no content)
+
+  /v1/payments:
+    post:
+      tags: [Payments]
+      summary: Create a payment intent
+      description: >-
+        Roles: admin, operator. Returns **201 Created**. The response `mode`
+        ("test"/"live") is server-derived from the authenticated key. The
+        optional `Idempotency-Key` header makes the create safely retryable.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaymentRequest'
+      responses:
+        '201':
+          description: Payment intent created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentApiResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/PaymentError'
+
+  /v1/payments/{id}:
+    get:
+      tags: [Payments]
+      summary: Retrieve a payment
+      description: 'Roles: admin, operator, viewer. 404 on cross-tenant or absent id (no existence oracle).'
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: Payment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentApiResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/payments/{id}/confirm:
+    post:
+      tags: [Payments]
+      summary: Confirm a payment intent
+      description: 'Roles: admin, operator. Tenant-ownership checked before the id reaches the PSP.'
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmPaymentRequest'
+      responses:
+        '200':
+          description: Payment after confirm
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentApiResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/payments/{id}/capture:
+    post:
+      tags: [Payments]
+      summary: Capture an authorized payment
+      description: 'Roles: admin, operator. Body `amount_to_capture` is optional (omit to capture full amount).'
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CapturePaymentRequest'
+      responses:
+        '200':
+          description: Payment after capture
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentApiResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/payments/{id}/cancel:
+    post:
+      tags: [Payments]
+      summary: Void a payment authorization
+      description: 'Roles: admin, operator. Body `cancellation_reason` is optional.'
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelPaymentRequest'
+      responses:
+        '200':
+          description: Payment after cancel
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentApiResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/payments/{id}/refunds:
+    post:
+      tags: [Refunds]
+      summary: Create a refund
+      description: >-
+        Roles: admin, operator. Returns **201** with a `RefundApiResponse`
+        (`requires_approval: false`) when the amount is within the auto-approve
+        threshold, OR **202** with an `ApprovalResponse`
+        (`requires_approval: true`, plus `approval_threshold`) when it exceeds
+        the maker-checker threshold and must be reviewed. Both are 2xx — narrow
+        on `requires_approval`.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRefundRequest'
+      responses:
+        '201':
+          description: Refund created (did not require approval)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundApiResponse'
+        '202':
+          description: Refund requires maker-checker approval (pending)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/webhook-endpoints:
+    post:
+      tags: [Webhook Endpoints]
+      summary: Register a webhook endpoint
+      description: >-
+        Role: admin. The `url` must be public HTTPS (SEC-4b SSRF gate rejects
+        loopback/private/metadata hosts at registration). The signing `secret`
+        (`whsec_…`) is returned ONCE here and never again.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookEndpointRequest'
+      responses:
+        '201':
+          description: Endpoint registered (secret included)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpointResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+    get:
+      tags: [Webhook Endpoints]
+      summary: List registered webhook endpoints
+      description: 'Roles: admin, operator. Enabled endpoints for the caller''s tenant; `secret` is omitted.'
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Endpoints
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WebhookEndpointResponse'
+
+  /v1/webhook-endpoints/{id}:
+    delete:
+      tags: [Webhook Endpoints]
+      summary: Delete (soft-disable) a webhook endpoint
+      description: >-
+        Role: admin. Soft-disables the endpoint. A cross-tenant or absent id
+        no-ops to 204 (no existence oracle).
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '204':
+          description: Endpoint disabled (no content)
+
+  /v1/webhook-endpoints/{id}/rotate-secret:
+    post:
+      tags: [Webhook Endpoints]
+      summary: Rotate a webhook endpoint's signing secret
+      description: >-
+        Role: admin. Returns the NEW `secret` once. The next delivery attempt
+        signs with the new secret automatically (read live per attempt). A
+        foreign/absent id returns 404.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: Secret rotated (new secret included)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpointResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/webhook-deliveries:
+    get:
+      tags: [Webhook Endpoints]
+      summary: List outbound webhook delivery attempts
+      description: >-
+        Roles: admin, operator. Tenant-scoped, paged (default size 50),
+        optionally filtered by `endpointId` and/or `eventId`. The delivery DTO
+        carries no body and no secret by construction.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - name: endpointId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: eventId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 50
+      responses:
+        '200':
+          description: Paged delivery records
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDeliveryPage'
+
+  /v1/webhook-deliveries/{id}/replay:
+    post:
+      tags: [Webhook Endpoints]
+      summary: Replay a webhook delivery
+      description: >-
+        Role: admin. Re-arms an existing delivery row (status → FAILED,
+        next_attempt_at → now) so the retrier re-sends it once. The ONLY way a
+        DELIVERED/DEAD row is re-sent. A foreign/absent id returns 404.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '202':
+          description: Delivery re-armed for replay
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDeliveryResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/api-keys:
+    post:
+      tags: [API Keys]
+      summary: Create a new API key
+      description: >-
+        Role: admin. The full `key` is shown ONCE and cannot be retrieved again.
+        `live: false` mints an `sk_test_` key (test mode); `live: true` mints
+        `sk_live_`.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateApiKeyRequest'
+      responses:
+        '201':
+          description: API key created (full key included once)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateApiKeyResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+  /v1/api-keys/{id}:
+    delete:
+      tags: [API Keys]
+      summary: Revoke an API key
+      description: 'Role: admin.'
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '204':
+          description: Key revoked (no content)
+
+components:
+  parameters:
+    PathId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Resource identifier (prefixed id, e.g. `pay_…`, `we_…`).
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema:
+        type: string
+      description: >-
+        Caller-chosen key making a POST safely retryable. The first response is
+        cached for 24h per caller; 5xx responses are not cached.
+
+  responses:
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiErrorResponse'
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiErrorResponse'
+    NotFound:
+      description: Resource not found (or cross-tenant — no existence oracle)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiErrorResponse'
+    Conflict:
+      description: Resource is in an invalid state for this operation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiErrorResponse'
+    PaymentError:
+      description: Payment blocked (fraud/compliance) or processing error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiErrorResponse'
+
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      description: >-
+        Merchant API key. Send as `Authorization: Bearer sk_test_…` (or
+        `sk_live_…` in production). Validated by ApiKeyAuthenticationFilter.
+    sessionToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Short-lived checkout session token (JWT) for `/v1/checkout/**` endpoints
+        (browser SDK). Send as `Authorization: Bearer <session-jwt>`.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Keycloak OIDC access token (JWT) for dashboard/back-office endpoints.
+        Send as `Authorization: Bearer <oidc-jwt>`.
+
+  schemas:
+    CreatePaymentRequest:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Amount in minor units (e.g. cents).
+          example: 5000
+        currency:
+          type: string
+          description: Three-letter ISO 4217 currency code.
+          example: USD
+        customer_id:
+          type: string
+        payment_method_type:
+          type: string
+          example: card
+        payment_method_data:
+          type: string
+        return_url:
+          type: string
+        description:
+          type: string
+        capture_method:
+          type: string
+          enum: [automatic, manual]
+          description: >-
+            Capture method. AUTHORITATIVE when present: if both `capture_method`
+            and `capture` are supplied, `capture_method` wins and `capture` is
+            ignored.
+          example: automatic
+        capture:
+          type: boolean
+          description: >-
+            Convenience alias (INT-2): `true` → automatic, `false` → manual.
+            Only fills a null/blank `capture_method`; ignored when
+            `capture_method` is present.
+          example: true
+        metadata:
+          type: object
+          additionalProperties: true
+          description: >-
+            Arbitrary merchant key-value metadata. Round-trips onto the payment
+            and into the webhook envelope's `data.metadata` for correlation.
+
+    PaymentApiResponse:
+      type: object
+      description: Payment object (NON_NULL — absent fields are omitted).
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        amount:
+          type: integer
+          format: int64
+          description: Amount in minor units.
+        currency:
+          type: string
+        capture_method:
+          type: string
+          enum: [automatic, manual]
+        customer_id:
+          type: string
+        connector:
+          type: string
+          description: Connector that processed the payment (`mock` in test mode).
+        error_code:
+          type: string
+        error_message:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+        mode:
+          type: string
+          enum: [test, live]
+          description: >-
+            Key mode that produced this payment. SERVER-DERIVED from the
+            authenticated key's is_live — never from the request body.
+
+    CreatePaymentSessionRequest:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Amount in minor units.
+          example: 5000
+        currency:
+          type: string
+          example: USD
+        customer_id:
+          type: string
+        success_url:
+          type: string
+        cancel_url:
+          type: string
+        allowed_payment_methods:
+          type: array
+          items:
+            type: string
+          example: ["card"]
+        branding:
+          type: object
+          additionalProperties: true
+          description: Merchant branding for hosted checkout (logo_url, accent_color, etc.).
+        metadata:
+          type: object
+          additionalProperties: true
+
+    PaymentSessionResponse:
+      type: object
+      description: Payment session (NON_NULL).
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        amount:
+          type: integer
+          format: int64
+          description: Amount in minor units.
+        currency:
+          type: string
+        customer_id:
+          type: string
+        payment_intent_id:
+          type: string
+        client_secret:
+          type: string
+          description: >-
+            The session JWT the browser SDK loads. Present ONLY on the create
+            response — never returned by GET.
+        allowed_payment_methods:
+          type: array
+          items:
+            type: string
+        success_url:
+          type: string
+        cancel_url:
+          type: string
+        branding:
+          type: object
+          additionalProperties: true
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    ConfirmPaymentRequest:
+      type: object
+      description: Confirm a payment intent (all fields optional).
+      properties:
+        payment_method_type:
+          type: string
+          example: card
+        payment_method_data:
+          type: string
+        return_url:
+          type: string
+
+    CapturePaymentRequest:
+      type: object
+      properties:
+        amount_to_capture:
+          type: integer
+          format: int64
+          description: Amount to capture in minor units. Omit to capture the full amount.
+
+    CancelPaymentRequest:
+      type: object
+      properties:
+        cancellation_reason:
+          type: string
+
+    CreateRefundRequest:
+      type: object
+      required: [amount]
+      properties:
+        amount:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Refund amount in minor units.
+          example: 2500
+        currency:
+          type: string
+          example: USD
+        reason:
+          type: string
+
+    RefundApiResponse:
+      type: object
+      description: Refund object (201 create body, NON_NULL).
+      properties:
+        id:
+          type: string
+        payment_id:
+          type: string
+        status:
+          type: string
+        amount:
+          type: integer
+          format: int64
+          description: Amount in minor units.
+        currency:
+          type: string
+        reason:
+          type: string
+        connector:
+          type: string
+        error_code:
+          type: string
+        error_message:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        requires_approval:
+          type: boolean
+          description: Always `false` on a 201 created refund (symmetry with the 202 shape).
+          example: false
+
+    ApprovalResponse:
+      type: object
+      description: Pending approval object (202 refund body, NON_NULL).
+      properties:
+        id:
+          type: string
+          description: The approval request id (read `id` for the approval id).
+        action:
+          type: string
+          description: Action requiring approval (e.g. refund).
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+        status:
+          type: string
+          enum: [pending_approval, approved, rejected]
+        requested_by:
+          type: string
+        reviewed_by:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        reviewed_at:
+          type: string
+          format: date-time
+        requires_approval:
+          type: boolean
+          description: Always `true` on the 202 approval-required body.
+          example: true
+        approval_threshold:
+          type: integer
+          format: int64
+          description: Maker-checker threshold in minor units above which approval is required.
+
+    CreateWebhookEndpointRequest:
+      type: object
+      required: [url, events]
+      properties:
+        url:
+          type: string
+          description: >-
+            HTTPS URL to receive webhook events. SEC-4b SSRF gate: must be public
+            HTTPS; loopback/private/link-local/metadata hosts are rejected (400).
+          example: https://merchant.com/webhooks
+        description:
+          type: string
+        events:
+          type: array
+          minItems: 1
+          description: >-
+            Event types to subscribe to. Canonical dotted names (see
+            `WebhookEventType`) or the `"*"` wildcard. An unknown name → 400.
+          items:
+            type: string
+          example: ["payment.succeeded", "payment.refunded"]
+
+    WebhookEndpointResponse:
+      type: object
+      description: Webhook endpoint registration (NON_NULL).
+      properties:
+        id:
+          type: string
+        url:
+          type: string
+        description:
+          type: string
+        secret:
+          type: string
+          description: >-
+            Signing secret (`whsec_…`). Returned ONLY at creation and on
+            rotate-secret — never on list.
+        events:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    WebhookDeliveryResponse:
+      type: object
+      description: >-
+        Outbound webhook delivery attempt record (NON_NULL). Carries no event
+        body and no secret by construction.
+      properties:
+        id:
+          type: string
+        endpoint_id:
+          type: string
+        event_id:
+          type: string
+          description: Stable logical event id (the dedupe key on the envelope).
+        event_type:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, DELIVERED, FAILED, DEAD]
+        attempt_count:
+          type: integer
+        max_attempts:
+          type: integer
+        last_status_code:
+          type: integer
+        last_error:
+          type: string
+        next_attempt_at:
+          type: string
+          format: date-time
+          description: When the next retry is due (null once DELIVERED/DEAD).
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        delivered_at:
+          type: string
+          format: date-time
+          description: When the delivery succeeded (null until DELIVERED).
+
+    WebhookDeliveryPage:
+      type: object
+      description: A Spring `Page` of delivery records.
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookDeliveryResponse'
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+        number:
+          type: integer
+          description: Zero-based page index.
+        size:
+          type: integer
+
+    CreateApiKeyRequest:
+      type: object
+      required: [name, role]
+      properties:
+        name:
+          type: string
+          example: Production Key
+        role:
+          type: string
+          enum: [admin, operator, viewer]
+          example: operator
+        live:
+          type: boolean
+          description: '`false` → sk_test_ (test mode); `true` → sk_live_.'
+          example: false
+
+    CreateApiKeyResponse:
+      type: object
+      description: Newly created API key. The full `key` is shown ONCE.
+      properties:
+        id:
+          type: string
+        key:
+          type: string
+          description: Full API key — store securely, it will not be shown again.
+        key_prefix:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+          enum: [admin, operator, viewer]
+        live:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    WebhookEventType:
+      type: string
+      description: Canonical dotted webhook event names a merchant may subscribe to.
+      enum:
+        - payment.created
+        - payment.authorized
+        - payment.succeeded
+        - payment.failed
+        - payment.canceled
+        - payment.refund.created
+        - payment.refunded
+        - payment.refund.failed
+
+    WebhookEvent:
+      type: object
+      description: >-
+        Canonical webhook envelope POSTed to a registered endpoint. The HMAC
+        signature is computed over the EXACT serialized bytes of this object.
+        Emitted top-level key order is: id, type, livemode, created, api_version,
+        data.
+      required: [id, type, livemode, created, api_version, data]
+      properties:
+        id:
+          type: string
+          description: Stable event id. The dedupe key; stable across redelivery.
+          example: evt_xxx
+        type:
+          $ref: '#/components/schemas/WebhookEventType'
+        livemode:
+          type: boolean
+          description: >-
+            Server-derived: false in test mode, true in live. Mirrors the
+            payment's mode.
+          example: false
+        created:
+          type: integer
+          format: int64
+          description: Event creation time as **epoch SECONDS** (UTC).
+          example: 1750000000
+        api_version:
+          type: string
+          description: Contract version. Constant.
+          example: "2026-06-16"
+        data:
+          type: object
+          required: [object, metadata]
+          properties:
+            object:
+              type: object
+              description: >-
+                Normalized payment/refund object. PSP keys pass through (minus
+                card subtrees) plus an `object` discriminator and `id`.
+              required: [id, object]
+              properties:
+                id:
+                  type: string
+                  example: pay_test_xxx
+                object:
+                  type: string
+                  enum: [payment, refund]
+              additionalProperties: true
+            metadata:
+              type: object
+              additionalProperties: true
+              description: >-
+                Merchant correlation map, round-tripped from your create call
+                ({} if none). NOT the PSP echo.
+
+    ApiErrorResponse:
+      type: object
+      description: 'INT-2 error envelope: { error: { type, code, message, request_id } }.'
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [type, code, message, request_id]
+          properties:
+            type:
+              type: string
+              enum:
+                - validation_error
+                - not_found
+                - unauthorized
+                - forbidden
+                - conflict
+                - payment_error
+                - rate_limit_error
+                - internal_error
+                - session_error
+            code:
+              type: string
+              description: Machine-readable error code.
+            message:
+              type: string
+              description: Safe, human-readable message (never leaks internals).
+            request_id:
+              type: string
+              description: Correlation id (echoes X-Request-Id); always present.
