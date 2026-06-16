@@ -1,0 +1,15 @@
+# CODEOWNERS — governance review gates.
+#
+# These take effect when the repo's branch protection has
+# "Require review from Code Owners" enabled (Settings -> Branches / Rulesets).
+# Scope is intentionally NARROW: only funding, licensing, and CI/governance files
+# require the owner's explicit review — so routine code changes are not gated, but
+# tampering with sponsor/bank details, the license, or the pipelines cannot be
+# merged without @pierce-lonergan's approval.
+
+/LICENSE                 @pierce-lonergan
+/COMMERCIAL-LICENSE.md   @pierce-lonergan
+/.github/                @pierce-lonergan
+/.github/FUNDING.yml     @pierce-lonergan
+/.github/workflows/      @pierce-lonergan
+/.gitleaks.toml          @pierce-lonergan
