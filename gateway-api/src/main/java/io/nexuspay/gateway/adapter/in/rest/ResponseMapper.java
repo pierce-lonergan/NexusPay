@@ -1,6 +1,7 @@
 package io.nexuspay.gateway.adapter.in.rest;
 
 import io.nexuspay.gateway.adapter.in.rest.dto.*;
+import io.nexuspay.gateway.adapter.out.persistence.WebhookDeliveryEntity;
 import io.nexuspay.gateway.adapter.out.persistence.WebhookEndpointEntity;
 import io.nexuspay.gateway.domain.PaymentSession;
 import io.nexuspay.gateway.domain.PaymentToken;
@@ -101,6 +102,19 @@ final class ResponseMapper {
                 e.getId(), e.getUrl(), e.getDescription(),
                 includeSecret ? e.getSecret() : null,
                 e.getEvents(), e.isEnabled(), e.getCreatedAt()
+        );
+    }
+
+    /**
+     * INT-4: maps a delivery row to its list/replay DTO. No secret (not a column on this entity) and no
+     * canonical body (kept off the API) — leak-by-construction-impossible.
+     */
+    static WebhookDeliveryResponse toWebhookDeliveryResponse(WebhookDeliveryEntity d) {
+        return new WebhookDeliveryResponse(
+                d.getId(), d.getEndpointId(), d.getEventId(), d.getEventType(),
+                d.getStatus().name(), d.getAttemptCount(), d.getMaxAttempts(),
+                d.getLastStatusCode(), d.getLastError(), d.getNextAttemptAt(),
+                d.getCreatedAt(), d.getUpdatedAt(), d.getDeliveredAt()
         );
     }
 
