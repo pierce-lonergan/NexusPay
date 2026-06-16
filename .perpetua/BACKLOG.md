@@ -6,6 +6,32 @@ high blast radius, −1 elegance-only. Tier per ratchets.risk_map.
 
 claims: (none — single instance)
 
+## ✅ AGNOSTIC-COMPATIBILITY / INTEGRATION PROGRAM — INT-1..10 COMPLETE 2026-06-16 (all CI-green on main)
+Repo is now PUBLIC + relicensed PolyForm Noncommercial 1.0.0 (commercial use = paid license; SDKs stay MIT) +
+CODEOWNERS + FUNDING. Then INT-1..10 shipped, each via design→implement→4-adversarial-reviewers→fix workflow,
+incremental CI-verified PRs (#12–#21):
+- INT-1 (ADR-025) canonical versioned webhook envelope {id,type,created,api_version,data:{object,metadata}} +
+  dotted taxonomy + stable id + merchant-metadata round-trip store (V4030) + registration validator.
+- INT-2 (ADR-026) capture alias + standardized error envelope {error:{type,code,message,request_id}} +
+  refund requires_approval+threshold + session-metadata parity.
+- INT-3 (ADR-027) REAL sandbox: server-derived key-mode + MockPaymentGatewayPort (test keys NEVER hit the real
+  PSP, every profile) + mock-synthesized canonical webhooks + mode/livemode stamping.
+- INT-4 (ADR-028) webhook reliability: persisted at-least-once (webhook_deliveries V4031) + backoff + DLQ +
+  leader-locked retrier + list/replay + secret rotation.
+- INT-5 (ADR-029) @nexuspay/node backend SDK (typed client + verifyWebhook/constructEvent, byte-matches signing).
+- INT-6 (ADR-030) /v1/checkout/confirm proper ConfirmResponse (held≠succeeded; idempotent re-confirm).
+- INT-7 (ADR-031) SDK publish-readiness + SHA-pinned release.yml + PUBLISHING.md.
+- INT-8 (ADR-032) local-dev: docker-compose.lite.yml (4 svc) + seed-local.sh + LOCAL_DEV.md.
+- INT-9 (ADR-033) docs: openapi.yaml + WEBHOOKS.md + README + INTEGRATION.md + docs/integrations/snap-loyalty.md.
+- INT-10 (ADR-034) SEC-22 api-key prefix-collision hardening (candidate-iterate, no oracle). SEC-22 CLOSED.
+HUMAN/OWNER ACTIONS PENDING (cannot be automated): (1) enable branch protection on main (you+me only / code-owner
+review on .github+LICENSE+FUNDING); (2) enrol in GitHub Sponsors for the button to accept funds; (3) add NPM_TOKEN
+secret + push an sdk-vX.Y.Z tag to actually publish the SDKs; (4) legal review of the PolyForm-NC + commercial
+terms. RESIDUAL security follow-ups still open: SEC-23 (b2b/fraud X-Tenant-Id controllers), SEC-24 (dispute ledger
+DEFAULT_TENANT), SEC-25 (payout disburse-before-commit), SEC-BATCH-5 misc, and B-002-cutover (RLS prod, human-gated).
+ratchets.test_count_floor left at 707 (actual is well above after ~INT tests; bump to the measured count next gate run).
+
+
 ## ⚠ SECURITY — code-sweep 2026-06-15 (TOP PRIORITY; full detail in security/AUDITS.md)
 48 confirmed defects (13 CRIT / 17 HIGH / 12 MED / 6 LOW) → 22 remediations. Root cause: client-`X-Tenant-Id`
 trust + global-PK reads + no authz aspect + RLS dormant ⇒ tenant isolation effectively OFF outside gateway-api.
