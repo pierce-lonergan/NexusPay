@@ -137,10 +137,15 @@ public class OutboxRelay {
                 if (shuttingDown.get()) break;
                 try {
                     String topic = TOPIC_MAP.getOrDefault(event.getAggregateType(), DEFAULT_TOPIC);
+                    // SEC-09 (B-009): propagate the event's TRUSTED tenant on a Kafka header so the webhook
+                    // consumer can fan out ONLY to the owning tenant's endpoints. This shared header map is
+                    // used by BOTH the dualWritePublisher path and the fallback ProducerRecord path below,
+                    // so the tenant rides along regardless of which publish branch runs.
                     Map<String, String> eventHeaders = Map.of(
                             "event_type", event.getEventType(),
                             "aggregate_type", event.getAggregateType(),
-                            "aggregate_id", event.getAggregateId());
+                            "aggregate_id", event.getAggregateId(),
+                            "tenant_id", event.getTenantId());
 
                     // Await the broker acknowledgment BEFORE marking the event
                     // published. An async send + immediate markPublished would

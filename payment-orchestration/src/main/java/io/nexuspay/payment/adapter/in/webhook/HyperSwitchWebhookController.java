@@ -6,6 +6,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nexuspay.common.id.PrefixedId;
 import io.nexuspay.payment.adapter.out.outbox.OutboxEvent;
 import io.nexuspay.payment.adapter.out.outbox.OutboxEventRepository;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.nexuspay.payment.application.screening.ScreeningOriginService;
 import io.nexuspay.payment.domain.event.PaymentEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,19 +56,35 @@ public class HyperSwitchWebhookController {
     private final OutboxEventRepository outboxRepository;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
+    private final ScreeningOriginService screeningOrigins;
     private final String webhookSecret;
+
+    /**
+     * SEC-09 (SEC-batch-1b) observability: counts webhook events for a real payment id whose owning
+     * tenant could NOT be resolved from the origin store, so they were stamped {@code "default"} and will
+     * be dropped by the tenant-scoped webhook consumer. Alert on a non-zero rate — it means a backfill
+     * gap or a missing origin write, i.e. a merchant silently not receiving webhooks.
+     */
+    private final Counter webhookDefaultTenantStamped;
 
     public HyperSwitchWebhookController(
             InboundWebhookRepository webhookRepository,
             OutboxEventRepository outboxRepository,
             StringRedisTemplate redisTemplate,
             ObjectMapper objectMapper,
+            ScreeningOriginService screeningOrigins,
+            MeterRegistry meterRegistry,
             @org.springframework.beans.factory.annotation.Value("${nexuspay.hyperswitch.webhook-secret:}") String webhookSecret) {
         this.webhookRepository = webhookRepository;
         this.outboxRepository = outboxRepository;
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
+        this.screeningOrigins = screeningOrigins;
         this.webhookSecret = webhookSecret;
+        this.webhookDefaultTenantStamped = Counter.builder("nexuspay.webhook.outbox.default_tenant_stamped")
+                .description("Webhook events stamped tenant=default because the payment's origin tenant "
+                        + "could not be resolved (these events are NOT delivered to the owning tenant)")
+                .register(meterRegistry);
     }
 
     @PostMapping("/hyperswitch")
@@ -133,7 +152,41 @@ public class HyperSwitchWebhookController {
                     "payload", payload.path("content").path("object")
             ));
 
-            outboxRepository.save(new OutboxEvent(aggregateType, aggregateId, nexusEventType, outboxPayload));
+            // SEC-09 (B-009): stamp the TRUSTED event tenant on the outbox row so the webhook consumer can
+            // fan out ONLY to the owning tenant's endpoints. The tenant is recalled from the server-owned
+            // screening-origin store keyed by the gateway payment id (never client metadata). When the
+            // origin is absent/blank we fall back to "default", which matches no real-tenant endpoint, so
+            // the event is NOT delivered (a delivery gap, never a cross-tenant leak).
+            //
+            // SEC-batch-1b correction: this "default" fallback is NOT only a transient backlog the 7-day
+            // outbox retention clears. For payments created BEFORE the origin store (V4022) — which have no
+            // origin row — EVERY new lifecycle event (capture/refund/dispute) stamps "default" for the
+            // whole payment lifecycle, so the owning merchant would silently stop receiving webhooks for
+            // older active payments. The V4029 backfill populates payment_screening_origin from the
+            // authoritative event_outbox/journal_entries records for those pre-existing payments, so
+            // find(paymentId) resolves the REAL tenant again. The warn+metric below makes any RESIDUAL
+            // "default" stamping (a payment id with no recoverable origin) observable rather than silent.
+            boolean hasPaymentId = paymentId != null;
+            String resolvedTenant = hasPaymentId
+                    ? screeningOrigins.find(paymentId)
+                        .map(ScreeningOriginService.Origin::tenantId)
+                        .filter(t -> t != null && !t.isBlank())
+                        .orElse(null)
+                    : null;
+            String eventTenant = resolvedTenant != null ? resolvedTenant : "default";
+
+            if (hasPaymentId && resolvedTenant == null) {
+                // A real payment event whose tenant we could not recover -> it will route to "default" and
+                // be dropped by the tenant-scoped webhook consumer. Surface it so the drop volume is visible
+                // (alert on this counter; a non-zero rate means a backfill gap or a missing origin write).
+                log.warn("SEC-09 webhook tenant unresolved for payment_id={} event_type={} — stamping "
+                        + "\"default\"; this event will NOT be delivered to the owning tenant's endpoints",
+                        paymentId, nexusEventType);
+                webhookDefaultTenantStamped.increment();
+            }
+
+            outboxRepository.save(new OutboxEvent(
+                    aggregateType, aggregateId, nexusEventType, outboxPayload, eventTenant, 1));
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize outbox event", e);
             webhook.markFailed();

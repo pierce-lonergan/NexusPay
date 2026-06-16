@@ -78,7 +78,10 @@ class RefundDeterministicKeyIdempotencySoakTest {
         });
 
         ApprovalService approvals = mock(ApprovalService.class);
-        var svc = new RefundOrchestrationService(fakePsp, approvals, 50000L);
+        // SEC-07 (B-007): executeApprovedRefund does not call assertOwnedBy (the approved path was
+        // already ownership-checked at createRefund), so a mock screening service suffices here.
+        var svc = new RefundOrchestrationService(fakePsp, approvals,
+                mock(io.nexuspay.payment.application.screening.ScreeningOriginService.class), 50000L);
 
         PendingApproval theApproval = approval("appr_42");
 
@@ -128,7 +131,8 @@ class RefundDeterministicKeyIdempotencySoakTest {
             keys.add(req.idempotencyKey());
             return refundResponse(req);
         });
-        var svc = new RefundOrchestrationService(fakePsp, mock(ApprovalService.class), 50000L);
+        var svc = new RefundOrchestrationService(fakePsp, mock(ApprovalService.class),
+                mock(io.nexuspay.payment.application.screening.ScreeningOriginService.class), 50000L);
 
         int distinct = 200;
         ExecutorService pool = Executors.newFixedThreadPool(THREADS);

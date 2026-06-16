@@ -31,9 +31,15 @@ public class JournalEntryRepositoryAdapter implements JournalEntryRepository {
     }
 
     @Override
-    public List<JournalEntry> findByDateRange(Instant from, Instant to, int limit, int offset) {
+    public List<JournalEntry> findByPaymentReferenceAndTenantId(String paymentReference, String tenantId) {
+        return jpaRepository.findByPaymentReferenceAndTenantId(paymentReference, tenantId).stream()
+                .map(this::toDomain).toList();
+    }
+
+    @Override
+    public List<JournalEntry> findByDateRange(Instant from, Instant to, int limit, int offset, String tenantId) {
         var pageable = PageRequest.of(offset / Math.max(limit, 1), limit);
-        return jpaRepository.findByDateRange(from, to, pageable).stream()
+        return jpaRepository.findByDateRange(from, to, tenantId, pageable).stream()
                 .map(this::toDomain).toList();
     }
 

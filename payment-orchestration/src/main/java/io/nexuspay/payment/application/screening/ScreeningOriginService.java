@@ -1,5 +1,6 @@
 package io.nexuspay.payment.application.screening;
 
+import io.nexuspay.common.exception.ResourceNotFoundException;
 import io.nexuspay.payment.adapter.out.persistence.ScreeningOriginEntity;
 import io.nexuspay.payment.adapter.out.persistence.ScreeningOriginRepository;
 import org.slf4j.Logger;
@@ -66,6 +67,30 @@ public class ScreeningOriginService {
         }
         return repository.findById(gatewayPaymentId)
                 .map(e -> new Origin(e.getTenantId(), parseMode(e.getScreeningMode())));
+    }
+
+    /**
+     * SEC-07 (B-007): fail-closed tenant-ownership assertion for every payment-lifecycle path
+     * (get/capture/cancel/confirm/refund). The TRUSTED ownership source is the server-owned origin store
+     * — never the PSP intent metadata, which {@code GatedPaymentGateway} scrubs of any client-supplied
+     * tenant marker. If no origin row exists (a legacy intent created before B-029, or one that never
+     * reached this store) we FAIL CLOSED with a 404 rather than allowing the operation: we cannot prove
+     * ownership, so we must not act. Both "absent" and "wrong tenant" collapse to the same
+     * {@link ResourceNotFoundException} (-> HTTP 404) so a wrong-tenant id is indistinguishable from a
+     * non-existent one (no cross-tenant existence oracle).
+     *
+     * <p>LEGACY-INTENT IMPLICATION: payments created before the origin store was populated cannot be
+     * captured/cancelled/confirmed/refunded through these tenant-checked paths and will 404. That is the
+     * deliberate safe direction — a residual operational gap on un-migrated intents is preferable to a
+     * cross-tenant money movement.</p>
+     */
+    @Transactional(readOnly = true)
+    public void assertOwnedBy(String gatewayPaymentId, String callerTenantId) {
+        Origin origin = find(gatewayPaymentId).orElse(null);
+        if (origin == null || origin.tenantId() == null || !origin.tenantId().equals(callerTenantId)) {
+            // No existence oracle: absent origin and wrong-tenant origin both 404.
+            throw ResourceNotFoundException.of("Payment", gatewayPaymentId);
+        }
     }
 
     private static ScreeningMode parseMode(String mode) {

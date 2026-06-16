@@ -60,7 +60,10 @@ class RefundReconcilerTest {
         approvals = new InMemoryApprovals();
         gateway = mock(PaymentGatewayPort.class);
         // Real orchestration service so the ACTUAL deterministic-key logic runs (B-009 invariant).
-        refundOrchestration = new RefundOrchestrationService(gateway, mock(ApprovalService.class), 50000L);
+        // SEC-07 (B-007): the reconciler re-drives via executeApprovedRefund, which does NOT call
+        // assertOwnedBy (ownership was checked at createRefund), so a mock screening service suffices.
+        refundOrchestration = new RefundOrchestrationService(gateway, mock(ApprovalService.class),
+                mock(io.nexuspay.payment.application.screening.ScreeningOriginService.class), 50000L);
         lock = mock(GatewaySchedulerLock.class);
         tenantWork = directTenantWork(); // callInTenant runs the supplier inline, like the dormant impl
         reconciler = new RefundReconciler(approvals.asService(), refundOrchestration, lock, tenantWork,

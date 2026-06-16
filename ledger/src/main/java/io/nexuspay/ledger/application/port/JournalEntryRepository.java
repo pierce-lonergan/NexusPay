@@ -13,9 +13,24 @@ public interface JournalEntryRepository {
 
     Optional<JournalEntry> findById(String id);
 
+    /**
+     * SEC-08 (B-008): cross-tenant lookup, retained ONLY for internal non-HTTP callers that legitimately
+     * have no caller-tenant in scope (reconciliation settlement matching keyed by payment id; the ledger
+     * redelivery red-team gate). HTTP-facing reads MUST use {@link #findByPaymentReferenceAndTenantId}.
+     */
     List<JournalEntry> findByPaymentReference(String paymentReference);
 
-    List<JournalEntry> findByDateRange(Instant from, Instant to, int limit, int offset);
+    /**
+     * SEC-08 (B-008): tenant-scoped lookup for HTTP read paths. Returns ONLY the given tenant's entries,
+     * so an authenticated caller can never read another tenant's double-entry lines.
+     */
+    List<JournalEntry> findByPaymentReferenceAndTenantId(String paymentReference, String tenantId);
+
+    /**
+     * SEC-08 (B-008): tenant-scoped date-range lookup. {@code tenantId} is mandatory — the only caller is
+     * the HTTP {@code GetJournalEntriesUseCase}, which always sources it from the authenticated principal.
+     */
+    List<JournalEntry> findByDateRange(Instant from, Instant to, int limit, int offset, String tenantId);
 
     JournalEntry save(JournalEntry journalEntry);
 

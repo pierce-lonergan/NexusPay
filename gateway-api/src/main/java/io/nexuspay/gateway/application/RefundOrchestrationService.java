@@ -3,6 +3,7 @@ package io.nexuspay.gateway.application;
 import io.nexuspay.iam.application.ApprovalService;
 import io.nexuspay.iam.domain.PendingApproval;
 import io.nexuspay.payment.application.port.PaymentGatewayPort;
+import io.nexuspay.payment.application.screening.ScreeningOriginService;
 import io.nexuspay.payment.domain.RefundRequest;
 import io.nexuspay.payment.domain.RefundResponse;
 import org.slf4j.Logger;
@@ -24,13 +25,16 @@ public class RefundOrchestrationService {
 
     private final PaymentGatewayPort paymentGatewayPort;
     private final ApprovalService approvalService;
+    private final ScreeningOriginService screeningOrigins;
     private final long refundApprovalThreshold;
 
     public RefundOrchestrationService(PaymentGatewayPort paymentGatewayPort,
                                        ApprovalService approvalService,
+                                       ScreeningOriginService screeningOrigins,
                                        @Value("${nexuspay.iam.refund-approval-threshold:50000}") long refundApprovalThreshold) {
         this.paymentGatewayPort = paymentGatewayPort;
         this.approvalService = approvalService;
+        this.screeningOrigins = screeningOrigins;
         this.refundApprovalThreshold = refundApprovalThreshold;
     }
 
@@ -43,6 +47,11 @@ public class RefundOrchestrationService {
     public RefundResult createRefund(String paymentId, long amount, String currency,
                                       String reason, String idempotencyKey,
                                       String userId, String tenantId) {
+        // SEC-07 (B-007): assert tenant ownership FIRST, before the amount/threshold branch. This closes
+        // BOTH the maker-checker (>= threshold) path AND the sub-threshold direct-to-PSP path — without
+        // it a tenant-A operator could refund tenant-B funds with amount=49999 (below the approval
+        // threshold). Fail-closed (404) on absent origin or tenant mismatch.
+        screeningOrigins.assertOwnedBy(paymentId, tenantId);
         if (amount >= refundApprovalThreshold) {
             log.info("Refund amount {} >= threshold {}, creating approval for payment {}",
                     amount, refundApprovalThreshold, paymentId);

@@ -26,13 +26,21 @@ public class GetJournalEntriesUseCase {
         return journalEntryRepository.findById(id);
     }
 
-    public List<JournalEntry> getByPaymentReference(String paymentReference) {
-        return journalEntryRepository.findByPaymentReference(paymentReference);
+    /**
+     * SEC-08 (B-008): tenant-scoped. {@code tenantId} comes from the authenticated principal so a caller
+     * can only read its own tenant's journal entries (mirrors {@code GetBalanceUseCase.getAllBalances}).
+     */
+    public List<JournalEntry> getByPaymentReference(String paymentReference, String tenantId) {
+        return journalEntryRepository.findByPaymentReferenceAndTenantId(paymentReference, tenantId);
     }
 
-    public List<JournalEntry> getByDateRange(Instant from, Instant to, int limit, int offset) {
+    /**
+     * SEC-08 (B-008): tenant-scoped. {@code tenantId} comes from the authenticated principal.
+     */
+    public List<JournalEntry> getByDateRange(Instant from, Instant to, int limit, int offset, String tenantId) {
         return journalEntryRepository.findByDateRange(from, to,
                 Math.min(limit, 100),  // cap at 100
-                Math.max(offset, 0));
+                Math.max(offset, 0),
+                tenantId);
     }
 }

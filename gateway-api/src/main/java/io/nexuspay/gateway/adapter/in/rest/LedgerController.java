@@ -48,17 +48,21 @@ public class LedgerController {
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to,
             @RequestParam(defaultValue = "50") int limit,
-            @RequestParam(defaultValue = "0") int offset) {
+            @RequestParam(defaultValue = "0") int offset,
+            @AuthenticationPrincipal NexusPayPrincipal principal) {
 
+        // SEC-08 (B-008): scope BOTH query paths to the caller's tenant (mirror listAccounts above).
+        // Without this any authenticated user could read every tenant's double-entry lines.
+        String tenantId = principal.tenantId();
         List<JournalEntryResponse> entries;
         if (payment_reference != null && !payment_reference.isBlank()) {
-            entries = getJournalEntriesUseCase.getByPaymentReference(payment_reference).stream()
+            entries = getJournalEntriesUseCase.getByPaymentReference(payment_reference, tenantId).stream()
                     .map(ResponseMapper::toJournalEntryResponse)
                     .toList();
         } else {
             var fromTime = from != null ? from : Instant.EPOCH;
             var toTime = to != null ? to : Instant.now();
-            entries = getJournalEntriesUseCase.getByDateRange(fromTime, toTime, limit, offset).stream()
+            entries = getJournalEntriesUseCase.getByDateRange(fromTime, toTime, limit, offset, tenantId).stream()
                     .map(ResponseMapper::toJournalEntryResponse)
                     .toList();
         }

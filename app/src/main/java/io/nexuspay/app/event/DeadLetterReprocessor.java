@@ -1,7 +1,11 @@
 package io.nexuspay.app.event;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nexuspay.common.event.dlq.DeadLetterStatus;
 import io.nexuspay.common.rls.SystemTransactional;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.header.internals.RecordHeader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -12,9 +16,11 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -54,15 +60,18 @@ public class DeadLetterReprocessor {
     private final DeadLetterRepository repository;
     private final KafkaTemplate<String, String> stringKafkaTemplate;
     private final StringRedisTemplate redisTemplate;
+    private final ObjectMapper objectMapper;
     private final int maxRetries;
 
     public DeadLetterReprocessor(DeadLetterRepository repository,
                                   KafkaTemplate<String, String> stringKafkaTemplate,
                                   StringRedisTemplate redisTemplate,
+                                  ObjectMapper objectMapper,
                                   @Value("${nexuspay.dlq.reprocessor.max-retries:5}") int maxRetries) {
         this.repository = repository;
         this.stringKafkaTemplate = stringKafkaTemplate;
         this.redisTemplate = redisTemplate;
+        this.objectMapper = objectMapper;
         this.maxRetries = maxRetries;
     }
 
@@ -111,8 +120,14 @@ public class DeadLetterReprocessor {
             // the RESOLVED write commits inside the tx, on the role-pinned thread, before the lock
             // releases — and a send timeout/failure throws into the catch below -> handleRetryFailure,
             // which sets PENDING/DISCARDED, also synchronously inside the tx.
-            stringKafkaTemplate.send(entry.getOriginalTopic(), entry.getEventKey(), entry.getEventValue())
-                    .get(SEND_ACK_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            //
+            // SEC-batch-1b (SEC-09): re-attach the ORIGINAL record headers — crucially the relay-stamped,
+            // server-trusted `tenant_id` — on republish. A redelivered payment event that arrives
+            // HEADER-LESS would resolve to tenant "default" in the webhook consumer (which trusts ONLY the
+            // header, never the body), so it would silently miss the owning tenant's endpoints. Preserving
+            // the captured headers keeps the redelivered event routed to its real tenant. DLT-internal
+            // headers (kafka_dlt-*) are stripped so they do not ride along onto the original topic.
+            republish(entry).get(SEND_ACK_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             log.info("DLQ entry {} successfully republished to {}", entry.getId(), entry.getOriginalTopic());
             entry.setStatus(DeadLetterStatus.RESOLVED);
             entry.setResolvedAt(Instant.now());
@@ -120,6 +135,52 @@ public class DeadLetterReprocessor {
         } catch (Exception e) {
             log.error("Failed to retry DLQ entry {}: {}", entry.getId(), e.getMessage());
             handleRetryFailure(entry);
+        }
+    }
+
+    /**
+     * Republishes a dead letter to its original topic, re-attaching the ORIGINAL (server-trusted)
+     * record headers captured at DLT-ingest time — most importantly the relay-stamped {@code tenant_id}
+     * the webhook consumer authorizes on. When no usable headers were captured, falls back to the plain
+     * key/value send (pre-existing behavior). The returned future is awaited by the caller so the ack is
+     * observed synchronously inside the @SystemTransactional window.
+     */
+    private java.util.concurrent.CompletableFuture<org.springframework.kafka.support.SendResult<String, String>>
+            republish(DeadLetterEntry entry) {
+        Map<String, String> headers = parseHeaders(entry.getEventHeaders());
+        if (headers.isEmpty()) {
+            // No captured headers (legacy/old entries) — preserve the original 3-arg send.
+            return stringKafkaTemplate.send(
+                    entry.getOriginalTopic(), entry.getEventKey(), entry.getEventValue());
+        }
+        var record = new ProducerRecord<>(
+                entry.getOriginalTopic(), null, entry.getEventKey(), entry.getEventValue());
+        headers.forEach((k, v) -> {
+            if (v != null) {
+                record.headers().add(new RecordHeader(k, v.getBytes(StandardCharsets.UTF_8)));
+            }
+        });
+        return stringKafkaTemplate.send(record);
+    }
+
+    /**
+     * Deserializes the JSON header map captured by {@code DeadLetterQueueConsumer.serializeHeaders}, then
+     * STRIPS the Spring Kafka DLT-internal headers ({@code kafka_dlt-*}) so they are not republished onto
+     * the original topic. Returns an empty map (never null) on absent/blank/unparseable input so the
+     * caller falls back to the plain send.
+     */
+    private Map<String, String> parseHeaders(String json) {
+        if (json == null || json.isBlank()) {
+            return Map.of();
+        }
+        try {
+            Map<String, String> all = objectMapper.readValue(json, new TypeReference<Map<String, String>>() {});
+            all.entrySet().removeIf(e -> e.getKey() == null || e.getKey().startsWith("kafka_dlt-"));
+            return all;
+        } catch (Exception e) {
+            log.warn("Failed to parse stored DLT headers — republishing without headers: {}",
+                    e.getMessage());
+            return Map.of();
         }
     }
 

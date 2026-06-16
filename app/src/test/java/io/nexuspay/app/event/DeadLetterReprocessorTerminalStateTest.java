@@ -1,6 +1,8 @@
 package io.nexuspay.app.event;
 
 import io.nexuspay.common.event.dlq.DeadLetterStatus;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.header.Header;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -11,6 +13,7 @@ import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -68,7 +71,8 @@ class DeadLetterReprocessorTerminalStateTest {
     }
 
     private DeadLetterReprocessor newReprocessor(int maxRetries) {
-        return new DeadLetterReprocessor(repository, kafkaTemplate, redisTemplate, maxRetries);
+        return new DeadLetterReprocessor(
+                repository, kafkaTemplate, redisTemplate, new com.fasterxml.jackson.databind.ObjectMapper(), maxRetries);
     }
 
     private DeadLetterEntry entryWith(int retryCount, int maxRetries) {
@@ -158,6 +162,43 @@ class DeadLetterReprocessorTerminalStateTest {
                 .as("after reprocess() returns, the row must be terminal/queryable (PENDING), not RETRYING")
                 .isEqualTo(DeadLetterStatus.PENDING)
                 .isNotEqualTo(DeadLetterStatus.RETRYING);
+    }
+
+    @Test
+    @DisplayName("SEC-09: stored headers (incl. trusted tenant_id) are re-attached on republish; kafka_dlt-* stripped")
+    @SuppressWarnings("unchecked")
+    void republish_reattachesStoredHeaders_stripsDltInternal() {
+        DeadLetterEntry entry = entryWith(0, 5);
+        // Captured at DLT ingest: the relay-stamped trusted tenant_id + event_type, plus a Spring Kafka
+        // DLT-internal header that must NOT ride back onto the original topic.
+        entry.setEventHeaders("{\"tenant_id\":\"tenant-A\",\"event_type\":\"payment.succeeded\","
+                + "\"kafka_dlt-original-topic\":\"nexuspay.payments\"}");
+        when(repository.findRetryable(any(Instant.class), any(Pageable.class)))
+                .thenReturn(List.of(entry));
+        ArgumentCaptor<ProducerRecord<String, String>> recCaptor =
+                ArgumentCaptor.forClass(ProducerRecord.class);
+        when(kafkaTemplate.send(any(ProducerRecord.class))).thenReturn(asyncFuture(null));
+
+        newReprocessor(5).reprocess();
+
+        verify(kafkaTemplate).send(recCaptor.capture());
+        ProducerRecord<String, String> sent = recCaptor.getValue();
+        assertThat(sent.topic()).isEqualTo("nexuspay.payments");
+        assertThat(sent.key()).isEqualTo("evt-key");
+        assertThat(headerValue(sent, "tenant_id"))
+                .as("the relay-stamped trusted tenant_id MUST be re-attached so the webhook consumer "
+                        + "routes the redelivered event to the owning tenant, not 'default'")
+                .isEqualTo("tenant-A");
+        assertThat(headerValue(sent, "event_type")).isEqualTo("payment.succeeded");
+        assertThat(headerValue(sent, "kafka_dlt-original-topic"))
+                .as("Spring Kafka DLT-internal headers must be stripped on republish")
+                .isNull();
+        assertThat(entry.getStatus()).isEqualTo(DeadLetterStatus.RESOLVED);
+    }
+
+    private static String headerValue(ProducerRecord<String, String> rec, String key) {
+        Header h = rec.headers().lastHeader(key);
+        return h == null ? null : new String(h.value(), StandardCharsets.UTF_8);
     }
 
     @Test

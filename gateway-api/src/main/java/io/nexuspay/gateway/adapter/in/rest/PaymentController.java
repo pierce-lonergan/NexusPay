@@ -5,6 +5,7 @@ import io.nexuspay.gateway.application.RefundOrchestrationService;
 import io.nexuspay.iam.domain.NexusPayPrincipal;
 import io.nexuspay.payment.application.port.PaymentGatewayPort;
 import io.nexuspay.payment.application.screening.CallContext;
+import io.nexuspay.payment.application.screening.ScreeningOriginService;
 import io.nexuspay.payment.domain.*;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -25,11 +26,14 @@ public class PaymentController {
 
     private final PaymentGatewayPort paymentGateway;
     private final RefundOrchestrationService refundOrchestration;
+    private final ScreeningOriginService screeningOrigins;
 
     public PaymentController(PaymentGatewayPort paymentGateway,
-                              RefundOrchestrationService refundOrchestration) {
+                              RefundOrchestrationService refundOrchestration,
+                              ScreeningOriginService screeningOrigins) {
         this.paymentGateway = paymentGateway;
         this.refundOrchestration = refundOrchestration;
+        this.screeningOrigins = screeningOrigins;
     }
 
     /**
@@ -103,6 +107,9 @@ public class PaymentController {
         // B-029: assert the trusted interactive ingress identity (the server-owned origin store
         // remains the authority for the persisted intent's (tenant, mode)).
         String tenantId = principal != null ? principal.tenantId() : null;
+        // SEC-07 (B-007): verify the caller's tenant owns this payment id BEFORE delegating to the PSP.
+        // Fail-closed (404) on absent origin or tenant mismatch — no cross-tenant existence oracle.
+        screeningOrigins.assertOwnedBy(id, tenantId);
         var response = paymentGateway.confirmPayment(id, new ConfirmRequest(
                 req.payment_method_type(), req.payment_method_data(), req.return_url(), idempotencyKey),
                 CallContext.interactive(tenantId));
@@ -115,7 +122,10 @@ public class PaymentController {
     public ResponseEntity<PaymentApiResponse> capturePayment(
             @PathVariable String id,
             @RequestBody(required = false) CapturePaymentRequest request,
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @AuthenticationPrincipal NexusPayPrincipal principal) {
+        // SEC-07 (B-007): tenant-ownership check BEFORE the id reaches the PSP (404 on mismatch/absent).
+        screeningOrigins.assertOwnedBy(id, principal != null ? principal.tenantId() : null);
         var req = request != null ? request : new CapturePaymentRequest(null);
         var response = paymentGateway.capturePayment(id, new CaptureRequest(
                 req.amount_to_capture(), idempotencyKey));
@@ -128,7 +138,10 @@ public class PaymentController {
     public ResponseEntity<PaymentApiResponse> cancelPayment(
             @PathVariable String id,
             @RequestBody(required = false) CancelPaymentRequest request,
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @AuthenticationPrincipal NexusPayPrincipal principal) {
+        // SEC-07 (B-007): tenant-ownership check BEFORE the id reaches the PSP (404 on mismatch/absent).
+        screeningOrigins.assertOwnedBy(id, principal != null ? principal.tenantId() : null);
         var req = request != null ? request : new CancelPaymentRequest(null);
         var response = paymentGateway.voidPayment(id, new VoidRequest(
                 req.cancellation_reason(), idempotencyKey));
@@ -138,7 +151,11 @@ public class PaymentController {
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     @Operation(summary = "Retrieve a payment")
-    public ResponseEntity<PaymentApiResponse> getPayment(@PathVariable String id) {
+    public ResponseEntity<PaymentApiResponse> getPayment(
+            @PathVariable String id,
+            @AuthenticationPrincipal NexusPayPrincipal principal) {
+        // SEC-07 (B-007): tenant-ownership check BEFORE retrieving from the PSP (404 on mismatch/absent).
+        screeningOrigins.assertOwnedBy(id, principal != null ? principal.tenantId() : null);
         var response = paymentGateway.getPayment(id);
         return ResponseEntity.ok(ResponseMapper.toPaymentResponse(response));
     }

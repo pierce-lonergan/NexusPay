@@ -17,10 +17,12 @@ Fix program (each batch = its own T3 PR via the fusion topology; diverse impleme
   marketplace/vault/b2b/fraud/gateway. Mechanism routed through `common` (TenantPrincipal + CallerTenant.require()
   + TenantOwnership→ResourceNotFoundException 404, no existence oracle) — the iam principal can't be referenced
   from common-only modules (L-048). NO migration (tenant_id cols exist). 58 files. ADR-019, L-048.
-- **SEC-BATCH-1b (HIGH) tenant scope: payment-lifecycle + ledger + webhook fan-out** — SEC-07 (get/capture/
-  cancel/confirm/refund verify principal tenant owns the gateway id via ScreeningOriginService; incl. sub-threshold
-  cross-tenant refund bypassing maker-checker) + SEC-08 (ledger journal queries add tenant scope) + SEC-09
-  (webhook fan-out filter by event tenant UNCONDITIONALLY). gateway-api/ledger/payment-orchestration; T3 PR.
+- ~~**SEC-BATCH-1b (HIGH) tenant scope: payment-lifecycle + ledger + webhook fan-out**~~ — DONE 2026-06-16
+  (T3, branch perpetua/SEC-batch-1b, stacked on + rebased onto SEC-4b). SEC-07 (assertOwnedBy fail-closed 404 on
+  get/capture/cancel/confirm + sub-threshold refund) + SEC-08 (ledger journal queries tenant-scoped) + SEC-09
+  (producer stamps trusted tenant → relay tenant_id header → consumer UNCONDITIONAL tenant filter; extractTenant
+  header-only; DeadLetterReprocessor header re-attach). Backfill V4029 (payment_screening_origin from trusted
+  event_outbox/journal_entries, skip 'default'). Review: 0 BLOCKERS, 3 SHOULD_FIX applied. ADR-024, L-054, L-055.
 - **SEC-23 (HIGH) remaining X-Tenant-Id controllers** — found during SEC-BATCH-1 review (same defect class, were
   outside the verified scope + not in the original catalog): b2b B2bInvoiceController (getInvoice/sendInvoice/
   markInvoicePaid) + PurchaseOrderController + fraud FraudAssessmentController. Apply the SEC-BATCH-1 pattern

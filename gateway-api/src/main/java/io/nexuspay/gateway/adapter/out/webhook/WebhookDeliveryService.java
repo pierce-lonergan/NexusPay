@@ -181,21 +181,28 @@ public class WebhookDeliveryService {
             return;
         }
 
-        // DORMANCY (B-002): the tenant-scoped finder adds an UNCONDITIONAL SQL `WHERE tenant_id = ?`,
-        // which is NOT gated by the RLS GUC — so it would change behavior even at enforce=false (events
-        // resolve to "default" until cutover Step 0 stamps the real tenant, and real endpoints are stored
-        // under real tenants → zero matches → deliveries silently stop). Gate it on the enforce flag:
-        // keep the pre-existing all-enabled read while dormant; switch to the tenant-scoped, RLS-bound
-        // read only under enforcement (which also closes the pre-existing cross-tenant fan-out, paired
-        // with Step 0 supplying the real per-event tenant). HTTP POSTs stay OUTSIDE any tx.
-        List<WebhookEndpointEntity> endpoints;
-        if (rlsEnforced) {
-            String tenant = extractTenant(record);
-            endpoints = tenantWork.callInTenant(tenant,
-                    () -> endpointRepository.findAllByTenantIdAndEnabledTrue(tenant));
-        } else {
-            endpoints = endpointRepository.findAllByEnabledTrue();
-        }
+        // SEC-09 (B-009): the tenant filter is now UNCONDITIONAL — application-level authorization that does
+        // NOT depend on rls.enforce. The consumer ALWAYS resolves the event's tenant and reads ONLY that
+        // tenant's enabled endpoints (findAllByTenantIdAndEnabledTrue), closing the cross-tenant fan-out
+        // that existed in the default (RLS-dormant) config where findAllByEnabledTrue() delivered EVERY
+        // tenant's payment event to EVERY tenant's endpoint. The RLS GUC binding (tenantWork.callInTenant)
+        // is applied ONLY under rlsEnforced — it is a defense-in-depth DB-row guard, not the authz itself.
+        //
+        // TRUST BOUNDARY (SEC-batch-1b): the tenant is resolved ONLY from the relay-stamped, server-trusted
+        // `tenant_id` Kafka header (extractTenant). The event JSON body — the LOWEST-trust input in the
+        // pipeline — is NEVER consulted for the tenant: a body-derived fallback would reopen cross-tenant
+        // fan-out the moment any producer (or an operator/attacker who can shape a DLT entry's body) placed
+        // a top-level metadata.tenant_id. When the header is absent/blank, extractTenant returns "default";
+        // a "default" tenant matches no real-tenant endpoint, so the event is simply not delivered (a
+        // delivery gap, never a leak). The relay (OutboxRelay) ALWAYS stamps the header, and the DLT
+        // reprocessor re-attaches it on republish (DeadLetterReprocessor.retryEntry), so a legitimately
+        // produced event keeps its trusted tenant rather than degrading to "default". Any residual
+        // header-less payments are covered by the V4029 origin backfill on the producer side.
+        // HTTP POSTs stay OUTSIDE any tx.
+        String tenant = extractTenant(record);
+        List<WebhookEndpointEntity> endpoints = rlsEnforced
+                ? tenantWork.callInTenant(tenant, () -> endpointRepository.findAllByTenantIdAndEnabledTrue(tenant))
+                : endpointRepository.findAllByTenantIdAndEnabledTrue(tenant);
         if (endpoints.isEmpty()) return;
 
         String payload = record.value();
@@ -324,22 +331,20 @@ public class WebhookDeliveryService {
     }
 
     /**
-     * Resolves the tenant that owns this event. Prefers a Kafka {@code tenant_id} header
-     * (forward-compat); otherwise reads {@code metadata.tenant_id} from the JSON payload,
-     * falling back to {@code "default"} when neither is present.
+     * Resolves the tenant that owns this event from the relay-stamped, server-trusted {@code tenant_id}
+     * Kafka header — and ONLY that header. The event JSON body is deliberately NOT consulted: it is the
+     * lowest-trust input in the pipeline, and a body-derived {@code metadata.tenant_id} fallback would be
+     * a cross-tenant fan-out vector (a producer, or an operator/attacker who can shape a redelivered DLT
+     * entry's body, could route an event to an arbitrary tenant's endpoints). When the header is
+     * absent/blank we fail SAFE to {@code "default"}, which matches no real-tenant endpoint, so the event
+     * is not delivered (a delivery gap, never a cross-tenant leak). The relay always stamps this header
+     * and the DLT reprocessor re-attaches it on republish, so legitimate events keep their trusted tenant.
      */
     private String extractTenant(ConsumerRecord<String, String> record) {
         var header = record.headers().lastHeader(TENANT_ID_HEADER);
         if (header != null) {
             String value = new String(header.value(), StandardCharsets.UTF_8);
             if (!value.isBlank()) return value;
-        }
-        try {
-            JsonNode node = objectMapper.readTree(record.value());
-            String tenantId = node.path("metadata").path("tenant_id").asText(null);
-            if (tenantId != null && !tenantId.isBlank()) return tenantId;
-        } catch (Exception e) {
-            // fall through to default
         }
         return DEFAULT_TENANT;
     }

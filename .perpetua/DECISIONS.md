@@ -546,3 +546,27 @@ RESOLVED/PENDING/DISCARDED SYNCHRONOUSLY inside the @SystemTransactional tx; on 
 (re-selectable). BATCH_SIZE bounded to 6 so worst-case cycle (6×10s) stays ≤ ½ the 120s lock TTL (no overrun).
 T3 review (SSRF-bypass / dead-letter-correctness / test-adequacy): SSRF BLOCK→fixed (redirects + real IP-pin +
 test); dead-letter + tests SHIP_WITH_NITS. ADR + L-053.
+
+## ADR-024 | 2026-06-16 | SEC-BATCH-1b: payment-lifecycle + ledger-query + webhook fan-out tenant scoping (T3)
+SEC-07/B-007 (payment-lifecycle IDOR): get/capture/cancel/confirm + the sub-threshold refund forwarded the gateway
+payment id straight to the PSP with NO tenant-ownership check (a tenant-A operator could refund tenant-B with
+amount<50000, dodging maker-checker). FIX: `ScreeningOriginService.assertOwnedBy(paymentId, callerTenant)` —
+fail-closed 404 (no existence oracle) when the trusted server-owned origin row is absent OR its tenant != caller;
+called in PaymentController (get/capture/cancel/confirm) + RefundOrchestrationService BEFORE the threshold branch.
+SEC-08/B-008 (ledger query leak): LedgerController.listJournalEntries returned EVERY tenant's journal lines; now
+threads principal.tenantId() through GetJournalEntriesUseCase → port → JPA (findByPaymentReferenceAndTenantId +
+`AND j.tenantId=:tenantId` on findByDateRange), mirroring listAccounts. Cross-tenant findByPaymentReference(String)
+retained for internal callers only.
+SEC-09/B-009 (webhook cross-tenant fan-out): producer (HyperSwitchWebhookController) stamps the outbox tenant from
+the trusted screening-origin store (keyed by gateway payment id); relay (OutboxRelay) carries it as a `tenant_id`
+Kafka header; consumer (WebhookDeliveryService) filters endpoints by event tenant UNCONDITIONALLY (not gated on
+rls.enforce). Hardened in review: extractTenant trusts ONLY the relay-stamped header, NEVER payload metadata (lowest-
+trust input); DeadLetterReprocessor re-attaches the original headers (incl. tenant_id) on republish.
+Availability backfill V4029 (payment_screening_origin): assertOwnedBy + fan-out now treat the origin store as a HARD
+authority, but B-029 shipped no backfill — pre-V4022 payments (authorized-but-uncaptured intents, refundables) had
+no row → their legitimate owner was 404'd + webhooks dropped. V4029 backfills tenant from TRUSTED server-owned
+records (event_outbox.tenant_id PRIMARY, journal_entries.tenant_id SECONDARY), skipping 'default'/null (no invented
+data; fail-closed preserved for the un-attributable residue); idempotent (ON CONFLICT DO NOTHING), strictest rail.
+Adversarial review: 0 BLOCKERS, 3 SHOULD_FIX (all applied). CI caught two latent defects inherited from the SEC-4b
+base that the no-CI review could not: a Spring two-constructor context collapse (L-054) and @SafeWebhookUrl ITs using
+NXDOMAIN hosts (L-055) — both fixed on SEC-4b and inherited here via the rebase onto main. ADR-024, L-054, L-055.

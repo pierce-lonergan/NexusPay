@@ -29,6 +29,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -73,9 +74,11 @@ class WebhookDeliveryServiceTest {
         repository = mock(JpaWebhookEndpointRepository.class);
         tenantWork = mock(TenantWorkRunner.class);
         objectMapper = new ObjectMapper();
-        // rlsEnforced=false -> service uses findAllByEnabledTrue() (dormant path). The seam constructor
-        // injects a guard that PERMITS the loopback receiver but still resolves+returns its addresses,
-        // so the IP-pin (DnsResolver) path is still exercised. Production validation is untouched.
+        // rlsEnforced=false. SEC-09 (B-009): even with RLS dormant the consumer now filters endpoints by
+        // the event's tenant (findAllByTenantIdAndEnabledTrue) — the cross-tenant fan-out is closed in the
+        // default config too. The seam constructor injects a guard that PERMITS the loopback receiver but
+        // still resolves+returns its addresses, so the IP-pin (DnsResolver) path is still exercised.
+        // Production validation is untouched.
         service = new WebhookDeliveryService(repository, objectMapper, tenantWork, false,
                 loopbackPermittingGuard());
 
@@ -127,9 +130,15 @@ class WebhookDeliveryServiceTest {
         return new WebhookEndpointEntity(id, urlFor(path), "desc", secret, events, "t1");
     }
 
+    /** Endpoints in this test are registered under tenant "t1"; stamp the matching event tenant header. */
+    private static final String TENANT = "t1";
+
     private ConsumerRecord<String, String> recordWithHeader(String eventType, String payload) {
         var rec = new ConsumerRecord<>(Topics.PAYMENTS, 0, 0L, "k", payload);
         rec.headers().add(new RecordHeader("event_type", eventType.getBytes(StandardCharsets.UTF_8)));
+        // SEC-09 (B-009): the consumer now ALWAYS filters by the event's tenant, so the event must carry
+        // the tenant its target endpoints are registered under.
+        rec.headers().add(new RecordHeader("tenant_id", TENANT.getBytes(StandardCharsets.UTF_8)));
         return rec;
     }
 
@@ -146,7 +155,7 @@ class WebhookDeliveryServiceTest {
     void deliversWithCorrectHmacSha256Signature() throws Exception {
         String secret = "whsec_supersecret";
         String payload = "{\"event_type\":\"payment.succeeded\",\"id\":\"pi_1\"}";
-        when(repository.findAllByEnabledTrue())
+        when(repository.findAllByTenantIdAndEnabledTrue(TENANT))
                 .thenReturn(List.of(endpoint("we_1", "/hook", secret, List.of("payment.succeeded"))));
 
         service.onPaymentEvent(recordWithHeader("payment.succeeded", payload));
@@ -169,7 +178,7 @@ class WebhookDeliveryServiceTest {
 
     @Test
     void emptyEvents_receivesAllEvents() {
-        when(repository.findAllByEnabledTrue())
+        when(repository.findAllByTenantIdAndEnabledTrue(TENANT))
                 .thenReturn(List.of(endpoint("we_1", "/all", "s", Collections.emptyList())));
 
         service.onPaymentEvent(recordWithHeader("payment.refunded", "{\"x\":1}"));
@@ -180,7 +189,7 @@ class WebhookDeliveryServiceTest {
 
     @Test
     void nullEvents_receivesAllEvents() {
-        when(repository.findAllByEnabledTrue())
+        when(repository.findAllByTenantIdAndEnabledTrue(TENANT))
                 .thenReturn(List.of(endpoint("we_1", "/null", "s", null)));
 
         service.onPaymentEvent(recordWithHeader("payment.refunded", "{\"x\":1}"));
@@ -191,7 +200,7 @@ class WebhookDeliveryServiceTest {
 
     @Test
     void wildcardEvents_receivesAnyEvent() {
-        when(repository.findAllByEnabledTrue())
+        when(repository.findAllByTenantIdAndEnabledTrue(TENANT))
                 .thenReturn(List.of(endpoint("we_1", "/star", "s", List.of("*"))));
 
         service.onPaymentEvent(recordWithHeader("anything.at.all", "{\"x\":1}"));
@@ -202,7 +211,7 @@ class WebhookDeliveryServiceTest {
 
     @Test
     void specificSubscription_skipsNonMatchingType() {
-        when(repository.findAllByEnabledTrue())
+        when(repository.findAllByTenantIdAndEnabledTrue(TENANT))
                 .thenReturn(List.of(endpoint("we_1", "/specific", "s", List.of("payment.succeeded"))));
 
         service.onPaymentEvent(recordWithHeader("payment.failed", "{\"x\":1}"));
@@ -212,7 +221,7 @@ class WebhookDeliveryServiceTest {
 
     @Test
     void specificSubscription_deliversMatchingType() {
-        when(repository.findAllByEnabledTrue())
+        when(repository.findAllByTenantIdAndEnabledTrue(TENANT))
                 .thenReturn(List.of(endpoint("we_1", "/specific", "s", List.of("payment.succeeded"))));
 
         service.onPaymentEvent(recordWithHeader("payment.succeeded", "{\"y\":2}"));
@@ -225,7 +234,8 @@ class WebhookDeliveryServiceTest {
 
     @Test
     void eventType_parsedFromPayload_whenHeaderAbsent() {
-        when(repository.findAllByEnabledTrue())
+        // No tenant header either; extractTenant falls back to "default" (no metadata.tenant_id in payload).
+        when(repository.findAllByTenantIdAndEnabledTrue("default"))
                 .thenReturn(List.of(endpoint("we_1", "/frompayload", "s", List.of("payment.captured"))));
         String payload = "{\"event_type\":\"payment.captured\",\"id\":\"pi_2\"}";
         var rec = new ConsumerRecord<>(Topics.PAYMENTS, 0, 0L, "k", payload); // no event_type header
@@ -244,6 +254,8 @@ class WebhookDeliveryServiceTest {
 
         service.onPaymentEvent(rec);
 
+        // Early-return on missing event_type happens BEFORE any endpoint lookup (either finder).
+        verify(repository, never()).findAllByTenantIdAndEnabledTrue(anyString());
         verify(repository, never()).findAllByEnabledTrue();
         assertThat(captures).isEmpty();
     }
@@ -252,7 +264,7 @@ class WebhookDeliveryServiceTest {
 
     @Test
     void noEndpoints_returnsEarly_noDelivery() {
-        when(repository.findAllByEnabledTrue()).thenReturn(Collections.emptyList());
+        when(repository.findAllByTenantIdAndEnabledTrue(TENANT)).thenReturn(Collections.emptyList());
 
         service.onPaymentEvent(recordWithHeader("payment.succeeded", "{\"x\":1}"));
 
@@ -268,7 +280,7 @@ class WebhookDeliveryServiceTest {
         var dead = new WebhookEndpointEntity("we_dead", "http://127.0.0.1:1/dead", "d", "s",
                 List.of("payment.succeeded"), "t1");
         var live = endpoint("we_live", "/live", "s", List.of("payment.succeeded"));
-        when(repository.findAllByEnabledTrue()).thenReturn(List.of(dead, live));
+        when(repository.findAllByTenantIdAndEnabledTrue(TENANT)).thenReturn(List.of(dead, live));
 
         service.onPaymentEvent(recordWithHeader("payment.succeeded", "{\"z\":3}"));
 
