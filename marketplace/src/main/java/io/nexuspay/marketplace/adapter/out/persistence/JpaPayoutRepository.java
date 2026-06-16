@@ -59,10 +59,10 @@ public interface JpaPayoutRepository extends JpaRepository<PayoutEntity, String>
     @Query(value = """
             SELECT * FROM payouts
              WHERE status = 'PROCESSING'
-               AND COALESCE(processing_since, 'epoch'::timestamptz) < :cutoff
+               AND COALESCE(processing_since, CAST('epoch' AS timestamptz)) < :cutoff
                AND reconcile_attempts < :maxAttempts
                AND (next_reconcile_at IS NULL OR next_reconcile_at <= :now)
-             ORDER BY COALESCE(processing_since, 'epoch'::timestamptz) ASC
+             ORDER BY COALESCE(processing_since, CAST('epoch' AS timestamptz)) ASC
              LIMIT :batchSize
             """, nativeQuery = true)
     List<PayoutEntity> findStuckProcessing(@Param("cutoff") Instant cutoff,
