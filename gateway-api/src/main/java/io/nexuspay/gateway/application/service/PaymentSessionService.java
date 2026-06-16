@@ -73,10 +73,13 @@ public class PaymentSessionService implements CreatePaymentSessionUseCase {
 
         sessionRepository.save(session);
 
-        SessionToken token = sessionTokenIssuer.issueToken(id, command.tenantId());
+        // INT-3: the issued JWT carries the originating key's SERVER-DERIVED mode (command.live()) so the
+        // SessionTokenAuthenticationFilter re-derives the request PaymentMode at SDK checkout — a
+        // test-mode session can never reach the real PSP.
+        SessionToken token = sessionTokenIssuer.issueToken(id, command.tenantId(), command.live());
 
-        log.info("Created payment session: id={}, tenant={}, amount={} {}, expiresAt={}",
-                id, command.tenantId(), command.amount(), command.currency(), expiresAt);
+        log.info("Created payment session: id={}, tenant={}, live={}, amount={} {}, expiresAt={}",
+                id, command.tenantId(), command.live(), command.amount(), command.currency(), expiresAt);
 
         return new CreateSessionResult(session, token);
     }

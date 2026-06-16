@@ -19,13 +19,27 @@ public record NexusPayPrincipal(
         String tenantId,
         String role,
         AuthMethod authMethod,
-        String sessionId
+        String sessionId,
+        boolean live          // INT-3: server-derived from the API key's is_live (true for JWT/OIDC)
 ) implements TenantPrincipal {
     /**
      * Constructor without sessionId (backward-compatible for JWT and API key auth).
+     *
+     * <p>INT-3: {@code live} defaults to {@code true} — a non-API-key console actor (Keycloak/OIDC) is
+     * a real/LIVE principal. The ONLY path that sets {@code live=false} is an authenticated
+     * {@code sk_test_} key (see {@code ApiKeyService.authenticate}).</p>
      */
     public NexusPayPrincipal(String userId, String tenantId, String role, AuthMethod authMethod) {
-        this(userId, tenantId, role, authMethod, null);
+        this(userId, tenantId, role, authMethod, null, true);
+    }
+
+    /**
+     * Constructor with sessionId but no explicit mode (backward-compatible for session tokens).
+     * INT-3: {@code live} defaults to {@code true} (a session actor is real).
+     */
+    public NexusPayPrincipal(String userId, String tenantId, String role,
+                             AuthMethod authMethod, String sessionId) {
+        this(userId, tenantId, role, authMethod, sessionId, true);
     }
 
     public enum AuthMethod {

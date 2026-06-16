@@ -122,7 +122,11 @@ class WebhookMetadataServiceTest {
         service.record("pay_1", "tenant-A", meta);
 
         Map<String, Object> parsed = objectMapper.readValue(captureSaved().getMetadataJson(), MAP_TYPE);
-        assertThat(parsed).containsOnlyKeys("userId");
+        // INT-3: the stored map carries the correlation keys PLUS the server-reserved __livemode flag
+        // (default true via the 3-arg record). The forbidden PAN/card material is still never stored, and
+        // the serializer strips __livemode before delivery so the merchant never sees it.
+        assertThat(parsed).containsOnlyKeys("userId", "__livemode");
+        assertThat(parsed).containsEntry("__livemode", true);
         assertThat(captureSaved().getMetadataJson())
                 .doesNotContain("4111111111111111")
                 .doesNotContain("payment_method_data")
@@ -141,7 +145,32 @@ class WebhookMetadataServiceTest {
         service.record("pay_1", "tenant-A", meta);
 
         Map<String, Object> parsed = objectMapper.readValue(captureSaved().getMetadataJson(), MAP_TYPE);
-        assertThat(parsed).containsOnlyKeys("userId");
+        // INT-3: authority markers still stripped; the only added key is the server-reserved __livemode.
+        assertThat(parsed).containsOnlyKeys("userId", "__livemode");
+    }
+
+    @Test
+    void clientSuppliedLivemode_isStripped_andServerValueStamped() throws Exception {
+        // INT-3 SEC: a client-echoed __livemode must NEVER survive — sanitize() drops it (it is FORBIDDEN),
+        // then record(...) re-stamps the true SERVER-derived value (here true via the 3-arg overload).
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("userId", "u_42");
+        meta.put("__livemode", false); // forged client value claiming "test"
+
+        service.record("pay_1", "tenant-A", meta);
+
+        Map<String, Object> parsed = objectMapper.readValue(captureSaved().getMetadataJson(), MAP_TYPE);
+        assertThat(parsed).containsEntry("__livemode", true); // server value wins, not the forged false
+        assertThat(parsed).containsEntry("userId", "u_42");
+    }
+
+    @Test
+    void record4Arg_stampsServerDerivedLivemodeFalse_forTestPayment() throws Exception {
+        // INT-3: the TEST path stamps __livemode=false via the 4-arg overload.
+        service.record("pay_1", "tenant-A", Map.of("userId", "u_42"), false);
+
+        Map<String, Object> parsed = objectMapper.readValue(captureSaved().getMetadataJson(), MAP_TYPE);
+        assertThat(parsed).containsEntry("__livemode", false).containsEntry("userId", "u_42");
     }
 
     @Test
@@ -166,8 +195,10 @@ class WebhookMetadataServiceTest {
 
         service.record("pay_1", "tenant-A", meta);
 
-        Map<?, ?> parsed = objectMapper.readValue(captureSaved().getMetadataJson(), Map.class);
-        assertThat(parsed).isEmpty();
+        Map<String, Object> parsed = objectMapper.readValue(captureSaved().getMetadataJson(), MAP_TYPE);
+        // INT-3: the over-cap correlation map is dropped, but the server-reserved __livemode still survives
+        // (stamped AFTER the cap decision) so the delivered envelope's livemode stays server-sourced.
+        assertThat(parsed).containsOnlyKeys("__livemode");
     }
 
     @Test
@@ -177,8 +208,9 @@ class WebhookMetadataServiceTest {
 
         service.record("pay_1", "tenant-A", meta);
 
-        Map<?, ?> parsed = objectMapper.readValue(captureSaved().getMetadataJson(), Map.class);
-        assertThat(parsed).isEmpty();
+        Map<String, Object> parsed = objectMapper.readValue(captureSaved().getMetadataJson(), MAP_TYPE);
+        // INT-3: correlation map dropped; only the server-reserved __livemode remains.
+        assertThat(parsed).containsOnlyKeys("__livemode");
     }
 
     @Test

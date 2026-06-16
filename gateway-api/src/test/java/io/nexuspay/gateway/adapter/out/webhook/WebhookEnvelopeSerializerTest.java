@@ -48,10 +48,14 @@ class WebhookEnvelopeSerializerTest {
     void canonicalShape_hasExactlyTheContractFields() throws Exception {
         JsonNode env = serializeToTree(CAPTURE_OUTBOX, "payment.succeeded", Map.of());
 
+        // INT-3: the additive top-level livemode field sits between type and created (Stripe parity).
         assertThat(env.fieldNames()).toIterable()
-                .containsExactly("id", "type", "created", "api_version", "data");
+                .containsExactly("id", "type", "livemode", "created", "api_version", "data");
         assertThat(env.path("api_version").asText()).isEqualTo("2026-06-16");
         assertThat(env.path("data").fieldNames()).toIterable().containsExactly("object", "metadata");
+        // INT-3: with no __livemode in the metadata, livemode defaults to true (a real payment).
+        assertThat(env.path("livemode").isBoolean()).isTrue();
+        assertThat(env.path("livemode").asBoolean()).isTrue();
         // If the transform were reverted (raw outbox passed through), there would be no api_version.
         assertThat(env.has("api_version")).isTrue();
         assertThat(env.has("payload")).as("raw outbox 'payload' must NOT appear at top level").isFalse();

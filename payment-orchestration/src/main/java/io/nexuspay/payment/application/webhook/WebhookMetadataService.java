@@ -49,13 +49,26 @@ public class WebhookMetadataService implements WebhookMetadataPort {
     static final int MAX_KEYS = 50;
 
     /**
+     * INT-3: reserved, SERVER-ONLY key holding the payment's key mode for the delivered webhook's
+     * top-level {@code livemode}. A client can never set it: {@link #sanitize(Map)} strips ANY
+     * client-supplied {@code __livemode} (the {@code __} prefix is server-reserved), and {@link
+     * #record(String, String, Map, boolean)} stamps the true, server-derived value back in AFTER
+     * sanitize. {@code WebhookEnvelopeSerializer} lifts it to the top-level {@code livemode} and removes
+     * it from the delivered {@code data.metadata}.
+     */
+    static final String LIVEMODE_KEY = "__livemode";
+
+    /**
      * Keys that must NEVER be persisted (PAN/card material) plus the authority markers the gate owns
      * (so a client-echoed {@code source}/{@code workflow}/{@code tenant_id} is not stored as a
      * correlation key). Matched case-insensitively at any nesting depth.
      */
     private static final Set<String> FORBIDDEN = Set.of(
             "payment_method_data", "card", "number", "cvc", "cvv", "pan", "payment_method",
-            "source", "workflow", "tenant_id");
+            "source", "workflow", "tenant_id",
+            // INT-3: the reserved server-only mode key — a client-echoed __livemode must NEVER survive to
+            // the stored map; record(...) re-stamps the true server-derived value after sanitize().
+            LIVEMODE_KEY);
 
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
@@ -69,12 +82,29 @@ public class WebhookMetadataService implements WebhookMetadataPort {
     }
 
     /**
-     * Idempotently records the sanitized merchant correlation metadata for a gateway payment id under
-     * the server-derived trusted tenant. A no-op when the id is blank or a row already exists (create
-     * retried under idempotency). NEVER throws — a persist failure is swallowed (delivery sends {@code {}}).
+     * Back-compat 3-arg overload for any non-INT-3 caller: records the metadata with {@code live=true}
+     * (a real/LIVE payment is the safe default for the displayed {@code livemode}; it does NOT affect
+     * routing, which already happened at create).
      */
     @Transactional
     public void record(String gatewayPaymentId, String tenantId, Map<String, Object> merchantMetadata) {
+        record(gatewayPaymentId, tenantId, merchantMetadata, true);
+    }
+
+    /**
+     * INT-3: idempotently records the sanitized merchant correlation metadata for a gateway payment id
+     * under the server-derived trusted tenant, plus a SERVER-DERIVED {@link #LIVEMODE_KEY} reserved key
+     * stamped from {@code live}. A no-op when the id is blank or a row already exists (create retried
+     * under idempotency). NEVER throws — a persist failure is swallowed (delivery sends {@code {}}).
+     *
+     * <p>The {@code __livemode} value is server-set, not client-set: {@link #sanitize(Map)} strips any
+     * client-supplied {@code __livemode} (it is in {@link #FORBIDDEN}), then we re-stamp the true value
+     * here. It is stamped even when the correlation map was dropped to {@code {}} for being over-cap, so
+     * the delivered envelope's {@code livemode} is always server-sourced.</p>
+     */
+    @Transactional
+    public void record(String gatewayPaymentId, String tenantId, Map<String, Object> merchantMetadata,
+                       boolean live) {
         if (gatewayPaymentId == null || gatewayPaymentId.isBlank()) {
             return;
         }
@@ -82,15 +112,19 @@ public class WebhookMetadataService implements WebhookMetadataPort {
             if (repository.existsById(gatewayPaymentId)) {
                 return; // create is retried (idempotency) — keep the original metadata
             }
-            Map<String, Object> safe = sanitize(merchantMetadata);
-            String json = objectMapper.writeValueAsString(safe);
-            if (json.length() > MAX_BYTES) {
-                // Over the serialized cap — store empty rather than an oversized blob. Do NOT log the
-                // contents (only the id + the fact it was over-cap).
+            Map<String, Object> safe = sanitize(merchantMetadata); // any client __livemode already dropped
+            if (objectMapper.writeValueAsString(safe).length() > MAX_BYTES) {
+                // Over the serialized cap — drop the correlation map rather than store an oversized blob.
+                // Do NOT log the contents (only the id + the fact it was over-cap).
                 log.warn("Webhook metadata for {} exceeds {} bytes — storing empty metadata",
                         gatewayPaymentId, MAX_BYTES);
-                json = "{}";
+                safe = new LinkedHashMap<>();
             }
+            // INT-3: stamp the SERVER-DERIVED livemode AFTER the cap decision so it survives an over-cap
+            // {} drop — the delivered envelope's top-level livemode must always be server-sourced.
+            Map<String, Object> stored = new LinkedHashMap<>(safe);
+            stored.put(LIVEMODE_KEY, live);
+            String json = objectMapper.writeValueAsString(stored);
             repository.save(new PaymentWebhookMetadataEntity(gatewayPaymentId, tenantId, json, Instant.now()));
         } catch (JsonProcessingException | RuntimeException e) {
             // A failure to persist must not fail an already-authorized payment; delivery sends {} metadata.

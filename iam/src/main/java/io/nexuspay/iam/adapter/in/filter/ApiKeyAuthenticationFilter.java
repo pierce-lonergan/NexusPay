@@ -3,6 +3,7 @@ package io.nexuspay.iam.adapter.in.filter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nexuspay.common.domain.ApiError;
 import io.nexuspay.common.domain.ApiErrorResponse;
+import io.nexuspay.common.mode.PaymentMode;
 import io.nexuspay.iam.application.ApiKeyService;
 import io.nexuspay.iam.domain.NexusPayPrincipal;
 import jakarta.servlet.FilterChain;
@@ -56,38 +57,52 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
                                      FilterChain filterChain) throws ServletException, IOException {
         String authHeader = request.getHeader("Authorization");
 
-        if (authHeader != null && authHeader.startsWith(BEARER_PREFIX)) {
-            String token = authHeader.substring(BEARER_PREFIX.length());
+        // INT-3: track whether THIS filter stamped the request-scoped PaymentMode holder so we clear
+        // ONLY what we set, in a finally that wraps the rest of the chain — the holder must never leak
+        // onto the next request served by this pooled thread.
+        boolean modeSet = false;
+        try {
+            if (authHeader != null && authHeader.startsWith(BEARER_PREFIX)) {
+                String token = authHeader.substring(BEARER_PREFIX.length());
 
-            if (token.startsWith(SK_PREFIX)) {
-                try {
-                    NexusPayPrincipal principal = apiKeyService.authenticate(token);
-                    if (principal != null) {
-                        var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + principal.role().toUpperCase()));
-                        var authentication = new UsernamePasswordAuthenticationToken(principal, null, authorities);
-                        SecurityContextHolder.getContext().setAuthentication(authentication);
-                        log.debug("API key authenticated: userId={}, role={}", principal.userId(), principal.role());
+                if (token.startsWith(SK_PREFIX)) {
+                    try {
+                        NexusPayPrincipal principal = apiKeyService.authenticate(token);
+                        if (principal != null) {
+                            var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + principal.role().toUpperCase()));
+                            var authentication = new UsernamePasswordAuthenticationToken(principal, null, authorities);
+                            SecurityContextHolder.getContext().setAuthentication(authentication);
+                            // INT-3: stamp the SERVER-DERIVED mode from the authenticated key's is_live. A
+                            // sk_test_ key sets live=false -> payment ops on this request route to the mock.
+                            PaymentMode.set(principal.live());
+                            modeSet = true;
+                            log.debug("API key authenticated: userId={}, role={}", principal.userId(), principal.role());
+                        }
+                    } catch (Exception e) {
+                        log.warn("API key authentication failed: {}", e.getMessage());
+                        // INT-2: emit the stable error envelope via common's ApiError/ApiErrorResponse so the
+                        // 401 body stays in lock-step with the rest of the contract (type=unauthorized,
+                        // code=invalid_api_key, request_id from the correlation MDC with a UUID fallback).
+                        String rid = MDC.get(MDC_REQUEST_ID);
+                        if (rid == null || rid.isBlank()) {
+                            rid = UUID.randomUUID().toString();
+                        }
+                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                        response.setContentType("application/json");
+                        objectMapper.writeValue(response.getOutputStream(),
+                                ApiErrorResponse.of(ApiError.of(ApiError.TYPE_UNAUTHORIZED,
+                                        "invalid_api_key", "Invalid API key", rid)));
+                        return;
                     }
-                } catch (Exception e) {
-                    log.warn("API key authentication failed: {}", e.getMessage());
-                    // INT-2: emit the stable error envelope via common's ApiError/ApiErrorResponse so the
-                    // 401 body stays in lock-step with the rest of the contract (type=unauthorized,
-                    // code=invalid_api_key, request_id from the correlation MDC with a UUID fallback).
-                    String rid = MDC.get(MDC_REQUEST_ID);
-                    if (rid == null || rid.isBlank()) {
-                        rid = UUID.randomUUID().toString();
-                    }
-                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                    response.setContentType("application/json");
-                    objectMapper.writeValue(response.getOutputStream(),
-                            ApiErrorResponse.of(ApiError.of(ApiError.TYPE_UNAUTHORIZED,
-                                    "invalid_api_key", "Invalid API key", rid)));
-                    return;
                 }
+                // If not sk_ prefix, fall through to JWT filter
             }
-            // If not sk_ prefix, fall through to JWT filter
-        }
 
-        filterChain.doFilter(request, response);
+            filterChain.doFilter(request, response);
+        } finally {
+            if (modeSet) {
+                PaymentMode.clear();
+            }
+        }
     }
 }

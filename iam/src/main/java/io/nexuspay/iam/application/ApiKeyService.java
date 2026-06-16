@@ -74,11 +74,16 @@ public class ApiKeyService {
             throw AuthorizationException.invalidApiKey();
         }
 
+        // INT-3: the mode is SERVER-DERIVED from the matched entity's is_live column — never inferred
+        // from the raw key string. A sk_test_ key (is_live=false) yields a TEST principal whose payment
+        // ops route to the mock gateway; a sk_live_ key yields a LIVE principal that reaches HyperSwitch.
         return new NexusPayPrincipal(
                 entity.getId(),
                 entity.getTenantId(),
                 entity.getRole(),
-                NexusPayPrincipal.AuthMethod.API_KEY
+                NexusPayPrincipal.AuthMethod.API_KEY,
+                null,
+                entity.isLive()
         );
     }
 

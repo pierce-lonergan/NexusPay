@@ -17,13 +17,15 @@ import java.util.Map;
  *
  * <p>The internal Kafka/outbox bytes are NEVER mutated — this is applied at SEND time only, and the HMAC
  * signature is computed over the EXACT String this returns (so the bytes the merchant verifies are the
- * bytes posted). Top-level key order is fixed ({@code id, type, created, api_version, data}) for
- * deterministic serialization.</p>
+ * bytes posted). Top-level key order is fixed ({@code id, type, livemode, created, api_version, data})
+ * for deterministic serialization.</p>
  *
  * <pre>{@code
  * {
  *   "id":          stable event id (metadata.original_event_id → event_id → aggregate_id),
  *   "type":        dotted canonical type (caller-provided, from WebhookEventTaxonomy),
+ *   "livemode":    boolean (INT-3) — SERVER-derived: lifted from the reserved metadata.__livemode key
+ *                  (test=false / live=true), default true when absent. NEVER trusted from client/PSP.
  *   "created":     epoch SECONDS (UTC) derived from outbox "timestamp",
  *   "api_version": "2026-06-16",
  *   "data": { "object": normalized payment/refund object, "metadata": merchant correlation map ({} if none) }
@@ -34,6 +36,14 @@ public class WebhookEnvelopeSerializer {
 
     /** The contract version stamped on every envelope. Constant by design. */
     public static final String API_VERSION = "2026-06-16";
+
+    /**
+     * INT-3: reserved, server-only key in the merchant metadata map carrying the payment's key mode. It
+     * is lifted to the top-level {@code livemode} field and REMOVED from the delivered
+     * {@code data.metadata} so the reserved key never leaks to the merchant correlation map. Must match
+     * {@code WebhookMetadataService.LIVEMODE_KEY}.
+     */
+    static final String LIVEMODE_KEY = "__livemode";
 
     /**
      * Keys defensively stripped from {@code data.object} (belt-and-suspenders — the PSP lifecycle
@@ -60,19 +70,58 @@ public class WebhookEnvelopeSerializer {
      */
     public String serialize(JsonNode outbox, String dottedType, Map<String, Object> metadata)
             throws JsonProcessingException {
+        // INT-3: split the reserved server-only __livemode out of the merchant metadata. The flag becomes
+        // the top-level (server-sourced) livemode; the merchant-facing data.metadata is the map WITHOUT
+        // the reserved key. Default true (a real payment) when the flag is absent (e.g. a legacy payment
+        // with no stored mode) — this affects the displayed livemode only; routing already happened at
+        // create. Because livemode is inside the bytes this method returns, the HMAC covers it for free.
+        Map<String, Object> source = metadata != null ? metadata : Map.of();
+        boolean livemode = liftLivemode(source.get(LIVEMODE_KEY));
+        Map<String, Object> merchantMetadata = stripLivemode(source);
+
         // LinkedHashMap preserves the fixed top-level key order required for deterministic bytes.
         Map<String, Object> envelope = new LinkedHashMap<>();
         envelope.put("id", stableId(outbox));
         envelope.put("type", dottedType);
+        envelope.put("livemode", livemode);
         envelope.put("created", createdEpochSeconds(outbox));
         envelope.put("api_version", API_VERSION);
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("object", normalizeObject(outbox));
-        data.put("metadata", metadata != null ? metadata : Map.of());
+        data.put("metadata", merchantMetadata);
         envelope.put("data", data);
 
         return objectMapper.writeValueAsString(envelope);
+    }
+
+    /**
+     * Interprets the reserved {@code __livemode} metadata value as the top-level {@code livemode}. Absent
+     * ({@code null}) defaults to {@code true} (a real payment). Accepts a {@link Boolean} or its string
+     * form ({@code "false"} → false) so it is robust to JSON round-tripping through the V4030 store.
+     */
+    static boolean liftLivemode(Object value) {
+        if (value == null) {
+            return true; // default: a real payment when no server flag was stored
+        }
+        if (value instanceof Boolean b) {
+            return b;
+        }
+        return Boolean.parseBoolean(value.toString());
+    }
+
+    /**
+     * Returns a copy of the merchant metadata with the reserved {@code __livemode} key removed, so the
+     * server-only mode marker never leaks into the delivered {@code data.metadata}. Preserves the entry
+     * order of the remaining keys.
+     */
+    static Map<String, Object> stripLivemode(Map<String, Object> metadata) {
+        if (metadata.isEmpty() || !metadata.containsKey(LIVEMODE_KEY)) {
+            return metadata;
+        }
+        Map<String, Object> copy = new LinkedHashMap<>(metadata);
+        copy.remove(LIVEMODE_KEY);
+        return copy;
     }
 
     /**

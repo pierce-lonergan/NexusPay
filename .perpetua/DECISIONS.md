@@ -603,3 +603,20 @@ normalized. (3) REFUND requires_approval: the maker-checker 202 now carries `req
 created via the session/SDK path persist the merchant metadata map into the INT-1 payment_webhook_metadata store
 (tenant-scoped, no PAN) so the SDK path round-trips correlation to webhooks like /v1/payments. No migration. Review:
 3 BLOCKERS (all the same missed 401 envelope) + 3 SHOULD_FIX, all applied. ADR-026.
+
+## ADR-027 | 2026-06-16 | INT-3: real sandbox — key-mode routing + MockPaymentGatewayPort (T3)
+"sk_test_" was a cosmetic label (GAP-10): is_live was never read in the charge path, so a test key could move
+real money. INT-3 makes test-mode a HARD, platform-side guarantee in EVERY profile. Mode is SERVER-DERIVED from
+the authenticated API key's is_live → threaded into NexusPayPrincipal and into a request-scoped ThreadLocal
+PaymentMode (common.mode, set by the auth filters, cleared in finally — mirrors TenantContext). GatedPaymentGateway
+(@Primary chokepoint) now routes EVERY port op (create/confirm/capture/void/get/refund) to a new deterministic
+MockPaymentGatewayPort (in-memory, pay_test_*/re_test_* ids, ZERO HyperSwitch/HTTP) for test callers, and to the
+real HyperSwitch adapter for live — proven by verifyNoInteractions(hyperSwitchAdapter) on a test key. Async/system
+(Kafka consumer) contexts default to LIVE; request contexts fail-closed to TEST. The mock SYNTHESIZES the canonical
+internal outbox events (MockWebhookSynthesizer: PaymentCaptured/RefundCompleted, livemode=false, source=mock_sandbox,
+trusted tenant) so the INT-1 webhook→credit loop fires end-to-end in test mode with metadata round-trip. mode/livemode
+is stamped on payment responses + the canonical webhook envelope. Adversarial review caught TWO real bypasses
+(both fixed): (1) the SDK/session checkout path had no mode → real charge for a test merchant → session JWT now
+carries a signed `livemode` claim (fail-closed to test when absent) threaded through PaymentSession*; (2) the
+above-threshold approved-refund path (executeApprovedRefund) reached the real PSP → now mode-routed. 2 BLOCKERS +
+4 SHOULD_FIX, all applied. No migration. ADR-027.
