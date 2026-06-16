@@ -2,6 +2,7 @@ package io.nexuspay.gateway.adapter.in.rest;
 
 import io.nexuspay.common.domain.ApiError;
 import io.nexuspay.common.domain.ApiErrorResponse;
+import io.nexuspay.gateway.adapter.in.rest.dto.ConfirmResponse;
 import io.nexuspay.gateway.adapter.in.rest.dto.ConfirmSessionRequest;
 import io.nexuspay.gateway.application.port.in.TokenizePaymentMethodUseCase;
 import io.nexuspay.gateway.application.port.out.PaymentTokenRepository;
@@ -81,7 +82,7 @@ class CheckoutConfirmMetadataParityTest {
                 .thenReturn(new PaymentResponse("pay_int2", "succeeded", 5000L, "USD",
                         "automatic", "cust_1", "stripe", "ctxn", null, null, Instant.now(), Map.of()));
 
-        controller.confirmPayment(new ConfirmSessionRequest("ptok_1"), principal);
+        var resp = controller.confirmPayment(new ConfirmSessionRequest("ptok_1"), principal);
 
         ArgumentCaptor<PaymentRequest> reqCap = ArgumentCaptor.forClass(PaymentRequest.class);
         ArgumentCaptor<CallContext> ctxCap = ArgumentCaptor.forClass(CallContext.class);
@@ -97,6 +98,18 @@ class CheckoutConfirmMetadataParityTest {
 
         // Session completed with the gateway payment id returned by the gate.
         verify(sessionService).completeSession(eq("ps_1"), eq("pay_int2"));
+
+        // INT-6: the returned body is the proper status-accurate ConfirmResponse (NOT the re-fetched
+        // session SessionStatusResponse). Reverting the return-type fix fails this instanceof + status.
+        assertThat(resp.getBody())
+                .as("confirm returns ConfirmResponse, not the session status object")
+                .isInstanceOf(ConfirmResponse.class);
+        ConfirmResponse body = (ConfirmResponse) resp.getBody();
+        assertThat(body.status()).isEqualTo("succeeded");
+        assertThat(body.paymentId()).isEqualTo("pay_int2");
+        // principal here is a default (live=true) session principal -> mode "live".
+        assertThat(body.mode()).isEqualTo("live");
+        assertThat(body.livemode()).isTrue();
     }
 
     @Test

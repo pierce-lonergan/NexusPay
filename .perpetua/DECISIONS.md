@@ -650,3 +650,15 @@ hex, bare or sha256=-prefixed, crypto.timingSafeEqual) and return the typed cano
 HMAC-SIGNED `created` (the X-NexusPay-Timestamp header is OUTSIDE the HMAC and spoofable) — new createdToleranceSeconds
 option + test proving a rewritten header can't defeat it. 0 BLOCKERS, 2 SHOULD_FIX applied (replay-window + README).
 Locally npm build+test green (33 tests). No migration, no Java change. ADR-029.
+
+## ADR-030 | 2026-06-16 | INT-6: finish /v1/checkout/confirm result contract (T3)
+INT-3 had already wired confirm to create+capture through the mode-routed gateway with server-stored session
+metadata + tenant + idempotency key (canonical event fires via auto-capture), but confirm DISCARDED the
+PaymentResponse and returned a session-status object — so the SDK couldn't tell success from a held/failed
+payment. INT-6 returns a proper ConfirmResponse {status: succeeded|processing|requires_action|failed, payment_id,
+mode, next_action} (new DTO + ResponseMapper.toConfirmResponse) DERIVED from the real PaymentApiResponse — a
+capture-held-for-review surfaces as requires_action/processing, NEVER succeeded; gate PaymentExceptions propagate
+to the INT-2 error envelope (no 500/leak). Re-confirming a COMPLETED session is idempotent (read-only getPayment
+short-circuit, no second charge); expired session stays 410. The @nexuspay/js ConfirmResult type was aligned.
+End-to-end IT proves a test-mode confirm delivers the canonical payment.succeeded webhook. 0 BLOCKERS, 0 SHOULD_FIX
+(all four lenses SHIP). No migration. ADR-030.
