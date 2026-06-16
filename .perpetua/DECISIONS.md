@@ -708,3 +708,19 @@ it is now closed (data.metadata round-trips, dotted events now match Snap's expe
 mock, the localhost-webhook tunnel caveat), referencing Snap's files READ-ONLY (no Snap code modified, per standing
 instruction). All example secrets are placeholders (gitleaks-safe). 0 BLOCKERS, 1 SHOULD_FIX (delivery-id prefix
 whd_). No code, no migration. ADR-033.
+
+## ADR-034 | 2026-06-16 | INT-10 / SEC-22: API-key prefix-collision hardening (T3)
+ApiKeyService.authenticate looked the key up by its 12-char prefix via findByKeyPrefixAndRevokedAtIsNull returning
+a single Optional — so two un-revoked keys sharing those 12 chars (sk_test_/sk_live_ = 8-char scheme + 4 random)
+made Spring Data throw IncorrectResultSizeDataAccessException → 401 for BOTH (a self-inflicted DoS on the
+legitimate key). Fix (candidate-iterate, no migration, backward-compatible): the finder returns List<ApiKeyEntity>;
+authenticate iterates the (typically size-1) candidates and passwordEncoder.matches(rawKey, hash) each, returning
+the matching key's principal; no match → the existing uniform invalid_api_key (IDENTICAL outcome whether 0/N
+candidates/revoked/wrong-scheme — no existence oracle). Revoked keys still excluded (AndRevokedAtIsNull). The only
+production caller is authenticate; the filter mocks authenticate, unaffected. New ApiKeyServiceCollisionTest (6
+cases) proves two prefix-colliding keys each authenticate to their own principal (fails on the old single-Optional
+code), a wrong colliding key → uniform 401, a revoked colliding sibling is excluded, and principal tenant/role/live
+are correct. Fix agent rightly rejected an H2-@DataJpaTest suggestion (no H2 in this repo; all DB tests are
+Testcontainers/Postgres) in favor of an infra-free service-layer test. Orchestrator shortened the test's fake
+collision keys (sk_test_coll_a/b/z, underscore body) to stay gitleaks-clean while preserving the 12-char prefix
+collision. 0 BLOCKERS, 1 SHOULD_FIX. No migration. SEC-22 closed. ADR-034.
