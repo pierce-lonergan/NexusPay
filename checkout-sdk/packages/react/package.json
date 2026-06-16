@@ -8,19 +8,29 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "types": {
+        "import": "./dist/index.d.ts",
+        "require": "./dist/index.d.cts"
+      },
       "import": "./dist/index.js",
-      "require": "./dist/index.cjs",
-      "types": "./dist/index.d.ts"
-    }
+      "require": "./dist/index.cjs"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
     "react": ">=18.0.0",
@@ -37,5 +47,26 @@
     "jsdom": "^24.0.0"
   },
   "sideEffects": false,
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "keywords": [
+    "nexuspay",
+    "react",
+    "payments",
+    "checkout",
+    "payment-elements",
+    "hooks"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pierce-lonergan/NexusPay.git",
+    "directory": "checkout-sdk/packages/react"
+  },
+  "homepage": "https://github.com/pierce-lonergan/NexusPay/tree/main/checkout-sdk/packages/react#readme",
+  "bugs": {
+    "url": "https://github.com/pierce-lonergan/NexusPay/issues"
+  }
 }

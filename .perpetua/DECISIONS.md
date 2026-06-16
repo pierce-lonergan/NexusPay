@@ -662,3 +662,15 @@ to the INT-2 error envelope (no 500/leak). Re-confirming a COMPLETED session is 
 short-circuit, no second charge); expired session stays 410. The @nexuspay/js ConfirmResult type was aligned.
 End-to-end IT proves a test-mode confirm delivers the canonical payment.succeeded webhook. 0 BLOCKERS, 0 SHOULD_FIX
 (all four lenses SHIP). No migration. ADR-030.
+
+## ADR-031 | 2026-06-16 | INT-7: SDK publish-readiness + release pipeline (DX)
+The SDK packages existed but were unpublishable (dist gitignored, no files/exports/publishConfig). INT-7 makes
+@nexuspay/js, @nexuspay/react, @nexuspay/node publish-ready (files allowlist [dist+README+LICENSE only],
+exports/main/module/types→dist, publishConfig.access public, repository/homepage/bugs, MIT LICENSE + README per
+package, engines, prepublishOnly→build); nexuspay-checkout stays private:true (Vite demo app). Added
+.github/workflows/release.yml — tag sdk-v* / workflow_dispatch, SHA-pinned actions (reusing the repo's existing
+B-012 pins), minimal perms (contents:read, id-token:write), NODE_AUTH_TOKEN←secrets.NPM_TOKEN, npm publish
+--access public --provenance, skips cleanly without the token; + checkout-sdk/PUBLISHING.md. Verified: whole
+workspace builds + npm publish --dry-run for all three lists exactly dist+README+LICENSE+package.json (no
+src/tests). Versions unchanged (0.1.0). The actual npm publish is the OWNER's credentialed action (add NPM_TOKEN
+secret + push an sdk-vX.Y.Z tag). 0 BLOCKERS, 1 SHOULD_FIX (README snippet). No migration. ADR-031.
