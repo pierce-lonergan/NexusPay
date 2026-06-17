@@ -206,7 +206,21 @@ await markProcessed(event.id);
 ```
 
 A `payment.refunded` event carries the same `data.metadata` (round-tripped from
-the original create), so the claw-back path can target the same account.
+the original create), so the claw-back path can target the same account. The
+metadata tells you **which** account; for **how much** to claw back, read
+`event.data.object.amount` — on a refund event that is the **server-derived
+amount actually refunded** (a partial refund carries the partial amount). So
+debit by `data.object.amount`, not your full catalog price:
+
+```js
+const { userId, packId } = event.data.metadata;            // which account
+const refundedMinor = event.data.object.amount;            // how much (server-derived)
+await clawBack(userId, packId, refundedMinor);             // partial-safe
+```
+
+This is the one place `data.object.amount` is the source of truth (the platform,
+not the client, computed it) — everywhere else, resolve *what to grant* from your
+own catalog by metadata, never from the request-time amount.
 
 ---
 

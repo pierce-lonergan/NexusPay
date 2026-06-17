@@ -1001,3 +1001,23 @@ mode; DEFERRED to DX-5a-ii (tracked) because Temporal is disabled by default (la
 field on a Temporal-serialized DTO outside DX-5a's scope — the reviewer classified it as a pre-existing residual,
 not a blocker. The two WIRED paths (renewal, dunning) + manual-pay are closed now. Migration V4035. L-064.
 ADR-046.
+
+## ADR-047 | 2026-06-17 | DX-5b: data.object.amount is authoritative for the REFUNDED amount (docs-only carve-out) (T3)
+Snap critique §6. The integration docs teach one blanket rule — "do not trust the event amount; resolve the
+entitlement from your own catalog keyed by your metadata" (WEBHOOKS.md §6, INTEGRATION.md §5). That rule is
+correct for GRANTS (on payment.succeeded the create-time amount is client-supplied and the SKU must come from
+the merchant's own pack table — GAP-13). But applied literally to REFUNDS it causes an over-claw: Snap claws
+back the FULL pack's credits on a PARTIAL refund, because it ignores the event amount and debits the whole
+pack from its table. Investigation (grep, not a code change): the platform already carries the right figure —
+MockWebhookSynthesizer.onRefundTerminal builds the payment.refunded data.object with object.put("amount",
+refund.amount()) (the partial refunded amount), and the real path (HyperSwitch refund_succeeded ->
+REFUND_COMPLETED -> WebhookEnvelopeSerializer) passes content.object (incl. amount) straight into data.object,
+stripping only card subtrees. So data.object.amount on a refund event IS the server-derived amount actually
+refunded, on BOTH the mock and real paths. The "client-controlled, don't trust it" reasoning behind the
+blanket rule does NOT hold for refunds — the platform, not the client, computed that number. Fix is therefore
+DOCUMENTATION-ONLY (no platform/SDK code change): a refund carve-out in WEBHOOKS.md §6 + INTEGRATION.md §5
+stating that for payment.refunded / payment.refund.created, data.object.amount is the authoritative refunded
+amount (use it for partial claw-back), and a new GAP-17 row in snap-loyalty.md tracking Snap's residual fix
+(scale the claw-back by event.data.object.amount, the one refund-path exception to GAP-13). Metadata still
+answers WHICH account; data.object.amount answers HOW MUCH. L-065. ADR-047 (carves out the refund case from
+the ADR documenting the "resolve from your catalog" guidance).
