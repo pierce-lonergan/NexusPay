@@ -8,7 +8,7 @@ import {
   PaymentElement as JSPaymentElement,
   type PaymentElementOptions as JSPaymentElementOptions,
   type PaymentMethodType,
-} from '@nexuspay/js';
+} from '@nexus-pay/js';
 import { useNexusPay } from './useNexusPay';
 
 export interface PaymentElementProps {

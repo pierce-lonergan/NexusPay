@@ -147,7 +147,7 @@ final class ResponseMapper {
     }
 
     /**
-     * INT-6: maps a gateway {@link PaymentResponse} to the SDK confirm result the {@code @nexuspay/js}
+     * INT-6: maps a gateway {@link PaymentResponse} to the SDK confirm result the {@code @nexus-pay/js}
      * client consumes. The {@code status} is DERIVED from the gateway payment status (never the session
      * status, which is always {@code "complete"} and meaningless to {@code confirm()}):
      *

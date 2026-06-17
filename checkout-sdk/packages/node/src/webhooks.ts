@@ -1,5 +1,5 @@
 /**
- * Webhook signature verification for @nexuspay/node.
+ * Webhook signature verification for @nexus-pay/node.
  *
  * Byte-for-byte mirror of the platform signer
  * (gateway-api WebhookDeliveryService.computeSignature):

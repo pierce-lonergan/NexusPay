@@ -7,7 +7,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 /**
  * INT-6: result of confirming a checkout session via the SDK {@code POST /v1/checkout/confirm}.
  *
- * <p>This is the contract {@code @nexuspay/js}'s {@code confirm()} consumes directly — the SDK's
+ * <p>This is the contract {@code @nexus-pay/js}'s {@code confirm()} consumes directly — the SDK's
  * {@code HttpClient} does {@code response.json() as T} with NO snake&harr;camel transform, so the wire
  * keys must literally match the TS {@code ConfirmResult}. The fields the client already reads
  * ({@code status}, {@code nextAction}, {@code error}) are camelCase; INT-6 adds {@code paymentId},

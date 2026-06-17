@@ -8,7 +8,7 @@ import {
   AddressElement as JSAddressElement,
   type AddressElementOptions as JSAddressElementOptions,
   type AddressData,
-} from '@nexuspay/js';
+} from '@nexus-pay/js';
 import { useNexusPay } from './useNexusPay';
 
 export interface AddressElementProps {

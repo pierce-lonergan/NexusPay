@@ -1,5 +1,5 @@
 /**
- * Request/response DTOs, webhook event types, and constants for @nexuspay/node.
+ * Request/response DTOs, webhook event types, and constants for @nexus-pay/node.
  *
  * Field names on response/webhook types mirror the gateway-api wire shape
  * (snake_case) so the parsed JSON conforms directly. Request *params* use

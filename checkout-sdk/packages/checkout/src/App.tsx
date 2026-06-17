@@ -2,7 +2,7 @@
  * App — reads session_id + publishable_key from URL, wraps in NexusPayProvider.
  */
 
-import { NexusPayProvider } from '@nexuspay/react';
+import { NexusPayProvider } from '@nexus-pay/react';
 import { CheckoutPage } from './CheckoutPage';
 
 export function App() {

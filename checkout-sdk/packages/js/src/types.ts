@@ -1,6 +1,6 @@
 /**
  * NexusPay SDK type definitions.
- * @module @nexuspay/js
+ * @module @nexus-pay/js
  */
 
 // --- Appearance & Theming ---

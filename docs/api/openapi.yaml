@@ -19,7 +19,7 @@ info:
         field, which is **epoch seconds** (see `WebhookEvent`).
       - Response wire keys are **snake_case** for every DTO EXCEPT the SDK
         `ConfirmResponse` (camelCase, pinned `@JsonProperty`), which is the
-        `/v1/checkout/confirm` body consumed by `@nexuspay/js` and is not part of
+        `/v1/checkout/confirm` body consumed by `@nexus-pay/js` and is not part of
         this merchant-server surface.
       - `mode` / `livemode` are SERVER-DERIVED from the authenticated key's
         `is_live` flag (test for `sk_test_`), never read from the request body.

@@ -1,6 +1,6 @@
 # NexusPay Integration Guide
 
-An end-to-end merchant integration, in both **cURL** and **Node** (`@nexuspay/node`).
+An end-to-end merchant integration, in both **cURL** and **Node** (`@nexus-pay/node`).
 Everything here runs in **test mode** by default (`sk_test_` keys never move real
 money — see §6). All keys and secrets shown are placeholders.
 
@@ -83,10 +83,10 @@ Response (note `mode: "test"`, and `capture: true` resolved to
 > `manual`. If you send `capture_method` explicitly, it wins and `capture` is
 > ignored.
 
-### Node (`@nexuspay/node`)
+### Node (`@nexus-pay/node`)
 
 ```js
-import { NexusPay } from '@nexuspay/node';
+import { NexusPay } from '@nexus-pay/node';
 
 const client = new NexusPay({
   apiKey: process.env.NEXUSPAY_API_KEY, // sk_test_xxx
@@ -133,7 +133,7 @@ Either render your own UI and call the REST API server-side, or use the React
 bindings with the session `client_secret` from §2:
 
 ```jsx
-import { NexusPayProvider, PaymentElement, useConfirmPayment } from '@nexuspay/react';
+import { NexusPayProvider, PaymentElement, useConfirmPayment } from '@nexus-pay/react';
 
 function Checkout({ clientSecret }) {
   return (
@@ -167,7 +167,7 @@ your registered endpoint (register one with `POST /v1/webhook-endpoints` — see
 WEBHOOKS.md). Verify with the **raw** body:
 
 ```js
-import { constructEvent } from '@nexuspay/node';
+import { constructEvent } from '@nexus-pay/node';
 
 export async function POST(req) {
   const rawBody = await req.text(); // RAW — do not parse first

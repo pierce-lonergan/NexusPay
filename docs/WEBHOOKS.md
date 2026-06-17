@@ -117,12 +117,12 @@ read per attempt — so a rotated secret takes effect on the next attempt.
 
 ### 4a. With the Node SDK (recommended)
 
-`@nexuspay/node` ships `constructEvent`, which verifies the signature, optionally
+`@nexus-pay/node` ships `constructEvent`, which verifies the signature, optionally
 enforces a replay window, then JSON-parses the body. Pass the **raw** request
 body — re-serializing the JSON changes the bytes and invalidates the signature.
 
 ```js
-import { constructEvent } from '@nexuspay/node';
+import { constructEvent } from '@nexus-pay/node';
 
 export async function POST(req) {
   const rawBody = await req.text(); // RAW bytes — do not JSON.parse first

@@ -37,7 +37,7 @@ behavior.
 
 ---
 
-## Recommended adoption of `@nexuspay/node`
+## Recommended adoption of `@nexus-pay/node`
 
 ### Checkout — replace the raw `fetch`
 
@@ -46,7 +46,7 @@ Snap's `src/app/api/credits/checkout/route.ts` currently builds the
 identical, but you gain typed errors (INT-2 envelope) and idempotency:
 
 ```js
-import { NexusPay } from '@nexuspay/node';
+import { NexusPay } from '@nexus-pay/node';
 
 const client = new NexusPay({
   apiKey: process.env.NEXUSPAY_API_KEY,   // sk_test_xxx
@@ -73,7 +73,7 @@ byte-for-byte. Adopting `constructEvent` is **optional**; if you do, keep readin
 the raw body and keep dedupe on `event.id`:
 
 ```js
-import { constructEvent } from '@nexuspay/node';
+import { constructEvent } from '@nexus-pay/node';
 
 const event = constructEvent(rawBody, req.headers, process.env.NEXUSPAY_WEBHOOK_SECRET);
 // then read event.data.metadata.userId / event.data.metadata.packId  (see GAP-01)
@@ -98,7 +98,7 @@ contracts to its current status. **CLOSED** = the contract already satisfies Sna
 | **GAP-07** Idempotency dedupe | dedupes on `event.id` via `addCredit` idempotency key (route.ts:120) | **CLOSED** — the platform `id` is stable across redelivery and replay. |
 | **GAP-08** Capture intent | sends `capture: true` (route.ts:62) | **CLOSED** — INT-2 alias maps `true` → `automatic`. |
 | **GAP-09** `clientSecret` field | reads `intent.clientSecret` from the `POST /v1/payments` response (route.ts:69-70) | **GAP** — `POST /v1/payments` returns **no** client secret (only `id`). Either drop `clientSecret` (server-only flow), or switch to **payment sessions** (`POST /v1/payment-sessions` → `client_secret`, snake_case) and pass that to the browser SDK. |
-| **GAP-10** Error envelope | maps any non-2xx to a generic 502 (route.ts:66-67) | **CLOSED** — `@nexuspay/node` surfaces the INT-2 `{ type, code, message, request_id }` via `NexusPayError`, so you can branch on real error categories instead of collapsing to 502. |
+| **GAP-10** Error envelope | maps any non-2xx to a generic 502 (route.ts:66-67) | **CLOSED** — `@nexus-pay/node` surfaces the INT-2 `{ type, code, message, request_id }` via `NexusPayError`, so you can branch on real error categories instead of collapsing to 502. |
 | **GAP-11** Test-mode safety | CHARTER: never move real money | **CLOSED** — an `sk_test_` key routes to the in-process mock (INT-3); no real PSP, no real money. |
 | **GAP-12** localhost webhook delivery | local dev | **GAP** — SEC-4b rejects loopback at registration AND delivery. Use an HTTPS tunnel (ngrok) and register the public URL, or verify signatures offline with the `whsec_` secret (LOCAL_DEV.md §6). |
 | **GAP-13** Amount units | sends cents; credits from its own pack table (route.ts:62, webhook route.ts:91-93) | **CLOSED** — the platform amount is minor units, and Snap correctly resolves the credit amount from its own pack table (ignoring the event amount). |

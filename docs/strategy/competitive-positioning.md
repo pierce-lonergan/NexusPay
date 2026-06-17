@@ -130,7 +130,7 @@ These gaps determine whether NexusPay can replace commercial orchestration platf
 - Current state: Merchants must integrate each PSP's client-side SDK separately
 - Three PSPs = three different card forms, three different Apple Pay integrations
 
-**Resolution**: Phase 4 Sprint 4.2 — `@nexuspay/js` and `@nexuspay/react`. PCI-compliant iframe, dynamic payment method rendering, Apple Pay/Google Pay.
+**Resolution**: Phase 4 Sprint 4.2 — `@nexus-pay/js` and `@nexus-pay/react`. PCI-compliant iframe, dynamic payment method rendering, Apple Pay/Google Pay.
 
 **Impact**: Developer experience — this is what converts "backend optimization" into "true payment platform."
 

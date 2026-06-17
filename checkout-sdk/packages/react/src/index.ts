@@ -1,6 +1,6 @@
 /**
- * @nexuspay/react — React components for NexusPay checkout.
- * @module @nexuspay/react
+ * @nexus-pay/react — React components for NexusPay checkout.
+ * @module @nexus-pay/react
  */
 
 export {

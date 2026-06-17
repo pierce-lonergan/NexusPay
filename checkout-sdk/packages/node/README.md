@@ -1,17 +1,17 @@
-# @nexuspay/node
+# @nexus-pay/node
 
 Typed NexusPay **server** SDK for Node.js (>=18): a payments API client plus
 webhook signature verification. Zero runtime dependencies (uses the global
 `fetch`/`AbortController`).
 
 ```bash
-npm install @nexuspay/node
+npm install @nexus-pay/node
 ```
 
 ## Client
 
 ```ts
-import { NexusPay } from '@nexuspay/node';
+import { NexusPay } from '@nexus-pay/node';
 
 const nexus = new NexusPay({
   apiKey: process.env.NEXUSPAY_SECRET_KEY!, // "sk_..."; never logged
@@ -43,7 +43,7 @@ console.log(payment.id, payment.status);
 
 ```ts
 import express from 'express';
-import { constructEvent, SignatureVerificationError } from '@nexuspay/node';
+import { constructEvent, SignatureVerificationError } from '@nexus-pay/node';
 
 const app = express();
 

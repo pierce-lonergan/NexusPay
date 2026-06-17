@@ -540,7 +540,7 @@ body {
 @media (prefers-color-scheme: dark) {
   /*
    * Doubled :root:root (specificity 0,2,0) so these dark overrides beat the
-   * light-default ":host, :root" custom properties that @nexuspay/js injects
+   * light-default ":host, :root" custom properties that @nexus-pay/js injects
    * unconditionally into <head> at element-mount time (same 0,1,0 specificity
    * but later in cascade order would otherwise win). This is what makes the
    * NIGHT palette actually take on the page background + ink, not just the
