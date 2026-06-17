@@ -16,6 +16,10 @@ export type NexusPayErrorType =
   | 'rate_limit_error'
   | 'internal_error'
   | 'session_error'
+  // Generic non-429 server error whose body is not the INT-2 envelope, plus
+  // SDK-side guard failures (e.g. a 2xx whose body fails its discriminant
+  // check). Mirrors @nexus-pay/js NexusPayError.type which also has 'api_error'.
+  | 'api_error'
   | 'network_error'; // local timeout/transport (not server-sourced)
 
 export interface ApiErrorBody {
@@ -31,6 +35,7 @@ interface NexusPayErrorArgs {
   message: string;
   requestId?: string;
   status?: number;
+  retryAfterSeconds?: number;
 }
 
 export class NexusPayError extends Error {
@@ -39,6 +44,12 @@ export class NexusPayError extends Error {
   readonly requestId?: string;
   /** HTTP status; undefined for local network errors. */
   readonly status?: number;
+  /**
+   * Parsed `Retry-After` (seconds) from a 429 response, when the server sent a
+   * numeric (delta-seconds) value. Consumed by the opt-in retry layer to pace
+   * backoff; undefined when absent or non-numeric.
+   */
+  readonly retryAfterSeconds?: number;
 
   constructor(args: NexusPayErrorArgs) {
     super(args.message);
@@ -47,6 +58,7 @@ export class NexusPayError extends Error {
     this.code = args.code;
     this.requestId = args.requestId;
     this.status = args.status;
+    this.retryAfterSeconds = args.retryAfterSeconds;
     // Restore prototype chain for instanceof under transpiled targets.
     Object.setPrototypeOf(this, NexusPayError.prototype);
   }
@@ -57,7 +69,11 @@ export class NexusPayError extends Error {
    * Falls back to a generic shape when the body is not the envelope shape
    * (mirrors @nexus-pay/js http-client behaviour).
    */
-  static fromEnvelope(body: unknown, status: number): NexusPayError {
+  static fromEnvelope(
+    body: unknown,
+    status: number,
+    retryAfterSeconds?: number,
+  ): NexusPayError {
     const error = extractApiError(body);
     if (error) {
       return new NexusPayError({
@@ -66,6 +82,7 @@ export class NexusPayError extends Error {
         message: error.message,
         requestId: error.request_id,
         status,
+        retryAfterSeconds,
       });
     }
     return new NexusPayError({
@@ -73,6 +90,7 @@ export class NexusPayError extends Error {
       code: `http_${status}`,
       message: `HTTP ${status}`,
       status,
+      retryAfterSeconds,
     });
   }
 }

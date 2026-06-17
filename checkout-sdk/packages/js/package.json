@@ -1,6 +1,6 @@
 {
   "name": "@nexus-pay/js",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "NexusPay.js — PCI-compliant card tokenization and payment elements",
   "type": "module",
   "main": "./dist/index.cjs",

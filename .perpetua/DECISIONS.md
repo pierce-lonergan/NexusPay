@@ -922,3 +922,29 @@ than a literal. WORKFLOW NOTE: the implement agent's final structured summary wa
 (false positive — it discussed webhook-secret handling), which truncated it BEFORE fix (4) (the split guard),
 so the working tree had only 3 of 4 fixes; I detected the gap by diffing the tree against the spec and
 completed the split guard + its regression test by hand. L-061. ADR-043. CI is the oracle.
+
+## ADR-044 | 2026-06-17 | DX-2: @nexus-pay SDK 0.1.1 hardening (Snap DX critique) (T2/SDK)
+The Snap team's evidence-grounded DX critique v2 (after adopting @nexus-pay/node@0.1.0 on their money
+path) found real SDK gaps; DX-2 fixes them as a BACKWARD-COMPATIBLE 0.1.1 patch (all additive / opt-in /
+deprecate-not-remove): (1.2) getHeader now accepts a WHATWG Headers (typeof bag.get === function → .get),
+fixing Next.js App-Router constructEvent which previously read req.headers as empty → missing_signature on
+every delivery; plain-object/string[] paths unchanged. (4.1) added 'api_error' to NexusPayErrorType
+(node; js already had it) so the fallback type is in the union, not just the | string escape — restoring
+the exhaustiveness GAP-10 promised. (4.3) createRefund now asserts a boolean requires_approval before the
+discriminated return; envelope drift / a proxied 2xx throws NexusPayError(api_error/unexpected_refund_
+response) instead of silently taking the requires_approval===false branch (ledger-corruption path closed).
+(4.4) createPayment rejects client-side on a capture vs captureMethod CONFLICT (no silent server
+precedence); agreeing/single values forward unchanged. (5.3) the unsigned, attacker-defeatable
+toleranceSeconds is @deprecated + synonym unsafeHeaderToleranceSeconds, with the SIGNED createdToleranceSeconds
+documented first as canonical; both honored (back-compat). (4.2) opt-in maxRetries (default 0 =
+single-fetch, byte-identical to 0.1.0) with exp backoff honoring Retry-After on 429, retrying only
+429/5xx/network, pinning ONE Idempotency-Key across the attempt sequence (auto crypto.randomUUID for a POST
+if the caller gave none) so retries are safe by construction. (5.1) Payment JSDoc'd re no client_secret →
+PaymentSession. +21 SDK tests (deterministic: mocked fetch + injected sleep/uuid/clock). npm build+test
+GREEN (195 across js/node/react). REVIEW (2 lenses): 0 BLOCKER + 2 SHOULD_FIX — (a) the 0.1.1 caller-AbortSignal
+cancellation now rejects with the raw AbortError, not NexusPayError(timeout) as 0.1.0 mis-mapped: kept the
+more-correct behavior, corrected the "byte-identical" claim, and DOCUMENTED the behavior change in the node
+README + CHANGELOG (a genuine tail-behavior delta on the {signal} path; default path unaffected); (b)
+package-lock not bumped → regenerated. Versions 0.1.0→0.1.1 (js/node/react; private checkout demo stays).
+Republish via the sdk-v0.1.1 tag → release.yml (the 0.1.1 tarball also ships DX-1's corrected node README).
+L-062. ADR-044.

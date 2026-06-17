@@ -33,6 +33,17 @@ console.log(payment.id, payment.status);
 
 `amount` is in the currency's minor unit (e.g. cents). Non-2xx responses throw a
 `NexusPayError` carrying the gateway's `type` / `code` / `message` / `requestId`.
+A request **timeout** rejects with `NexusPayError` (`type: 'network_error'`,
+`code: 'timeout'`).
+
+> **0.1.1 behavior change — cancellation vs timeout.** If you pass your own
+> `AbortSignal` via the per-call `{ signal }` option and then abort it, the
+> request now rejects with the **raw `AbortError`** (a `DOMException`), not a
+> `NexusPayError`. In 0.1.0 a caller abort was mis-mapped to
+> `NexusPayError(code: 'timeout')`. A genuine timeout is unchanged (still
+> `NexusPayError`). If your `catch` checks `err instanceof NexusPayError` and
+> you cancel via `{ signal }`, also handle the `AbortError` (`err.name ===
+> 'AbortError'`). Callers that don't use `{ signal }` are unaffected.
 
 ## Verifying webhooks
 
