@@ -32,7 +32,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * INT-6: {@code POST /v1/checkout/confirm} must return a proper, status-accurate {@link ConfirmResponse}
- * (the shape {@code @nexuspay/js}'s {@code confirm()} consumes) — NOT the re-fetched {@code session}
+ * (the shape {@code @nexus-pay/js}'s {@code confirm()} consumes) — NOT the re-fetched {@code session}
  * {@link SessionStatusResponse} the pre-INT-6 code returned.
  *
  * <p>Each test pins a distinct invariant; reverting any of the INT-6 changes fails a distinct assertion:

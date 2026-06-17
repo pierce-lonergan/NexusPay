@@ -8,7 +8,7 @@ import {
   CardElement as JSCardElement,
   type CardElementOptions as JSCardElementOptions,
   type CardChangePayload,
-} from '@nexuspay/js';
+} from '@nexus-pay/js';
 import { useNexusPay } from './useNexusPay';
 
 export interface CardElementProps {

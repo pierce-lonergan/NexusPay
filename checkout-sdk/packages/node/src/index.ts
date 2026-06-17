@@ -1,4 +1,4 @@
-/** @nexuspay/node — typed NexusPay server SDK (payments client + webhook verification). */
+/** @nexus-pay/node — typed NexusPay server SDK (payments client + webhook verification). */
 
 export { NexusPay } from './client';
 export type { NexusPayOptions } from './client';

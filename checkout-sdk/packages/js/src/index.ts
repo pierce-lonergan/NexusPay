@@ -1,6 +1,6 @@
 /**
- * @nexuspay/js — PCI-compliant card tokenization and payment elements.
- * @module @nexuspay/js
+ * @nexus-pay/js — PCI-compliant card tokenization and payment elements.
+ * @module @nexus-pay/js
  */
 
 // Core

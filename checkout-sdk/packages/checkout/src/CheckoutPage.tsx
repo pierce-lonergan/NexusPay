@@ -5,8 +5,8 @@
  */
 
 import { useRef, useState } from 'react';
-import { useNexusPay, useConfirmPayment, PaymentElement, AddressElement } from '@nexuspay/react';
-import type { PaymentMethodType, AddressData } from '@nexuspay/js';
+import { useNexusPay, useConfirmPayment, PaymentElement, AddressElement } from '@nexus-pay/react';
+import type { PaymentMethodType, AddressData } from '@nexus-pay/js';
 import { BrandingHeader } from './components/BrandingHeader';
 import { PaymentSummary } from './components/PaymentSummary';
 import { SuccessConfirmation } from './components/SuccessConfirmation';

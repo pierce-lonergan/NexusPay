@@ -33,9 +33,9 @@ webhooks, with a first-class **test mode** that never moves real money.
 
 | Package | Purpose |
 |---|---|
-| [`@nexuspay/js`](checkout-sdk/packages/js) | Browser checkout SDK (session load, tokenize, confirm, 3DS) |
-| [`@nexuspay/react`](checkout-sdk/packages/react) | React bindings — `NexusPayProvider`, `useConfirmPayment`, `PaymentElement` |
-| [`@nexuspay/node`](checkout-sdk/packages/node) | Zero-dependency server SDK (typed client + `verifyWebhook`/`constructEvent`) |
+| [`@nexus-pay/js`](checkout-sdk/packages/js) | Browser checkout SDK (session load, tokenize, confirm, 3DS) |
+| [`@nexus-pay/react`](checkout-sdk/packages/react) | React bindings — `NexusPayProvider`, `useConfirmPayment`, `PaymentElement` |
+| [`@nexus-pay/node`](checkout-sdk/packages/node) | Zero-dependency server SDK (typed client + `verifyWebhook`/`constructEvent`) |
 
 ## Quickstart
 
@@ -111,7 +111,7 @@ Free for noncommercial use (personal, research, education, evaluation, nonprofit
 see [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md) or contact
 Pierce Lonergan &lt;lonerganpierce@gmail.com&gt;.
 
-The browser checkout SDKs under `checkout-sdk/packages/*` (`@nexuspay/js`,
-`@nexuspay/react`) are separately licensed **MIT** so they can be embedded freely.
+The browser checkout SDKs under `checkout-sdk/packages/*` (`@nexus-pay/js`,
+`@nexus-pay/react`) are separately licensed **MIT** so they can be embedded freely.
 
 💜 Support development via [GitHub Sponsors](https://github.com/sponsors/pierce-lonergan).

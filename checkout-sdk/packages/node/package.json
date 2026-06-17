@@ -1,5 +1,5 @@
 {
-  "name": "@nexuspay/node",
+  "name": "@nexus-pay/node",
   "version": "0.1.0",
   "description": "NexusPay Node server SDK — typed payments client + webhook verification",
   "type": "module",

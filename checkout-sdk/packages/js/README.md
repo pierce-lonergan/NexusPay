@@ -1,4 +1,4 @@
-# @nexuspay/js
+# @nexus-pay/js
 
 PCI-compliant card tokenization and payment elements for the browser. Card data
 is entered inside a sandboxed iframe and tokenized before it ever touches your
@@ -7,14 +7,14 @@ page, so your site stays out of PCI scope.
 ## Install
 
 ```bash
-npm install @nexuspay/js
+npm install @nexus-pay/js
 ```
 
 Or load it straight from a CDN — the IIFE build exposes a global `NexusPay`:
 
 ```html
-<script src="https://unpkg.com/@nexuspay/js"></script>
-<!-- or: https://cdn.jsdelivr.net/npm/@nexuspay/js -->
+<script src="https://unpkg.com/@nexus-pay/js"></script>
+<!-- or: https://cdn.jsdelivr.net/npm/@nexus-pay/js -->
 <script>
   const nexus = new NexusPay.NexusPay('pk_test_...');
 </script>
@@ -26,13 +26,13 @@ Create an instance with your **publishable** key, load the checkout session with
 the `client_secret` from your server, then mount a `CardElement` and tokenize:
 
 ```ts
-import { NexusPay, CardElement } from '@nexuspay/js';
+import { NexusPay, CardElement } from '@nexus-pay/js';
 
 // 1. Init with the publishable key (safe to ship to the browser).
 const nexus = new NexusPay('pk_test_...');
 
 // 2. Load the session — `clientSecret` comes from your server
-//    (created via @nexuspay/node). It IS the session JWT.
+//    (created via @nexus-pay/node). It IS the session JWT.
 await nexus.loadSession(clientSecret);
 
 // 3. Mount a PCI-safe card input into a container element.

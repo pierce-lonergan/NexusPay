@@ -1,4 +1,4 @@
-# @nexuspay/react
+# @nexus-pay/react
 
 React bindings for [NexusPay](https://github.com/pierce-lonergan/NexusPay)
 checkout: a context provider, hooks, and ready-to-mount payment elements.
@@ -6,10 +6,10 @@ checkout: a context provider, hooks, and ready-to-mount payment elements.
 ## Install
 
 ```bash
-npm install @nexuspay/react @nexuspay/js react
+npm install @nexus-pay/react @nexus-pay/js react
 ```
 
-`react` (>=18) and `@nexuspay/js` are **peer dependencies** — install them
+`react` (>=18) and `@nexus-pay/js` are **peer dependencies** — install them
 alongside this package.
 
 ## Usage
@@ -23,7 +23,7 @@ import {
   NexusPayProvider,
   PaymentElement,
   useConfirmPayment,
-} from '@nexuspay/react';
+} from '@nexus-pay/react';
 
 function CheckoutForm() {
   const { confirmPayment, confirming, error } = useConfirmPayment();
@@ -58,7 +58,7 @@ export function Checkout({ clientSecret }: { clientSecret: string }) {
 ```
 
 Also exported: `CardElement`, `AddressElement`, and the `useNexusPay` hook for
-direct access to the underlying `@nexuspay/js` instance.
+direct access to the underlying `@nexus-pay/js` instance.
 
 ## License
 

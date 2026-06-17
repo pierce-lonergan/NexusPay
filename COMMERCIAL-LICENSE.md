@@ -52,7 +52,7 @@ with terms.
 ## Scope notes
 
 - **Client SDKs are MIT.** The browser checkout SDK packages under
-  `checkout-sdk/packages/*` (`@nexuspay/js`, `@nexuspay/react`) are licensed under
+  `checkout-sdk/packages/*` (`@nexus-pay/js`, `@nexus-pay/react`) are licensed under
   the permissive MIT License (see each package's `package.json`) so they can be
   embedded freely in any front-end. This does **not** grant commercial rights to
   the NexusPay platform/server — running the server commercially still requires a

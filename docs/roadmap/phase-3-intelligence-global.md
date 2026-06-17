@@ -68,7 +68,7 @@ All of the following Phase 2 deliverables must be complete and verified before P
 | Avro Gradle Plugin | 1.11.x | Java class generation from `.avsc` schema files | 3.4 |
 | TypeScript | 5.4.x | NexusPay.js checkout SDK development | 3.5 |
 | Vite | 5.x | SDK build tooling (bundling, dev server, library mode) | 3.5 |
-| React | 18.x | `@nexuspay/react` component library | 3.5 |
+| React | 18.x | `@nexus-pay/react` component library | 3.5 |
 | Vitest | 1.x | SDK unit testing | 3.5 |
 | Playwright | 1.x | SDK browser integration tests | 3.5 |
 
@@ -1464,7 +1464,7 @@ checkout-sdk/
 ├── vitest.config.ts
 ├── playwright.config.ts
 ├── packages/
-│   ├── nexuspay-js/                          # @nexuspay/js
+│   ├── nexuspay-js/                          # @nexus-pay/js
 │   │   ├── package.json
 │   │   ├── tsconfig.json
 │   │   ├── vite.config.ts
@@ -1511,7 +1511,7 @@ checkout-sdk/
 │   │       └── integration/
 │   │           ├── payment-element.test.ts
 │   │           └── tokenization.test.ts
-│   ├── nexuspay-react/                       # @nexuspay/react
+│   ├── nexuspay-react/                       # @nexus-pay/react
 │   │   ├── package.json
 │   │   ├── tsconfig.json
 │   │   ├── vite.config.ts
@@ -1757,11 +1757,11 @@ nexuspay:
 - [ ] Apple Pay and Google Pay buttons render when available (via PSP).
 - [ ] Bank redirect (iDEAL) initiates redirect flow and handles return callback.
 - [ ] BNPL (Klarna) redirect flow works end-to-end.
-- [ ] `@nexuspay/js` bundle < 50KB gzipped.
+- [ ] `@nexus-pay/js` bundle < 50KB gzipped.
 - [ ] Single-use token expires after 15 minutes if unused.
 - [ ] Session token cannot be used to perform actions outside the specific payment session.
 - [ ] CDN serves versioned SDK at `https://js.nexuspay.io/v1/nexuspay.js`.
-- [ ] npm packages `@nexuspay/js` and `@nexuspay/react` have TypeScript type definitions.
+- [ ] npm packages `@nexus-pay/js` and `@nexus-pay/react` have TypeScript type definitions.
 
 ---
 

@@ -17,7 +17,7 @@ import {
   type NexusPayOptions,
   type PaymentSessionResult,
   type NexusPayError,
-} from '@nexuspay/js';
+} from '@nexus-pay/js';
 
 export interface NexusPayContextValue {
   nexuspay: NexusPay | null;

@@ -1,5 +1,5 @@
 /**
- * Typed error classes for @nexuspay/node.
+ * Typed error classes for @nexus-pay/node.
  *
  * NexusPayError mirrors the INT-2 error envelope shape
  *   { error: { type, code, message, request_id } }
@@ -55,7 +55,7 @@ export class NexusPayError extends Error {
    * Maps an INT-2 `{ error: { type, code, message, request_id } }` envelope
    * (already-parsed body) plus the HTTP status into a NexusPayError.
    * Falls back to a generic shape when the body is not the envelope shape
-   * (mirrors @nexuspay/js http-client behaviour).
+   * (mirrors @nexus-pay/js http-client behaviour).
    */
   static fromEnvelope(body: unknown, status: number): NexusPayError {
     const error = extractApiError(body);

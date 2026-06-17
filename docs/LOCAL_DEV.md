@@ -169,7 +169,7 @@ To actually **receive** a webhook locally, choose one of:
    your local listener through the tunnel.
 2. **Verify signatures offline** — take the once-shown `whsec_…` secret and
    verify the HMAC signature against test events you construct yourself (e.g. with
-   the `@nexuspay/node` SDK), without any outbound delivery.
+   the `@nexus-pay/node` SDK), without any outbound delivery.
 
 ---
 

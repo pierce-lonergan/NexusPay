@@ -6,7 +6,7 @@ export default defineConfig({
   dts: true,
   sourcemap: true,
   clean: true,
-  external: ['react', '@nexuspay/js'],
+  external: ['react', '@nexus-pay/js'],
   esbuildOptions(options) {
     options.jsx = 'automatic';
   },

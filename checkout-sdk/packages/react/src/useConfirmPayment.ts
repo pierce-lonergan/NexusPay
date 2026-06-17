@@ -3,7 +3,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { ChallengeHandler, type ConfirmResult, type NexusPayError } from '@nexuspay/js';
+import { ChallengeHandler, type ConfirmResult, type NexusPayError } from '@nexus-pay/js';
 import { useNexusPay } from './useNexusPay';
 
 export interface ConfirmPaymentState {

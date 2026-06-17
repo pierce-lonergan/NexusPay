@@ -8,9 +8,9 @@ complete this step.**
 
 | Package | Path | npm | Notes |
 |---|---|---|---|
-| `@nexuspay/js` | `packages/js` | public | Browser SDK (ESM + CJS + IIFE/CDN) |
-| `@nexuspay/react` | `packages/react` | public | React bindings (peer-deps `react`, `@nexuspay/js`) |
-| `@nexuspay/node` | `packages/node` | public | Server SDK + webhook verification |
+| `@nexus-pay/js` | `packages/js` | public | Browser SDK (ESM + CJS + IIFE/CDN) |
+| `@nexus-pay/react` | `packages/react` | public | React bindings (peer-deps `react`, `@nexus-pay/js`) |
+| `@nexus-pay/node` | `packages/node` | public | Server SDK + webhook verification |
 | `nexuspay-checkout` | `packages/checkout` | **never** | Vite demo SPA; `"private": true` |
 
 ## License
@@ -49,7 +49,7 @@ client applications. Each published package has its own `LICENSE` file.
    (`workflow_dispatch`).
 
 The `release-sdk` workflow runs `npm ci` → `npm run build` → `npm publish` for
-`@nexuspay/js`, `@nexuspay/node`, then `@nexuspay/react` (react last, since it
+`@nexus-pay/js`, `@nexus-pay/node`, then `@nexus-pay/react` (react last, since it
 peer-depends on js), each with `--access public --provenance`.
 
 ## Manual fallback (local, owner machine)
@@ -58,17 +58,17 @@ peer-depends on js), each with `--access public --provenance`.
 cd checkout-sdk
 npm login                                  # owner's npm creds
 npm ci && npm run build
-npm publish -w @nexuspay/js   --access public
-npm publish -w @nexuspay/node --access public
-npm publish -w @nexuspay/react --access public   # last
+npm publish -w @nexus-pay/js   --access public
+npm publish -w @nexus-pay/node --access public
+npm publish -w @nexus-pay/react --access public   # last
 ```
 
 ## Dry-run / verify before publishing
 
 ```bash
-npm publish --dry-run -w @nexuspay/js
-npm publish --dry-run -w @nexuspay/node
-npm publish --dry-run -w @nexuspay/react
+npm publish --dry-run -w @nexus-pay/js
+npm publish --dry-run -w @nexus-pay/node
+npm publish --dry-run -w @nexus-pay/react
 ```
 
 Confirm each tarball's file list is **`dist/*` + `README.md` + `LICENSE`** and

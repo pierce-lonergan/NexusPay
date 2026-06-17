@@ -57,20 +57,20 @@ jobs:
         if: steps.token.outputs.have_token == 'true'
         run: npm run build   # root script: js -> node -> react -> checkout
 
-      - name: Publish @nexuspay/js
+      - name: Publish @nexus-pay/js
         if: steps.token.outputs.have_token == 'true'
-        run: npm publish -w @nexuspay/js --access public --provenance
+        run: npm publish -w @nexus-pay/js --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Publish @nexuspay/node
+      - name: Publish @nexus-pay/node
         if: steps.token.outputs.have_token == 'true'
-        run: npm publish -w @nexuspay/node --access public --provenance
+        run: npm publish -w @nexus-pay/node --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Publish @nexuspay/react   # last: depends on js+node being live
+      - name: Publish @nexus-pay/react   # last: depends on js+node being live
         if: steps.token.outputs.have_token == 'true'
-        run: npm publish -w @nexuspay/react --access public --provenance
+        run: npm publish -w @nexus-pay/react --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

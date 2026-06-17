@@ -5,8 +5,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { NexusPayProvider } from '../NexusPayProvider';
 import { PaymentElement } from '../PaymentElement';
 
-// Mock @nexuspay/js
-vi.mock('@nexuspay/js', () => {
+// Mock @nexus-pay/js
+vi.mock('@nexus-pay/js', () => {
   const mockSession = {
     id: 'ps_test_123',
     status: 'open',
