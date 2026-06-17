@@ -75,7 +75,12 @@ const payment = await client.createPayment(
     capture: true,
     metadata: { userId, packId: pack.id },
   },
-  { idempotencyKey: `checkout:${userId}:${pack.id}` },
+  // Use a FRESH key per checkout ATTEMPT (persist it with the attempt so a retry of THAT
+  // attempt reuses it). NEVER a key that's stable across distinct purchases of the same pack:
+  // the platform's Idempotency-Key cache (24h TTL, keyed on key + caller, NOT the request body)
+  // would serve the FIRST purchase's cached response and skip the charge + webhook — a silent
+  // "checkout succeeded but no credit" on every repeat buy of that pack. See the security note below.
+  { idempotencyKey: attemptId /* e.g. crypto.randomUUID() minted per attempt */ },
 );
 // return { paymentId: payment.id }   // see GAP-09 re: clientSecret
 ```
@@ -90,7 +95,14 @@ the raw body and keep dedupe on `event.id`:
 ```js
 import { constructEvent } from '@nexus-pay/node';
 
-const event = constructEvent(rawBody, req.headers, process.env.NEXUSPAY_WEBHOOK_SECRET);
+// Next.js App Router: `req.headers` is a WHATWG `Headers`. Convert it to a plain bag —
+// passing the `Headers` object directly reads as EMPTY on @nexus-pay/node ≤0.1.0 and rejects
+// every delivery as `missing_signature` (0.1.1+ also accepts a `Headers` instance directly).
+const event = constructEvent(
+  rawBody,
+  Object.fromEntries(req.headers),  // or: { 'x-nexuspay-signature': req.headers.get('x-nexuspay-signature') }
+  process.env.NEXUSPAY_WEBHOOK_SECRET,
+);
 // then read event.data.metadata.userId / event.data.metadata.packId  (see GAP-01)
 ```
 
@@ -99,21 +111,29 @@ const event = constructEvent(rawBody, req.headers, process.env.NEXUSPAY_WEBHOOK_
 ## Platform security posture (what Snap gets for free)
 
 NexusPay completed a security-hardening pass (SEC-1b…28, 2026-06-16) that strengthens this
-integration without any change on Snap's side:
+integration. These guarantees hold on the **authenticated request path** Snap uses (a one-shot
+`createPayment` on the request thread); two are request-scoped rather than universal invariants (noted),
+which matters only if Snap later adds server-initiated flows such as subscriptions.
 
-- **Tenant is server-authoritative.** Snap's tenant is derived from its `sk_test_` **API key**, never
-  from a client-supplied header — the platform now rejects/ignores any `X-Tenant-Id` header on every
-  endpoint (a repo-wide audit confirmed zero header-trust). Snap already sends only the API key, so
-  there is nothing to change; cross-tenant access is impossible by construction.
-- **Money mutations are idempotent.** `createPayment` (and capture/void/refund) dedupe on the
-  idempotency key, so a retried or double-fired checkout cannot double-charge or double-credit. Snap's
-  `idempotencyKey: checkout:${userId}:${pack.id}` is exactly the right shape — keep it stable per
-  (user, pack) attempt.
-- **Webhooks are signed, replay-safe, and rotatable.** Deliveries to Snap are HMAC-signed over the raw
-  body with at-least-once delivery, a stable `event.id` for dedupe, and secret rotation support (INT-4).
-  Verify the signature before parsing (Snap already does) and dedupe on `event.id` (GAP-07).
-- **Test mode never moves real money.** An `sk_test_` key routes to the in-process mock gateway (INT-3) —
-  no real PSP call — satisfying Snap's CHARTER.
+- **Tenant is server-authoritative.** Snap's tenant is derived from its API key, never from a
+  client-supplied header — every controller now ignores `X-Tenant-Id` (a repo-wide audit confirmed zero
+  header-trust). Snap sends only the API key, so cross-tenant access on its request path is closed.
+- **Money mutations are idempotent — with a per-ATTEMPT key.** `createPayment` (and capture/void/refund)
+  dedupe on the `Idempotency-Key`, so a retry of the SAME attempt won't double-charge. **Critical:** the
+  key must be unique per checkout *attempt* (e.g. `crypto.randomUUID()` persisted with the attempt), **not**
+  stable across distinct purchases of the same pack — a stable key makes the platform serve the first buy's
+  cached 2xx and skip the charge + webhook for 24h (silent "no credit"). *(An earlier draft of this guide
+  wrongly recommended a stable `checkout:${userId}:${pack.id}` key — corrected. Snap itself already uses a
+  per-attempt key.)*
+- **Webhooks are signed, replay-safe, and rotatable.** HMAC over the raw body, at-least-once delivery, a
+  stable `event.id` for dedupe, and secret rotation (INT-4). Verify the signature before parsing and dedupe
+  on `event.id` (GAP-07). For replay freshness use the SDK's **signed** `createdToleranceSeconds`, never the
+  unsigned `toleranceSeconds` (which the JSDoc itself flags as non-cryptographic).
+- **Test mode routes to the in-process mock — on the request path.** An `sk_test_` key on the authenticated
+  request thread routes to the mock gateway (INT-3); no real PSP. **Note (request-scoped):** a future
+  server-initiated / `@Scheduled` charge under a test key is not yet covered by this thread-local routing
+  heuristic (tracked as a platform hardening item). For defense-in-depth, assert `event.livemode === false`
+  (webhook) / the REST mode flag before granting credits — cheap and CHARTER-aligned.
 
 ---
 
