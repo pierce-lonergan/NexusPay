@@ -189,6 +189,7 @@ public class JpaBillingRepositoryAdapter implements SubscriptionRepository, Prod
         e.setTrialStart(s.getTrialStart()); e.setTrialEnd(s.getTrialEnd());
         e.setCanceledAt(s.getCanceledAt()); e.setCancelAtPeriodEnd(s.isCancelAtPeriodEnd());
         e.setPaymentMethodId(s.getPaymentMethodId()); e.setMetadata(toJson(s.getMetadata()));
+        e.setLive(s.isLive()); // DX-5a: persist the durable test/live mode (is_live)
         e.setCreatedAt(s.getCreatedAt()); e.setUpdatedAt(s.getUpdatedAt());
         return e;
     }
@@ -202,6 +203,7 @@ public class JpaBillingRepositoryAdapter implements SubscriptionRepository, Prod
         s.setTrialStart(e.getTrialStart()); s.setTrialEnd(e.getTrialEnd());
         s.setCanceledAt(e.getCanceledAt()); s.setCancelAtPeriodEnd(e.isCancelAtPeriodEnd());
         s.setPaymentMethodId(e.getPaymentMethodId()); s.setMetadata(fromJsonMap(e.getMetadata()));
+        s.setLive(e.isLive()); // DX-5a: hydrate the durable test/live mode (is_live; NOT NULL, defaults LIVE)
         s.setCreatedAt(e.getCreatedAt()); s.setUpdatedAt(e.getUpdatedAt());
         return s;
     }

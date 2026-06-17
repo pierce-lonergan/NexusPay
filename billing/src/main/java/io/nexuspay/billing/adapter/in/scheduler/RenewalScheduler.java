@@ -112,8 +112,10 @@ public class RenewalScheduler {
         // Generate invoice for next period
         Invoice invoice = invoiceService.generateInvoice(sub, price);
 
-        // Attempt payment
-        boolean paid = invoiceService.collectPayment(invoice, sub.getPaymentMethodId());
+        // Attempt payment. DX-5a (MONEY-SAFETY): this runs on the scheduler's SYSTEM thread (PaymentMode
+        // unset), so we thread the subscription's DURABLE test/live mode (is_live) down to the gateway
+        // CallContext — a TEST subscription's renewal routes to the mock, never the real PSP.
+        boolean paid = invoiceService.collectPayment(invoice, sub.getPaymentMethodId(), sub.isLive());
 
         if (paid) {
             sub.renew(price);

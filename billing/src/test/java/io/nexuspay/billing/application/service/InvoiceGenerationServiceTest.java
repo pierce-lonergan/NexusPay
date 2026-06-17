@@ -22,6 +22,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -142,11 +143,11 @@ class InvoiceGenerationServiceTest {
         Invoice draft = Invoice.createForSubscription("t1", "sub_1", "cust_1", "USD",
                 Instant.parse("2026-01-01T00:00:00Z"), Instant.parse("2026-02-01T00:00:00Z"));
 
-        boolean charged = service.collectPayment(draft, "pm_1");
+        boolean charged = service.collectPayment(draft, "pm_1", true);
 
         assertThat(charged).isFalse();
         verify(paymentPort, never()).collectPayment(anyString(), anyString(), anyString(),
-                anyLong(), anyString(), anyString(), anyString());
+                anyLong(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -154,11 +155,11 @@ class InvoiceGenerationServiceTest {
         Invoice paid = openInvoice(5000);
         paid.markPaid("pay_prev");
 
-        boolean charged = service.collectPayment(paid, "pm_1");
+        boolean charged = service.collectPayment(paid, "pm_1", true);
 
         assertThat(charged).isFalse();
         verify(paymentPort, never()).collectPayment(anyString(), anyString(), anyString(),
-                anyLong(), anyString(), anyString(), anyString());
+                anyLong(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -166,21 +167,21 @@ class InvoiceGenerationServiceTest {
         Invoice voided = openInvoice(5000);
         voided.voidInvoice();
 
-        boolean charged = service.collectPayment(voided, "pm_1");
+        boolean charged = service.collectPayment(voided, "pm_1", true);
 
         assertThat(charged).isFalse();
         verify(paymentPort, never()).collectPayment(anyString(), anyString(), anyString(),
-                anyLong(), anyString(), anyString(), anyString());
+                anyLong(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test
     void collectPaymentOnSuccessMarksPaidAndPublishes() {
         Invoice open = openInvoice(5000);
         when(paymentPort.collectPayment(eq("t1"), eq("cust_1"), eq("pm_1"), eq(5000L),
-                eq("USD"), anyString(), eq(open.getId())))
+                eq("USD"), anyString(), eq(open.getId()), anyBoolean()))
                 .thenReturn(PaymentPort.PaymentResult.success("pay_ok"));
 
-        boolean charged = service.collectPayment(open, "pm_1");
+        boolean charged = service.collectPayment(open, "pm_1", true);
 
         assertThat(charged).isTrue();
         assertThat(open.getStatus()).isEqualTo(InvoiceStatus.PAID);
@@ -194,24 +195,24 @@ class InvoiceGenerationServiceTest {
     void collectPaymentChargesAmountDueAndUsesInvoiceIdAsReference() {
         Invoice open = openInvoice(7777);
         when(paymentPort.collectPayment(anyString(), anyString(), anyString(), anyLong(),
-                anyString(), anyString(), anyString()))
+                anyString(), anyString(), anyString(), anyBoolean()))
                 .thenReturn(PaymentPort.PaymentResult.success("pay_ok"));
 
-        service.collectPayment(open, "pm_1");
+        service.collectPayment(open, "pm_1", true);
 
         // amount == amountDue (7777) and the idempotency reference == invoice id.
         verify(paymentPort).collectPayment(eq("t1"), eq("cust_1"), eq("pm_1"), eq(7777L),
-                eq("USD"), anyString(), eq(open.getId()));
+                eq("USD"), anyString(), eq(open.getId()), anyBoolean());
     }
 
     @Test
     void collectPaymentOnFailureReturnsFalseLeavesInvoiceOpenAndPublishesNothing() {
         Invoice open = openInvoice(5000);
         when(paymentPort.collectPayment(anyString(), anyString(), anyString(), anyLong(),
-                anyString(), anyString(), anyString()))
+                anyString(), anyString(), anyString(), anyBoolean()))
                 .thenReturn(PaymentPort.PaymentResult.failure("card_declined"));
 
-        boolean charged = service.collectPayment(open, "pm_1");
+        boolean charged = service.collectPayment(open, "pm_1", true);
 
         assertThat(charged).isFalse();
         assertThat(open.getStatus()).isEqualTo(InvoiceStatus.OPEN);

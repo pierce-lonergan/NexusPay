@@ -32,6 +32,21 @@ public class Subscription {
     private boolean cancelAtPeriodEnd;
     private String paymentMethodId;
     private Map<String, Object> metadata;
+    /**
+     * DX-5a (MONEY-SAFETY): the DURABLE test/live mode of this subscription, mapped to
+     * {@code subscriptions.is_live}. Stamped at creation from the creating caller's server-derived
+     * key mode (a test key ⇒ {@code false}, a live/console key ⇒ {@code true}); it is the same
+     * {@code is_live} that mints {@code sk_test_}/{@code sk_live_}. The renewal/dunning schedulers
+     * run on a SYSTEM thread where the request-scoped {@code PaymentMode} is gone, so they thread
+     * this durable flag into the gateway {@code CallContext} to route a TEST subscription's
+     * recurring charge to the mock — never the real PSP.
+     *
+     * <p>Defaults {@code true} (LIVE) so an entity hydrated from a pre-V4035 row — or constructed via
+     * the no-arg constructor + setters by the JPA mapper before {@code setLive} runs — is treated as
+     * LIVE (the safe-for-existing-prod default; a backfilled/unknown row must not silently become
+     * test and stop collecting real money).</p>
+     */
+    private boolean live = true;
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -40,10 +55,15 @@ public class Subscription {
 
     /**
      * Creates a new subscription. If the price has trial days, starts in TRIALING state.
+     *
+     * @param isLive DX-5a: the DURABLE test/live mode, server-derived from the creating caller's key
+     *               mode (a test key ⇒ {@code false}, a live/console key ⇒ {@code true}). Persisted to
+     *               {@code is_live} so the renewal/dunning schedulers route a TEST subscription's
+     *               recurring charge to the mock — never the real PSP.
      */
     public static Subscription create(String tenantId, String customerId, Price price,
                                        int quantity, String paymentMethodId,
-                                       Map<String, Object> metadata) {
+                                       Map<String, Object> metadata, boolean isLive) {
         Subscription s = new Subscription();
         s.id = PrefixedId.subscription();
         s.tenantId = tenantId;
@@ -52,6 +72,7 @@ public class Subscription {
         s.quantity = quantity;
         s.paymentMethodId = paymentMethodId;
         s.metadata = metadata;
+        s.live = isLive;
         s.createdAt = Instant.now();
         s.updatedAt = s.createdAt;
 
@@ -223,6 +244,9 @@ public class Subscription {
     public void setCancelAtPeriodEnd(boolean cancelAtPeriodEnd) { this.cancelAtPeriodEnd = cancelAtPeriodEnd; }
     public String getPaymentMethodId() { return paymentMethodId; }
     public void setPaymentMethodId(String id) { this.paymentMethodId = id; }
+    /** DX-5a: durable test/live mode (true=live, false=test); see {@link #create}. */
+    public boolean isLive() { return live; }
+    public void setLive(boolean live) { this.live = live; }
     public Map<String, Object> getMetadata() { return metadata; }
     public void setMetadata(Map<String, Object> metadata) { this.metadata = metadata; }
     public Instant getCreatedAt() { return createdAt; }

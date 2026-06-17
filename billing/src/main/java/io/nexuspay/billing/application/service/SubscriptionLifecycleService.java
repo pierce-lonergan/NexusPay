@@ -5,6 +5,7 @@ import io.nexuspay.billing.application.port.out.ProductRepository;
 import io.nexuspay.billing.application.port.out.SubscriptionRepository;
 import io.nexuspay.billing.domain.*;
 import io.nexuspay.common.exception.ResourceNotFoundException;
+import io.nexuspay.common.mode.PaymentMode;
 import io.nexuspay.common.tenant.TenantOwnership;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,8 +59,16 @@ public class SubscriptionLifecycleService {
         Price price = productRepository.findPriceByIdAndTenantId(priceId, tenantId)
                 .orElseThrow(() -> ResourceNotFoundException.of("Price", priceId));
 
+        // DX-5a (MONEY-SAFETY): stamp the DURABLE test/live mode from the creating caller's
+        // server-derived key mode — the SAME is_live that mints sk_test_/sk_live_, never client input.
+        // A test key (PaymentMode.isLiveExplicit()==false) marks the subscription is_live=false so its
+        // future SYSTEM-thread renewal/dunning charges route to the mock, never the real PSP. An
+        // indeterminate mode (unset) also resolves to is_live=false here — fail-safe: an unresolved
+        // create must NEVER mark a subscription LIVE and let its recurring charges hit the real PSP.
+        boolean isLive = PaymentMode.isLiveExplicit();
+
         Subscription sub = Subscription.create(tenantId, customerId, price, quantity,
-                paymentMethodId, metadata);
+                paymentMethodId, metadata, isLive);
 
         sub = subscriptionRepository.save(sub);
 

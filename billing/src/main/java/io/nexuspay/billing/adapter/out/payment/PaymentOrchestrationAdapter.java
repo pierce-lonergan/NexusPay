@@ -40,9 +40,10 @@ public class PaymentOrchestrationAdapter implements PaymentPort {
     public PaymentResult collectPayment(String tenantId, String customerId,
                                          String paymentMethodId, long amount,
                                          String currency, String description,
-                                         String invoiceId) {
-        log.info("Collecting payment via HyperSwitch: tenant={}, customer={}, amount={} {}, invoice={}",
-                tenantId, customerId, amount, currency, invoiceId);
+                                         String invoiceId, boolean live) {
+        log.info("Collecting payment via {}: tenant={}, customer={}, amount={} {}, invoice={}, live={}",
+                live ? "HyperSwitch (LIVE)" : "mock (TEST)", tenantId, customerId, amount, currency,
+                invoiceId, live);
 
         try {
             // Deterministic per (invoice, logical attempt). The description
@@ -56,6 +57,10 @@ public class PaymentOrchestrationAdapter implements PaymentPort {
             // CallContext from server-side args, NOT via client-shaped metadata. We keep invoice_id
             // for downstream linkage; tenant_id/source are dropped (the gate would strip them anyway
             // and they no longer carry authority).
+            // DX-5a: this is a SYSTEM-thread charge (renewal/dunning scheduler) with PaymentMode unset,
+            // so we DECLARE the subscription's durable test/live mode in the CallContext. The gateway
+            // consults ctx.live() before the system-thread heuristic, so a TEST subscription (live=false)
+            // routes to the mock instead of the real PSP. This is the money-safety fix (DX-5a).
             PaymentRequest request = new PaymentRequest(
                     amount,
                     currency,
@@ -70,7 +75,7 @@ public class PaymentOrchestrationAdapter implements PaymentPort {
             );
 
             PaymentResponse response = paymentGatewayPort.createPayment(
-                    request, CallContext.serverRecurring(tenantId));
+                    request, CallContext.serverRecurring(tenantId, live));
 
             if (response.isSuccessful()) {
                 log.info("Payment collected successfully: paymentId={}, invoice={}",

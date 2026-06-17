@@ -108,6 +108,32 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
         return isRequestThread();
     }
 
+    /**
+     * DX-5a (MONEY-SAFETY): mock-vs-real routing that consults the CallContext's DURABLE mode FIRST,
+     * before the request/system-thread {@code PaymentMode} heuristic. This closes the hole on a
+     * server-initiated charge whose execution thread carries no request-scoped {@code PaymentMode}:
+     * the {@code @Scheduled @SystemTransactional} renewal/dunning jobs run on a SYSTEM thread, where
+     * {@link #routeToMock()} alone resolves LIVE (system threads are real) — so a recurring charge
+     * for a TEST subscription would have hit the REAL PSP. Billing now threads the subscription's
+     * durable {@code is_live} into {@code ctx.live()}.
+     *
+     * <ul>
+     *   <li>{@code ctxLive == Boolean.TRUE} → real PSP (a LIVE subscription always reaches HyperSwitch);</li>
+     *   <li>{@code ctxLive == Boolean.FALSE} → mock (a TEST subscription NEVER reaches the real PSP —
+     *       the CHARTER guarantee — even on a system thread with {@code PaymentMode} unset);</li>
+     *   <li>{@code ctxLive == null} → INDETERMINATE: defer to the existing {@link #routeToMock()}
+     *       heuristic, byte-for-byte unchanged. The UNSET-system-thread invariant (no declared mode ⇒
+     *       real) is preserved; the fix is that billing now DECLARES the mode rather than leaving it
+     *       null.</li>
+     * </ul>
+     */
+    private boolean routeToMock(Boolean ctxLive) {
+        if (ctxLive != null) {
+            return !ctxLive; // TRUE -> real (false), FALSE -> mock (true)
+        }
+        return routeToMock();
+    }
+
     /** True when a servlet request is bound to the current thread (vs. a Kafka/scheduler/system thread). */
     private static boolean isRequestThread() {
         return RequestContextHolder.getRequestAttributes() != null;
@@ -168,16 +194,20 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
         // while the authority markers (source/workflow/tenant_id) are dropped by sanitize() on persist.
         Map<String, Object> merchantMeta = request.metadata();
         PaymentRequest scrubbed = scrubAuthorityMarkers(request);
-        return doCreate(scrubbed, c.tenantId(), c.mode(), merchantMeta);
+        return doCreate(scrubbed, c.tenantId(), c.mode(), c.live(), merchantMeta);
     }
 
     private PaymentResponse doCreate(PaymentRequest request, String tenantId, ScreeningMode mode,
-                                     Map<String, Object> merchantMeta) {
+                                     Boolean ctxLive, Map<String, Object> merchantMeta) {
         // INT-3: a TEST key routes the actual create to the deterministic mock — NEVER HyperSwitch, in
         // EVERY profile. We still record the screening ORIGIN (trusted tenant+mode) and the INT-1 V4030
         // metadata so a test webhook round-trips the real tenant + userId/packId — but we SKIP the
         // fraud/sanctions GATE (it is a money-out control; the mock moves no real money, hits no PSP).
-        if (routeToMock()) {
+        // DX-5a: createPayment has no payment id yet (no isTestModeId fail-safe is possible at create),
+        // so routing MUST consult the durable ctx.live() first — a TEST subscription's renewal/dunning
+        // charge runs on a SYSTEM thread with PaymentMode unset, where routeToMock() alone resolves
+        // LIVE. ctx.live()==FALSE forces the mock; ==null preserves the pre-DX-5a heuristic.
+        if (routeToMock(ctxLive)) {
             PaymentResponse response = mockDelegate.createPayment(request);
             if (response != null && response.gatewayPaymentId() != null) {
                 screeningOrigins.record(response.gatewayPaymentId(), new CallContext(tenantId, mode));

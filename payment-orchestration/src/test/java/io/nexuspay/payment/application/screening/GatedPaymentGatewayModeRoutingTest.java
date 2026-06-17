@@ -198,6 +198,73 @@ class GatedPaymentGatewayModeRoutingTest {
         verifyNoInteractions(hyperSwitch);
     }
 
+    // ---- DX-5a (MONEY-SAFETY): the DURABLE CallContext.live() routes a SYSTEM-thread charge ----
+    //
+    // The @Scheduled @SystemTransactional renewal/dunning jobs charge on a SYSTEM thread (no servlet
+    // request, PaymentMode UNSET). Pre-DX-5a, routeToMock() resolved such a thread to LIVE, so a TEST
+    // subscription's recurring charge hit the REAL PSP — a CHARTER violation (a test charge must NEVER
+    // reach HyperSwitch). createPayment has no payment id yet, so the isTestModeId fail-safe cannot
+    // help. Billing now threads the subscription's durable is_live into ctx.live(); the gateway
+    // consults it FIRST. These tests FAIL on the pre-DX-5a code (ctx.live() was ignored at create).
+
+    @Test
+    void systemThread_ctxLiveFalse_createRoutesToMock_neverHyperSwitch() {
+        PaymentMode.clear();                          // no request-scoped mode (system thread)
+        RequestContextHolder.resetRequestAttributes(); // no servlet request bound -> system thread
+        stubMockHappyPath();
+
+        // A TEST subscription's renewal/dunning charge: durable mode = test (live=false).
+        gateway.createPayment(createReq(), CallContext.serverRecurring("t1", false));
+
+        // The CHARTER guarantee on the system thread: a declared-TEST charge routes to the mock.
+        verify(mockDelegate).createPayment(any());
+        verifyNoInteractions(hyperSwitch);
+    }
+
+    @Test
+    void systemThread_ctxLiveTrue_createRoutesToHyperSwitch_neverMock() {
+        PaymentMode.clear();
+        RequestContextHolder.resetRequestAttributes(); // system thread
+        stubLiveHappyPath();
+
+        // A LIVE subscription's renewal/dunning charge: durable mode = live (live=true).
+        gateway.createPayment(createReq(), CallContext.serverRecurring("t1", true));
+
+        verify(hyperSwitch).createPayment(any());
+        verifyNoInteractions(mockDelegate);
+    }
+
+    @Test
+    void systemThread_ctxLiveNull_preservesInvariant_resolvesToHyperSwitch() {
+        // Invariant preserved: an INDETERMINATE durable mode (live=null) on a system thread still
+        // resolves to the real PSP via the unchanged heuristic — a system thread with no DECLARED mode
+        // is real. (serverRecurring without the live overload defaults live=null.)
+        PaymentMode.clear();
+        RequestContextHolder.resetRequestAttributes(); // system thread
+        stubLiveHappyPath();
+
+        gateway.createPayment(createReq(), CallContext.serverRecurring("t1"));
+
+        verify(hyperSwitch).createPayment(any());
+        verifyNoInteractions(mockDelegate);
+    }
+
+    @Test
+    void requestThread_liveKey_ctxLiveFalse_stillRoutesTestToMock() {
+        // Defense-in-depth: even if the executing request thread is explicitly LIVE, a charge that
+        // DECLARES a TEST durable mode (e.g. a LIVE-key operator manually paying a TEST subscription's
+        // invoice) routes to the mock — ctx.live()==FALSE wins over the request mode.
+        PaymentMode.set(true); // request thread, live key
+        RequestContextHolder.setRequestAttributes(
+                new ServletRequestAttributes(new MockHttpServletRequest()));
+        stubMockHappyPath();
+
+        gateway.createPayment(createReq(), CallContext.serverRecurring("t1", false));
+
+        verify(mockDelegate).createPayment(any());
+        verifyNoInteractions(hyperSwitch);
+    }
+
     // ---- T9: no SEC regression — test create skips the gate; live create still screens ----
 
     @Test

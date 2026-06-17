@@ -84,9 +84,14 @@ public class InvoiceGenerationService {
 
     /**
      * Attempts to collect payment on an open invoice.
+     *
+     * @param live DX-5a (MONEY-SAFETY): the owning subscription's durable test/live mode
+     *             ({@code subscriptions.is_live}), threaded into the gateway CallContext so a TEST
+     *             subscription's renewal charge routes to the mock — never the real PSP — even though
+     *             the renewal runs on a SYSTEM thread with the request-scoped {@code PaymentMode} unset.
      */
     @Transactional
-    public boolean collectPayment(Invoice invoice, String paymentMethodId) {
+    public boolean collectPayment(Invoice invoice, String paymentMethodId, boolean live) {
         if (invoice.getStatus() != InvoiceStatus.OPEN) {
             log.warn("Cannot collect on invoice {} with status {}", invoice.getId(), invoice.getStatus());
             return false;
@@ -97,7 +102,7 @@ public class InvoiceGenerationService {
                 paymentMethodId, invoice.getAmountDue(),
                 invoice.getCurrency(),
                 "Invoice " + invoice.getId(),
-                invoice.getId()
+                invoice.getId(), live
         );
 
         if (result.success()) {

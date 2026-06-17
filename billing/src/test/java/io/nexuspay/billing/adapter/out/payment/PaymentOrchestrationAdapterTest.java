@@ -43,7 +43,7 @@ class PaymentOrchestrationAdapterTest {
     void collectPayment_passesServerRecurringCallContext_withServerArgTenant() {
         when(port.createPayment(any(), any())).thenReturn(ok());
 
-        adapter.collectPayment("tenant-T", "cust_1", "pm_1", 5000, "USD", "Invoice #9", "inv_9");
+        adapter.collectPayment("tenant-T", "cust_1", "pm_1", 5000, "USD", "Invoice #9", "inv_9", true);
 
         ArgumentCaptor<CallContext> ctx = ArgumentCaptor.forClass(CallContext.class);
         ArgumentCaptor<PaymentRequest> req = ArgumentCaptor.forClass(PaymentRequest.class);
@@ -56,5 +56,29 @@ class PaymentOrchestrationAdapterTest {
         Map<String, Object> metadata = req.getValue().metadata();
         assertThat(metadata).doesNotContainKeys("tenant_id", "source");
         assertThat(metadata).containsEntry("invoice_id", "inv_9");
+    }
+
+    @Test
+    void collectPayment_threadsDurableTestLiveModeIntoCallContext() {
+        // DX-5a (MONEY-SAFETY): the subscription's durable is_live is carried into ctx.live() so the
+        // gateway can route a TEST recurring charge to the mock on a SYSTEM thread (PaymentMode unset).
+        when(port.createPayment(any(), any())).thenReturn(ok());
+
+        // TEST subscription -> ctx.live()==FALSE
+        adapter.collectPayment("tenant-T", "cust_1", "pm_1", 5000, "USD", "Invoice #9", "inv_9", false);
+        ArgumentCaptor<CallContext> testCtx = ArgumentCaptor.forClass(CallContext.class);
+        org.mockito.Mockito.verify(port).createPayment(any(), testCtx.capture());
+        assertThat(testCtx.getValue().live()).isFalse();
+        assertThat(testCtx.getValue().mode()).isEqualTo(ScreeningMode.SERVER_RECURRING);
+    }
+
+    @Test
+    void collectPayment_liveSubscription_threadsLiveTrue() {
+        when(port.createPayment(any(), any())).thenReturn(ok());
+
+        adapter.collectPayment("tenant-T", "cust_1", "pm_1", 5000, "USD", "Invoice #9", "inv_9", true);
+        ArgumentCaptor<CallContext> ctx = ArgumentCaptor.forClass(CallContext.class);
+        org.mockito.Mockito.verify(port).createPayment(any(), ctx.capture());
+        assertThat(ctx.getValue().live()).isTrue();
     }
 }
