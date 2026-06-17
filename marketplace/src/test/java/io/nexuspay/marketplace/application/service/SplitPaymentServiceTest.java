@@ -98,6 +98,25 @@ class SplitPaymentServiceTest {
     }
 
     @Test
+    void createSplitPayment_platformFeeExceedsTotal_isRejected_noNegativeLegPersisted() {
+        // SEC-28: a platform fee that meets/exceeds the payment total would drive the distributable amount
+        // (and every per-account payout leg) NEGATIVE. The writer must reject before persisting any rule or
+        // fee. 150% of 10000 = 15000 > 10000. On the pre-SEC-28 code this produced a negative remainder leg.
+        ConnectedAccount merchant = createAccount("merchant-1", new BigDecimal("150"), 0);
+        when(repository.findAccountById("merchant-1", TENANT)).thenReturn(Optional.of(merchant));
+        when(repository.saveAndFlushSplitPayment(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        assertThrows(IllegalArgumentException.class, () ->
+                service.createSplitPayment(new CreateSplitPaymentUseCase.CreateSplitCommand(
+                        TENANT, "pi_feebomb", 10000, "USD",
+                        List.of(new CreateSplitPaymentUseCase.SplitRuleCommand(
+                                "merchant-1", SplitType.REMAINDER, 0, null)))));
+
+        verify(repository, never()).saveSplitRule(any());
+        verify(repository, never()).savePlatformFee(any());
+    }
+
+    @Test
     void createSplitPayment_foreignReferencedAccount_throwsNotFound() {
         // SEC-BATCH-1: a split rule referencing an account owned by tenant-2. The tenant-scoped finder
         // returns empty for the tenant-1 caller → 404 → no split crediting a foreign account is created.

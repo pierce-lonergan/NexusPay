@@ -22,11 +22,17 @@ import java.util.function.Function;
  * a public, source-controlled signing/encryption key in prod would let anyone
  * forge session tokens or read vaulted card data.
  *
+ * <p>SEC-28: the guard also fails boot when a guarded secret resolves to
+ * {@code null} or blank under a prod-like profile — an empty HMAC/JWT/vault key
+ * is as dangerous as the source-controlled default (it fails open / is trivially
+ * forgeable), so an env var set empty in prod must NOT be allowed to boot.</p>
+ *
  * <p>Dev ergonomics are preserved: with no profile (the documented local run) or
- * a {@code local}/{@code test}/{@code dev} profile, a default only logs a WARN.
- * The hard failure triggers when a {@code prod}-like profile is active or
- * {@code NEXUSPAY_REQUIRE_MANAGED_SECRETS=true} is set (belt-and-suspenders for
- * deployments that don't use a conventional profile name).</p>
+ * a {@code local}/{@code test}/{@code dev} profile, a default OR a null/blank
+ * value only logs a WARN. The hard failure triggers when a {@code prod}-like
+ * profile is active or {@code NEXUSPAY_REQUIRE_MANAGED_SECRETS=true} is set
+ * (belt-and-suspenders for deployments that don't use a conventional profile
+ * name).</p>
  */
 @Component
 public class StartupSecretsValidator {
@@ -59,31 +65,61 @@ public class StartupSecretsValidator {
     /**
      * Pure validation (unit-testable without a Spring context).
      *
+     * <p>SEC-28: under a production-like profile (or {@code forceManaged}), a guarded secret is an
+     * offender when it is EITHER still the in-source DEV default OR resolves to {@code null}/blank — an
+     * empty HMAC/JWT/vault key is as dangerous as the public default (it fails open / is trivially
+     * forgeable). Under no profile or a {@code local}/{@code test}/{@code dev} profile, the same
+     * conditions only WARN, preserving dev ergonomics.</p>
+     *
      * @param activeProfiles Spring's active profiles
      * @param resolver       resolves a property key to its effective value
      * @param forceManaged   explicit prod signal (env/property override)
-     * @throws IllegalStateException if a DEV default is in use under prod
+     * @throws IllegalStateException if a guarded secret is the DEV default OR null/blank under prod
      */
     static void validate(String[] activeProfiles, Function<String, String> resolver, boolean forceManaged) {
-        Set<String> offenders = new TreeSet<>();
+        boolean prodLike = forceManaged || isProductionProfile(activeProfiles);
+
+        // DEV defaults still in effect (any profile). These warn in dev and fail boot in prod.
+        Set<String> defaulted = new TreeSet<>();
+        // Guarded secrets that are null/blank. Acceptable (warn) in dev, but FATAL in prod (SEC-28):
+        // an empty signing/encryption key is as exploitable as the public default.
+        Set<String> blank = new TreeSet<>();
         for (Map.Entry<String, String> e : KNOWN_DEFAULTS.entrySet()) {
-            if (Objects.equals(e.getValue(), resolver.apply(e.getKey()))) {
-                offenders.add(e.getKey());
+            String value = resolver.apply(e.getKey());
+            if (Objects.equals(e.getValue(), value)) {
+                defaulted.add(e.getKey());
+            } else if (value == null || value.isBlank()) {
+                blank.add(e.getKey());
             }
         }
-        if (offenders.isEmpty()) {
+
+        if (defaulted.isEmpty() && blank.isEmpty()) {
             return;
         }
-        if (forceManaged || isProductionProfile(activeProfiles)) {
+
+        if (prodLike) {
+            // Combined offender set for the boot-refusal message (defaults + null/blank).
+            Set<String> offenders = new TreeSet<>(defaulted);
+            offenders.addAll(blank);
             throw new IllegalStateException(
-                    "Refusing to start: built-in DEV default secret(s) are in effect under a production "
-                    + "profile: " + offenders + ". Provide managed secrets via the matching env vars "
+                    "Refusing to start: guarded secret(s) are unsafe under a production profile: "
+                    + offenders + " (a built-in DEV default, or a null/blank value — both fail open). "
+                    + "Provide managed secrets via the matching env vars "
                     + "(NEXUSPAY_SESSION_JWT_SECRET, HYPERSWITCH_WEBHOOK_SECRET, NEXUSPAY_VAULT_MASTER_KEY, "
                     + "DISPUTE_WEBHOOK_SECRET) before deploying.");
         }
-        LOG.warn("Using built-in DEV default secret(s): {} — acceptable for local/test only, NEVER production. "
-                + "Set the matching env vars (and a prod profile, or NEXUSPAY_REQUIRE_MANAGED_SECRETS=true) "
-                + "to enforce this in deployed environments.", offenders);
+
+        if (!defaulted.isEmpty()) {
+            LOG.warn("Using built-in DEV default secret(s): {} — acceptable for local/test only, NEVER "
+                    + "production. Set the matching env vars (and a prod profile, or "
+                    + "NEXUSPAY_REQUIRE_MANAGED_SECRETS=true) to enforce this in deployed environments.",
+                    defaulted);
+        }
+        if (!blank.isEmpty()) {
+            LOG.warn("Guarded secret(s) resolve to null/blank: {} — acceptable for local/test only, "
+                    + "NEVER production (an empty signing/encryption key fails open). Set the matching "
+                    + "env vars before deploying.", blank);
+        }
     }
 
     private static boolean isProductionProfile(String[] activeProfiles) {

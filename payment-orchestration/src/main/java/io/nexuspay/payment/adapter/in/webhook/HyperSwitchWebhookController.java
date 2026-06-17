@@ -35,7 +35,8 @@ import java.util.Map;
  * Receives webhooks from HyperSwitch and processes them through the outbox pattern.
  *
  * Flow:
- *   1. Verify HMAC-SHA512 signature
+ *   1. Verify HMAC-SHA512 signature — UNCONDITIONALLY FAIL-CLOSED (SEC-28): a missing/blank secret,
+ *      a missing signature, or an invalid signature ALL return 401 before any parse/state touch.
  *   2. Persist raw JSON payload to inbound_webhooks (debugging/replay)
  *   3. Dedup by event_id in Valkey (SET NX with 24h TTL)
  *   4. Write to event_outbox in same DB transaction
@@ -95,12 +96,20 @@ public class HyperSwitchWebhookController {
             @RequestBody String rawPayload,
             @RequestHeader(value = "x-webhook-signature", required = false) String signature) {
 
-        // Step 1: Verify HMAC signature (skip in dev if no secret configured)
-        if (webhookSecret != null && !webhookSecret.isBlank()) {
-            if (!verifySignature(rawPayload, signature)) {
-                log.warn("Webhook signature verification failed");
-                return ResponseEntity.status(401).build();
-            }
+        // Step 1: Verify HMAC signature — UNCONDITIONALLY FAIL-CLOSED (SEC-28).
+        // Mirrors DisputeWebhookHandler: a missing/blank secret, a missing signature, or an invalid
+        // signature ALL return 401 BEFORE any parse / state touch. The previous "skip verification when
+        // no secret configured" dev branch FAILED OPEN — an unsigned webhook was accepted and written to
+        // the outbox. Dev still works because the resolved dev secret is the non-blank
+        // "webhook_secret_for_local" (prod-boot-guarded by StartupSecretsValidator.KNOWN_DEFAULTS), so
+        // verification runs against it rather than being skipped.
+        if (webhookSecret == null || webhookSecret.isBlank()) {
+            log.error("hyperswitch webhook secret not configured — rejecting (fail-closed)");
+            return ResponseEntity.status(401).build();
+        }
+        if (!verifySignature(rawPayload, signature)) {
+            log.warn("Webhook signature verification failed");
+            return ResponseEntity.status(401).build();
         }
 
         // Parse the payload to extract event metadata

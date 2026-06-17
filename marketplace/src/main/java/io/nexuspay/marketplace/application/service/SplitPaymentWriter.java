@@ -90,6 +90,15 @@ class SplitPaymentWriter {
             splitPayment.addRule(rule);
         }
 
+        // SEC-28 (money guard): the platform fee must not meet or exceed the payment total, or the
+        // distributable amount (and every per-account leg) would go NEGATIVE — a non-sensical split that
+        // would attempt to pay out more than was collected. Reject before allocating any leg.
+        if (platformFeeAmount >= command.totalAmount()) {
+            throw new IllegalArgumentException(
+                    "Platform fee (" + platformFeeAmount + ") must be less than the payment total ("
+                            + command.totalAmount() + ")");
+        }
+
         // Resolve calculated amounts based on total (minus platform fee)
         long distributableAmount = command.totalAmount() - platformFeeAmount;
         splitPayment.setTotalAmount(distributableAmount);

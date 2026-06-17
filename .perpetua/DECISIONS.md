@@ -899,3 +899,26 @@ state change) by guessing the offer UUID. Fixed: tenant-scoped service overloads
 TenantOwnership.assertOwned the loaded offer before mutating + CallerTenant.require() in the controller. This
 is the SAME class as SEC-26's price-by-id residual — the implement pass scopes the obvious GET and the
 sibling state-changing op is the easy miss. L-060. ADR-042. CI is the oracle (no local Gradle).
+
+## ADR-043 | 2026-06-16 | SEC-28: webhook fail-closed + B-004 blank-secret guard + batch DoS cap + split negative-fee guard (T3)
+Final batch from the capstone audit's MEDIUM/LOW residue. (1) HyperSwitchWebhookController FAIL-OPENED on a
+null/blank secret (skipped HMAC verification → accepted unsigned webhooks); now UNCONDITIONALLY fail-closed
+(blank → 401 before parse/verify) mirroring the SEC-2 DisputeWebhookHandler. Dev still verifies (the resolved
+dev default webhook_secret_for_local is non-blank + prod-boot-guarded). (2) StartupSecretsValidator (B-004)
+only failed prod boot when a KNOWN_DEFAULTS secret EQUALLED the in-source dev default; a null/BLANK secret in
+prod slipped through (an empty HMAC/JWT/vault key is as dangerous). Extended to also FAIL boot under a prod
+profile when any guarded secret resolves null/blank (dev/local/test still WARN) — closes the gap behind L-051.
+(3) VendorPaymentController /batch accepted an unbounded list (one DB write/element in one tx → DoS); capped
+via the configurable B2bProperties.batchMaxSize (default 100, env NEXUSPAY_B2B_BATCH_MAX_SIZE) — rejected
+before any write. (4) SplitPaymentWriter could compute a NEGATIVE distributable (and negative payout legs)
+when platformFee >= total; now rejected with IllegalArgumentException before allocating.
+REVIEW (2 lenses) caught a BLOCKER: the fail-closed change broke the existing SEC-15 WebhookDedupRollbackRelease
+test suite (4 tests posted UNSIGNED webhooks with a blank secret → now 401 before reaching the dedup logic) —
+fix updated those tests to a non-blank secret + signed payloads (the SEC-15 control assertions retained). Also
+SHOULD_FIX: the @Size method-param violation surfaced as HTTP 500 (HandlerMethodValidationException unhandled
+by the gateway GlobalExceptionHandler) not the promised 400 → added an @ExceptionHandler(ResponseStatusException)
+mapping to the TYPE_VALIDATION 400 envelope + tests; and made the cap read the configurable property rather
+than a literal. WORKFLOW NOTE: the implement agent's final structured summary was blocked by a content filter
+(false positive — it discussed webhook-secret handling), which truncated it BEFORE fix (4) (the split guard),
+so the working tree had only 3 of 4 fixes; I detected the gap by diffing the tree against the spec and
+completed the split guard + its regression test by hand. L-061. ADR-043. CI is the oracle.

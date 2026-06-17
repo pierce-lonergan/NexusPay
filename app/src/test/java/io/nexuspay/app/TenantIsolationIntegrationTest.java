@@ -453,4 +453,61 @@ class TenantIsolationIntegrationTest extends IntegrationTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(org.hamcrest.Matchers.not("APPROVED")));
     }
+
+    // --- SEC-28 vendor-payment batch DoS cap (app-level, through the REAL gateway-api advice chain) ---
+    //
+    // The cap is a method-parameter @Size/@NotEmpty under @Validated, which Spring 6.1 enforces via
+    // HandlerMethodValidationException (a ResponseStatusException). A @WebMvcTest slice would map that to
+    // Spring's DEFAULT 400 and MASK the production behavior; only the assembled context exercises
+    // GlobalExceptionHandler. Before the SEC-28 GlobalExceptionHandler fix, an oversized/empty batch was
+    // swallowed by the Exception catch-all -> HTTP 500. These assert the real 400 contract.
+
+    /** A valid vendor-payment batch element body (matches seedVendorPayment's single-create body). */
+    private static String vendorPaymentBatchElement() {
+        return "{\"vendorId\":\"vendor-A\",\"amount\":50000,\"currency\":\"USD\",\"method\":\"ACH\"}";
+    }
+
+    private static String vendorPaymentBatchJson(int count) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < count; i++) {
+            if (i > 0) sb.append(',');
+            sb.append(vendorPaymentBatchElement());
+        }
+        return sb.append(']').toString();
+    }
+
+    @Test
+    @DisplayName("Vendor payment batch: a 101-element batch is rejected 400 (not 500) via the real advice")
+    void vendorPaymentBatch_overCap_returns400() throws Exception {
+        // 101 > the 100 cap. The control rejects it BEFORE any DB write; the real advice maps the
+        // HandlerMethodValidationException to a 400 envelope (was a 500 before the SEC-28 fix).
+        mockMvc.perform(post("/v1/vendor-payments/batch")
+                        .with(authentication(TestSecurityConfig.authForRole("admin", "tenant-A")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(vendorPaymentBatchJson(101)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.type").value("validation_error"));
+    }
+
+    @Test
+    @DisplayName("Vendor payment batch: an empty batch is rejected 400 (@NotEmpty) via the real advice")
+    void vendorPaymentBatch_empty_returns400() throws Exception {
+        mockMvc.perform(post("/v1/vendor-payments/batch")
+                        .with(authentication(TestSecurityConfig.authForRole("admin", "tenant-A")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("[]"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.type").value("validation_error"));
+    }
+
+    @Test
+    @DisplayName("Vendor payment batch: a valid <=100 batch is accepted (201) — the cap only blocks excess")
+    void vendorPaymentBatch_atCap_returns201() throws Exception {
+        // A batch exactly AT the cap is legitimate and must succeed end-to-end (off-by-one guard).
+        mockMvc.perform(post("/v1/vendor-payments/batch")
+                        .with(authentication(TestSecurityConfig.authForRole("admin", "tenant-A")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(vendorPaymentBatchJson(100)))
+                .andExpect(status().isCreated());
+    }
 }
