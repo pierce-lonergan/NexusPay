@@ -850,3 +850,27 @@ FilterChainProxy runs at -100, earlier — but /internal is permitAll so this is
 app/.../SplitPaymentIdempotencyIT (real-Postgres: retried create returns same split + one row; distinct payments
 get distinct splits) for the NIT that the concurrent-race unit test was a no-op without a real tx manager.
 Migration V4034. ADR-040. CI is the oracle (no local Gradle).
+
+## ADR-041 | 2026-06-16 | SEC-26: analytics + billing tenant from principal, not X-Tenant-Id header (T3)
+Cross-tenant IDOR surfaced while writing the B-002 RLS cutover runbook: analytics/AnalyticsController (4
+endpoints, @RequestHeader X-Tenant-Id defaultValue="default") and billing/{Invoice,Product,Subscription}
+Controller derived the authorization tenant from the CLIENT header — an authenticated tenant-A caller
+could read/act on tenant-B by setting the header (the defaultValue="default" made it worse: no header →
+silently reads tenant "default"). SEC-1b/SEC-23 had closed payment/ledger/webhook/b2b/fraud but missed
+these two modules. Also a hard precondition for the RLS cutover: RLS isolates to whatever tenant the app
+BINDS, so a header-bound tenant defeats it entirely. Fixed by mirroring SEC-23: every endpoint now derives
+the tenant from CallerTenant.require() (server-authoritative principal, 403 if absent); billing by-id
+ops use tenant-scoped findByIdAndTenantId + TenantOwnership.require (404, no existence oracle). All targets
+were already authenticated (analytics @PreAuthorize, billing global authenticated()), so the swap can't
+403 a legitimate call. WebMvc-slice + service tests authenticate a principal and prove a supplied
+X-Tenant-Id is ignored + a foreign id 404s.
+REVIEW (3 adversarial lenses, 1 SHOULD_FIX + 1 NIT): the IDOR-completeness lens caught a SECONDARY
+cross-tenant input the headline fix missed — a client-supplied priceId/newPriceId flowing into the UNSCOPED
+productRepository.findPriceById(...) in createSubscription + changePlan. The subscription itself was
+correctly scoped, but a tenant-A caller could bind/repoint THEIR OWN sub onto a tenant-B Price, importing
+and disclosing another tenant's economic terms (unitAmount/currency/interval) via the resulting amounts.
+Fixed: added ProductRepository.findPriceByIdAndTenantId + routed all three client-input price lookups
+through it (404 on absent/foreign), + 3 tests. Correctly left RenewalScheduler/TrialManagementService
+unchanged (their priceId is the sub's own stored value reached via a server-side scan, not client input).
+L-059. The NIT (billing tests use an advice-backed real-404 assertion vs the assertThatThrownBy idiom
+elsewhere) was kept — the advice approach is the stronger assertion. ADR-041. CI is the oracle.

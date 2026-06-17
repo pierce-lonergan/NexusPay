@@ -8,6 +8,7 @@ import io.nexuspay.analytics.application.port.in.QueryPspHealthUseCase;
 import io.nexuspay.analytics.application.port.in.QueryRevenueUseCase;
 import io.nexuspay.analytics.domain.model.AnalyticsDimension;
 import io.nexuspay.analytics.domain.model.TimeGranularity;
+import io.nexuspay.common.tenant.CallerTenant;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -52,8 +53,11 @@ public class AnalyticsController {
             @RequestParam(required = false, defaultValue = "DAILY") TimeGranularity granularity,
             @RequestParam(required = false) String psp,
             @RequestParam(required = false) String cardBrand,
-            @RequestParam(required = false) String currency,
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId) {
+            @RequestParam(required = false) String currency) {
+
+        // SEC-26: tenant resolved from the authenticated principal, never from a client X-Tenant-Id
+        // header (the old defaultValue="default" silently collapsed an absent header to "default").
+        String tenantId = CallerTenant.require();
 
         String queryHash = ValkeyAnalyticsCache.hashQuery(
                 "auth-rates", from.toString(), to.toString(), groupBy,
@@ -73,8 +77,10 @@ public class AnalyticsController {
     @GetMapping("/psp-health")
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<PspHealthResponse> getPspHealth(
-            @RequestParam(required = false) String psp,
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId) {
+            @RequestParam(required = false) String psp) {
+
+        // SEC-26: tenant resolved from the authenticated principal, never from a client X-Tenant-Id header.
+        String tenantId = CallerTenant.require();
 
         String queryHash = ValkeyAnalyticsCache.hashQuery("psp-health", psp, tenantId);
 
@@ -96,8 +102,10 @@ public class AnalyticsController {
             @RequestParam Instant to,
             @RequestParam(required = false) String groupBy,
             @RequestParam(required = false, defaultValue = "DAILY") TimeGranularity granularity,
-            @RequestParam(required = false) String currency,
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId) {
+            @RequestParam(required = false) String currency) {
+
+        // SEC-26: tenant resolved from the authenticated principal, never from a client X-Tenant-Id header.
+        String tenantId = CallerTenant.require();
 
         String queryHash = ValkeyAnalyticsCache.hashQuery(
                 "revenue", from.toString(), to.toString(), groupBy,
@@ -121,8 +129,10 @@ public class AnalyticsController {
             @RequestParam Instant to,
             @RequestParam(required = false) String groupBy,
             @RequestParam(required = false) String psp,
-            @RequestParam(required = false) String declineCode,
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId) {
+            @RequestParam(required = false) String declineCode) {
+
+        // SEC-26: tenant resolved from the authenticated principal, never from a client X-Tenant-Id header.
+        String tenantId = CallerTenant.require();
 
         String queryHash = ValkeyAnalyticsCache.hashQuery(
                 "declines", from.toString(), to.toString(), groupBy, psp, declineCode, tenantId);

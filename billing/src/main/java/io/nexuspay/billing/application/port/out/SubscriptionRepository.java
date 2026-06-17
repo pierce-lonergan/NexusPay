@@ -18,6 +18,12 @@ public interface SubscriptionRepository {
 
     Optional<Subscription> findById(String id);
 
+    /**
+     * SEC-26: tenant-scoped by-id finder. Empty result means "absent OR not owned by this tenant",
+     * so callers can collapse both into a single not-found path (no cross-tenant existence oracle).
+     */
+    Optional<Subscription> findByIdAndTenantId(String id, String tenantId);
+
     List<Subscription> findByTenant(String tenantId, int limit, int offset);
 
     List<Subscription> findByCustomer(String tenantId, String customerId);

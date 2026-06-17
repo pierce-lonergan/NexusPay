@@ -2,6 +2,7 @@ package io.nexuspay.billing.adapter.in.rest;
 
 import io.nexuspay.billing.application.service.SubscriptionLifecycleService;
 import io.nexuspay.billing.domain.Subscription;
+import io.nexuspay.common.tenant.CallerTenant;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -26,9 +27,10 @@ public class SubscriptionController {
 
     @PostMapping
     public ResponseEntity<SubscriptionResponse> create(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @RequestBody CreateSubscriptionRequest request) {
 
+        // SEC-26: tenant resolved from the authenticated principal, never from a client X-Tenant-Id header.
+        String tenantId = CallerTenant.require();
         Subscription sub = lifecycleService.createSubscription(
                 tenantId, request.customerId(), request.priceId(),
                 request.quantity() != null ? request.quantity() : 1,
@@ -39,17 +41,19 @@ public class SubscriptionController {
 
     @GetMapping("/{id}")
     public ResponseEntity<SubscriptionResponse> get(@PathVariable String id) {
-        return lifecycleService.findById(id)
+        // SEC-26: by-id read scoped to the caller's tenant — a foreign-tenant id 404s (no oracle).
+        return lifecycleService.findById(id, CallerTenant.require())
                 .map(s -> ResponseEntity.ok(toResponse(s)))
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @GetMapping
     public ResponseEntity<List<SubscriptionResponse>> list(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @RequestParam(defaultValue = "20") int limit,
             @RequestParam(defaultValue = "0") int offset) {
 
+        // SEC-26: tenant resolved from the authenticated principal, never from a client X-Tenant-Id header.
+        String tenantId = CallerTenant.require();
         return ResponseEntity.ok(lifecycleService.listByTenant(tenantId, limit, offset)
                 .stream().map(this::toResponse).toList());
     }
@@ -60,18 +64,21 @@ public class SubscriptionController {
             @RequestBody(required = false) Map<String, Object> body) {
 
         boolean atPeriodEnd = body != null && Boolean.TRUE.equals(body.get("at_period_end"));
-        Subscription sub = lifecycleService.cancel(id, atPeriodEnd);
+        // SEC-26: mutation scoped to the caller's tenant — a tenant-A caller cannot cancel a tenant-B sub.
+        Subscription sub = lifecycleService.cancel(id, CallerTenant.require(), atPeriodEnd);
         return ResponseEntity.ok(toResponse(sub));
     }
 
     @PostMapping("/{id}/pause")
     public ResponseEntity<SubscriptionResponse> pause(@PathVariable String id) {
-        return ResponseEntity.ok(toResponse(lifecycleService.pause(id)));
+        // SEC-26: mutation scoped to the caller's tenant.
+        return ResponseEntity.ok(toResponse(lifecycleService.pause(id, CallerTenant.require())));
     }
 
     @PostMapping("/{id}/resume")
     public ResponseEntity<SubscriptionResponse> resume(@PathVariable String id) {
-        return ResponseEntity.ok(toResponse(lifecycleService.resume(id)));
+        // SEC-26: mutation scoped to the caller's tenant.
+        return ResponseEntity.ok(toResponse(lifecycleService.resume(id, CallerTenant.require())));
     }
 
     @PostMapping("/{id}/change")
@@ -81,7 +88,8 @@ public class SubscriptionController {
 
         String newPriceId = body.get("price_id");
         if (newPriceId == null) return ResponseEntity.badRequest().build();
-        return ResponseEntity.ok(toResponse(lifecycleService.changePlan(id, newPriceId)));
+        // SEC-26: mutation scoped to the caller's tenant.
+        return ResponseEntity.ok(toResponse(lifecycleService.changePlan(id, CallerTenant.require(), newPriceId)));
     }
 
     // ---- DTOs ----
