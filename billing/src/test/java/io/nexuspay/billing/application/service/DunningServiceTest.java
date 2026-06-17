@@ -14,6 +14,7 @@ import io.nexuspay.billing.domain.SubscriptionState;
 import io.nexuspay.common.rls.TenantWorkRunner;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.Instant;
 import java.util.List;
@@ -22,6 +23,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -145,7 +147,7 @@ class DunningServiceTest {
         // production charges with invoice.getId() (a generated prefixed id), NOT the attempt's
         // "inv_1" reference; match the real id so the stub returns success (else null -> NPE).
         when(paymentPort.collectPayment(eq("t1"), eq("cust_1"), eq("pm_1"), eq(5000L),
-                eq("USD"), anyString(), eq(inv.getId())))
+                eq("USD"), anyString(), eq(inv.getId()), anyBoolean()))
                 .thenReturn(PaymentPort.PaymentResult.success("pay_ok"));
         wirePending(attempt(1));
 
@@ -175,7 +177,7 @@ class DunningServiceTest {
         service.processPendingAttempts();
 
         verify(paymentPort, never()).collectPayment(anyString(), anyString(), anyString(),
-                anyLong(), anyString(), anyString(), anyString());
+                anyLong(), anyString(), anyString(), anyString(), anyBoolean());
         assertThat(a.getStatus()).isEqualTo(DunningAttempt.Status.FAILED);
         assertThat(a.getFailureReason()).startsWith("Obsolete");
         verify(invoiceRepository).saveDunningAttempt(a);
@@ -194,7 +196,7 @@ class DunningServiceTest {
         service.processPendingAttempts();
 
         verify(paymentPort, never()).collectPayment(anyString(), anyString(), anyString(),
-                anyLong(), anyString(), anyString(), anyString());
+                anyLong(), anyString(), anyString(), anyString(), anyBoolean());
         assertThat(a.getStatus()).isEqualTo(DunningAttempt.Status.FAILED);
     }
 
@@ -211,7 +213,7 @@ class DunningServiceTest {
 
         assertThat(a.getStatus()).isEqualTo(DunningAttempt.Status.FAILED);
         verify(paymentPort, never()).collectPayment(anyString(), anyString(), anyString(),
-                anyLong(), anyString(), anyString(), anyString());
+                anyLong(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -225,7 +227,7 @@ class DunningServiceTest {
 
         assertThat(a.getStatus()).isEqualTo(DunningAttempt.Status.FAILED);
         verify(paymentPort, never()).collectPayment(anyString(), anyString(), anyString(),
-                anyLong(), anyString(), anyString(), anyString());
+                anyLong(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -241,7 +243,7 @@ class DunningServiceTest {
 
         assertThat(a.getStatus()).isEqualTo(DunningAttempt.Status.FAILED);
         verify(paymentPort, never()).collectPayment(anyString(), anyString(), anyString(),
-                anyLong(), anyString(), anyString(), anyString());
+                anyLong(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     // ---- failure with retries left ----
@@ -253,7 +255,7 @@ class DunningServiceTest {
         when(subscriptionRepository.findById("sub_1")).thenReturn(Optional.of(sub));
         when(invoiceRepository.findById("inv_1")).thenReturn(Optional.of(inv));
         when(paymentPort.collectPayment(anyString(), anyString(), anyString(), anyLong(),
-                anyString(), anyString(), anyString()))
+                anyString(), anyString(), anyString(), anyBoolean()))
                 .thenReturn(PaymentPort.PaymentResult.failure("declined"));
         wirePending(attempt(1)); // 1 <= 4 -> retries remain
 
@@ -278,7 +280,7 @@ class DunningServiceTest {
         when(subscriptionRepository.findById("sub_1")).thenReturn(Optional.of(sub));
         when(invoiceRepository.findById("inv_1")).thenReturn(Optional.of(inv));
         when(paymentPort.collectPayment(anyString(), anyString(), anyString(), anyLong(),
-                anyString(), anyString(), anyString()))
+                anyString(), anyString(), anyString(), anyBoolean()))
                 .thenReturn(PaymentPort.PaymentResult.failure("declined"));
         wirePending(attempt(4));
 
@@ -301,7 +303,7 @@ class DunningServiceTest {
         when(subscriptionRepository.findById("sub_1")).thenReturn(Optional.of(sub));
         when(invoiceRepository.findById("inv_1")).thenReturn(Optional.of(inv));
         when(paymentPort.collectPayment(anyString(), anyString(), anyString(), anyLong(),
-                anyString(), anyString(), anyString()))
+                anyString(), anyString(), anyString(), anyBoolean()))
                 .thenReturn(PaymentPort.PaymentResult.failure("declined"));
         wirePending(attempt(5));
 
@@ -342,6 +344,53 @@ class DunningServiceTest {
         verify(tenantWork).runInTenant(eq("t-good"), any(Runnable.class));
     }
 
+    // ---- DX-5a (MONEY-SAFETY): the durable test/live mode is threaded into the charge ----
+
+    @Test
+    void dunningRetryForTestSubscription_passesLiveFalseToCollectPayment() {
+        // A TEST subscription (is_live=false). Dunning runs on the scheduler's SYSTEM thread where the
+        // request-scoped PaymentMode is unset; the durable is_live MUST be threaded into collectPayment
+        // so the gateway routes the retry to the mock, never the real PSP. Pre-DX-5a this charge would
+        // have hit HyperSwitch (system thread + unset mode -> real).
+        Subscription sub = pastDueSub();
+        sub.setLive(false); // test-mode subscription
+        Invoice inv = openInvoice();
+        when(subscriptionRepository.findById("sub_1")).thenReturn(Optional.of(sub));
+        when(invoiceRepository.findById("inv_1")).thenReturn(Optional.of(inv));
+        when(paymentPort.collectPayment(anyString(), anyString(), anyString(), anyLong(),
+                anyString(), anyString(), anyString(), anyBoolean()))
+                .thenReturn(PaymentPort.PaymentResult.failure("declined"));
+        wirePending(attempt(1));
+
+        service.processPendingAttempts();
+
+        ArgumentCaptor<Boolean> live = ArgumentCaptor.forClass(Boolean.class);
+        verify(paymentPort).collectPayment(eq("t1"), eq("cust_1"), eq("pm_1"), anyLong(),
+                eq("USD"), anyString(), anyString(), live.capture());
+        assertThat(live.getValue()).isFalse(); // routes to the mock, never the real PSP
+    }
+
+    @Test
+    void dunningRetryForLiveSubscription_passesLiveTrueToCollectPayment() {
+        // A LIVE subscription (is_live=true) keeps routing to the real PSP — the carve-out is intact.
+        Subscription sub = pastDueSub();
+        sub.setLive(true);
+        Invoice inv = openInvoice();
+        when(subscriptionRepository.findById("sub_1")).thenReturn(Optional.of(sub));
+        when(invoiceRepository.findById("inv_1")).thenReturn(Optional.of(inv));
+        when(paymentPort.collectPayment(anyString(), anyString(), anyString(), anyLong(),
+                anyString(), anyString(), anyString(), anyBoolean()))
+                .thenReturn(PaymentPort.PaymentResult.failure("declined"));
+        wirePending(attempt(1));
+
+        service.processPendingAttempts();
+
+        ArgumentCaptor<Boolean> live = ArgumentCaptor.forClass(Boolean.class);
+        verify(paymentPort).collectPayment(eq("t1"), eq("cust_1"), eq("pm_1"), anyLong(),
+                eq("USD"), anyString(), anyString(), live.capture());
+        assertThat(live.getValue()).isTrue();
+    }
+
     @Test
     void emptyPendingListProcessesNothing() {
         when(invoiceRepository.findPendingDunning(any(Instant.class), anyInt()))
@@ -351,6 +400,6 @@ class DunningServiceTest {
 
         assertThat(processed).isEqualTo(0);
         verify(paymentPort, never()).collectPayment(anyString(), anyString(), anyString(),
-                anyLong(), anyString(), anyString(), anyString());
+                anyLong(), anyString(), anyString(), anyString(), anyBoolean());
     }
 }

@@ -36,7 +36,7 @@ class SubscriptionTest {
 
     @Test
     void createWithTrialStartsTrialing() {
-        Subscription s = Subscription.create("t1", "cust1", price("MONTH", 1, 14), 1, "pm_1", Map.of());
+        Subscription s = Subscription.create("t1", "cust1", price("MONTH", 1, 14), 1, "pm_1", Map.of(), true);
         assertThat(s.getStatus()).isEqualTo(SubscriptionState.TRIALING);
         assertThat(s.getTrialEnd()).isNotNull();
         assertThat(s.getId()).startsWith("sub_");
@@ -44,9 +44,29 @@ class SubscriptionTest {
 
     @Test
     void createWithoutTrialStartsActive() {
-        Subscription s = Subscription.create("t1", "cust1", price("MONTH", 1, 0), 1, "pm_1", Map.of());
+        Subscription s = Subscription.create("t1", "cust1", price("MONTH", 1, 0), 1, "pm_1", Map.of(), true);
         assertThat(s.getStatus()).isEqualTo(SubscriptionState.ACTIVE);
         assertThat(s.getCurrentPeriodEnd()).isAfter(s.getCurrentPeriodStart());
+    }
+
+    // ---- DX-5a: durable test/live mode is stamped at creation ----
+
+    @Test
+    void createStampsDurableTestLiveModeFromCaller() {
+        // A test-key create marks is_live=false so the subscription's future SYSTEM-thread
+        // renewal/dunning charges route to the mock, never the real PSP.
+        Subscription test = Subscription.create("t1", "cust1", price("MONTH", 1, 0), 1, "pm_1", Map.of(), false);
+        assertThat(test.isLive()).isFalse();
+
+        Subscription live = Subscription.create("t1", "cust1", price("MONTH", 1, 0), 1, "pm_1", Map.of(), true);
+        assertThat(live.isLive()).isTrue();
+    }
+
+    @Test
+    void newSubscriptionDefaultsToLiveBeforeStamping() {
+        // The no-arg constructor (used by the JPA mapper before setLive runs / a pre-V4035 row) defaults
+        // to LIVE — the safe-for-existing-prod default.
+        assertThat(new Subscription().isLive()).isTrue();
     }
 
     // ---- calendar period math (the fix) ----

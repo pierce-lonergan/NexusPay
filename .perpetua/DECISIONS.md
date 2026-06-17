@@ -977,3 +977,27 @@ both intact, PLUS a new ApiKeyServicePrefixConsistencyTest proving the mismatch 
 coverage up. Adversarial review caught the conflict as 3 BLOCKERs (a documented-invariant contradiction, not stale
 data) and escalated rather than silently rewriting a security test — the right call; I verified the refinement is
 strictly safer before accepting. L-063. ADR-045 (refines ADR-028/INT-3). CI is the oracle.
+
+## ADR-046 | 2026-06-17 | DX-5a: durable test/live mode for server-initiated charges (CHARTER money-safety) (T3)
+Snap critique 3.1. PaymentMode is a ThreadLocal set ONLY on the authenticated request thread;
+GatedPaymentGateway.routeToMock() returns real-PSP when it is UNSET on a system thread, and createPayment
+has no isTestModeId fail-safe (no id yet). The @Scheduled @SystemTransactional billing jobs (RenewalScheduler,
+DunningService) already call createPayment via PaymentOrchestrationAdapter.collectPayment on a system thread —
+so a renewal/dunning charge for a TEST subscription would hit the REAL PSP (CHARTER violation). ACTIVELY
+WIRED, not theoretical — only unexploited because no subscription renews in prod yet. Fix threads the DURABLE
+mode explicitly (not a fragile scheduler ThreadLocal set/clear): V4035 adds subscriptions.is_live (DEFAULT
+true — existing rows = LIVE, the safe default); Subscription.create stamps it from the creating caller's
+server-derived PaymentMode (SubscriptionLifecycleService: test key => false, indeterminate => false fail-safe);
+CallContext gains a NULLABLE Boolean live (existing factories/ctors default null → byte-identical routing;
+new serverRecurring(tenant, live) overload); GatedPaymentGateway.routeToMock(ctxLive) consults it FIRST for
+createPayment (TRUE→real, FALSE→mock, null→the unchanged ThreadLocal/request-thread heuristic + isTestModeId);
+billing threads sub.isLive() down renewal + dunning. The UNSET-system-thread=real invariant is preserved for
+a null ctx.live (system paths now DECLARE mode).
+REVIEW (3 lenses): 1 BLOCKER + 1 SHOULD_FIX + 1 NIT. BLOCKER — my manual-pay InvoiceController.resolveLiveMode
+let a TEST-key request paying a LIVE subscription's invoice reach the real PSP; fixed to compose request-mode
+AND subscription-mode with TEST-WINS (either test => mock). SHOULD_FIX — a THIRD system-thread createPayment
+hole: workflow PaymentActivitiesImpl (Temporal activity) also creates payments off-thread without declaring
+mode; DEFERRED to DX-5a-ii (tracked) because Temporal is disabled by default (latent) and the fix needs a new
+field on a Temporal-serialized DTO outside DX-5a's scope — the reviewer classified it as a pre-existing residual,
+not a blocker. The two WIRED paths (renewal, dunning) + manual-pay are closed now. Migration V4035. L-064.
+ADR-046.

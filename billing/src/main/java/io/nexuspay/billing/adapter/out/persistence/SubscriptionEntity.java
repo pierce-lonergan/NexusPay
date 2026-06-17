@@ -58,6 +58,14 @@ public class SubscriptionEntity {
     @Column(name = "payment_method_id", length = 64)
     private String paymentMethodId;
 
+    /**
+     * DX-5a: durable test/live mode, mapped to {@code subscriptions.is_live} (V4035). Initialised to
+     * {@code true} (LIVE) so a never-stamped instance defaults to the safe-for-prod LIVE value, matching
+     * the column's {@code DEFAULT true}.
+     */
+    @Column(name = "is_live", nullable = false)
+    private boolean live = true;
+
     @Column(name = "metadata", columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
     private String metadata;
@@ -170,6 +178,14 @@ public class SubscriptionEntity {
 
     public void setPaymentMethodId(String paymentMethodId) {
         this.paymentMethodId = paymentMethodId;
+    }
+
+    public boolean isLive() {
+        return live;
+    }
+
+    public void setLive(boolean live) {
+        this.live = live;
     }
 
     public String getMetadata() {

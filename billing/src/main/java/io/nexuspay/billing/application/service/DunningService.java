@@ -149,12 +149,15 @@ public class DunningService {
         // downstream idempotency key is distinct per dunning attempt (each
         // attempt is a deliberate re-charge) while a network retry of the SAME
         // attempt still dedupes.
+        // DX-5a (MONEY-SAFETY): dunning runs on the scheduler's SYSTEM thread (PaymentMode unset), so we
+        // pass the subscription's DURABLE test/live mode (is_live) so a TEST subscription's dunning
+        // retry routes to the mock instead of the real PSP.
         PaymentPort.PaymentResult result = paymentPort.collectPayment(
                 sub.getTenantId(), sub.getCustomerId(),
                 sub.getPaymentMethodId(), invoice.getAmountDue(),
                 invoice.getCurrency(),
                 "Dunning retry " + attempt.getAttemptNumber() + " for " + invoice.getId(),
-                invoice.getId()
+                invoice.getId(), sub.isLive()
         );
 
         if (result.success()) {
