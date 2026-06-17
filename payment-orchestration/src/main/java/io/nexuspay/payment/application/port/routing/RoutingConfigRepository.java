@@ -16,6 +16,12 @@ public interface RoutingConfigRepository {
 
     Optional<RoutingConfig> findById(UUID id);
 
+    /**
+     * SEC-27: tenant-scoped by-id lookup. Empty result means "absent OR owned by another tenant" —
+     * pair with {@code TenantOwnership.require} so a foreign id 404s without an existence oracle.
+     */
+    Optional<RoutingConfig> findByIdAndTenantId(UUID id, String tenantId);
+
     Optional<RoutingConfig> findActiveByTenant(String tenantId);
 
     List<RoutingConfig> findByTenantId(String tenantId);

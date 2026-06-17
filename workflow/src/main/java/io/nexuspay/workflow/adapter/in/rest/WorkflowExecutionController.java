@@ -1,5 +1,6 @@
 package io.nexuspay.workflow.adapter.in.rest;
 
+import io.nexuspay.common.tenant.CallerTenant;
 import io.nexuspay.workflow.adapter.in.rest.dto.ExecutionResponse;
 import io.nexuspay.workflow.adapter.in.rest.dto.TriggerWorkflowRequest;
 import io.nexuspay.workflow.application.port.in.ExecuteWorkflowUseCase;
@@ -27,31 +28,31 @@ public class WorkflowExecutionController {
     @PostMapping("/{workflowId}/trigger")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<ExecutionResponse> triggerWorkflow(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String workflowId,
             @Valid @RequestBody TriggerWorkflowRequest request) {
 
-        var result = executeUseCase.triggerWorkflow(workflowId, tenantId, request.payload());
+        // SEC-27: workflow lookup scoped to the caller's tenant — a foreign-tenant id 404s (no oracle).
+        var result = executeUseCase.triggerWorkflow(workflowId, CallerTenant.require(), request.payload());
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(result));
     }
 
     @GetMapping("/executions/{executionId}")
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<ExecutionResponse> getExecution(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String executionId) {
 
-        var result = executeUseCase.getExecution(executionId, tenantId);
+        // SEC-27: by-id read scoped to the caller's tenant — a foreign-tenant id 404s (no oracle).
+        var result = executeUseCase.getExecution(executionId, CallerTenant.require());
         return ResponseEntity.ok(toResponse(result));
     }
 
     @PostMapping("/executions/{executionId}/cancel")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<Void> cancelExecution(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String executionId) {
 
-        executeUseCase.cancelExecution(executionId, tenantId);
+        // SEC-27: mutation scoped to the caller's tenant — a tenant-A caller cannot cancel a tenant-B execution.
+        executeUseCase.cancelExecution(executionId, CallerTenant.require());
         return ResponseEntity.noContent().build();
     }
 

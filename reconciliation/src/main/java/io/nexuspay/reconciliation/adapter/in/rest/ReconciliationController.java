@@ -1,5 +1,7 @@
 package io.nexuspay.reconciliation.adapter.in.rest;
 
+import io.nexuspay.common.tenant.CallerTenant;
+import io.nexuspay.common.tenant.TenantOwnership;
 import io.nexuspay.reconciliation.application.port.out.ReconciliationRepository;
 import io.nexuspay.reconciliation.application.service.ExceptionManagementService;
 import io.nexuspay.reconciliation.application.service.ReconciliationOrchestrator;
@@ -10,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -39,6 +42,15 @@ public class ReconciliationController {
 
     private static final Logger log = LoggerFactory.getLogger(ReconciliationController.class);
 
+    /**
+     * SEC-27: hard upper bound for the settlement-records page. The by-run records endpoint was
+     * previously unbounded — a single request could stream an entire run's lines (tens of thousands)
+     * and exhaust memory. An oversized {@code limit} is CAPPED to this value rather than rejected, so
+     * legitimate clients keep working while the worst case stays bounded.
+     */
+    private static final int MAX_RECORDS_LIMIT = 500;
+    private static final int DEFAULT_RECORDS_LIMIT = 100;
+
     private final ReconciliationOrchestrator orchestrator;
     private final ExceptionManagementService exceptionService;
     private final ReconciliationRepository repository;
@@ -55,10 +67,15 @@ public class ReconciliationController {
      * Triggers a reconciliation run by uploading a settlement file.
      */
     @PostMapping("/runs")
+    @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<ReconciliationRunResponse> createRun(
             @RequestParam("file") MultipartFile file,
-            @RequestParam("provider") String provider,
-            @RequestHeader("X-Tenant-Id") String tenantId) throws IOException {
+            @RequestParam("provider") String provider) throws IOException {
+
+        // SEC-27: tenant resolved from the authenticated principal, never from a client X-Tenant-Id
+        // header. Ingesting a settlement file under a spoofed tenant would write another tenant's
+        // reconciliation data into the victim's books — the most damaging IDOR in this controller.
+        String tenantId = CallerTenant.require();
 
         log.info("Reconciliation run requested: provider={}, file={}, tenant={}",
                 provider, file.getOriginalFilename(), tenantId);
@@ -73,11 +90,13 @@ public class ReconciliationController {
      * Lists reconciliation runs for the current tenant.
      */
     @GetMapping("/runs")
+    @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<List<ReconciliationRunResponse>> listRuns(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @RequestParam(defaultValue = "20") int limit,
             @RequestParam(defaultValue = "0") int offset) {
 
+        // SEC-27: list scoped to the authenticated principal's tenant, never a client-supplied header.
+        String tenantId = CallerTenant.require();
         List<ReconciliationRun> runs = repository.findRunsByTenant(tenantId, limit, offset);
         return ResponseEntity.ok(runs.stream().map(this::toResponse).toList());
     }
@@ -86,18 +105,40 @@ public class ReconciliationController {
      * Gets details of a specific reconciliation run.
      */
     @GetMapping("/runs/{id}")
+    @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<ReconciliationRunResponse> getRun(@PathVariable String id) {
-        return repository.findRunById(id)
-                .map(run -> ResponseEntity.ok(toResponse(run)))
-                .orElse(ResponseEntity.notFound().build());
+        // SEC-27: by-id read scoped to the caller's tenant — a foreign-tenant run 404s (no oracle).
+        ReconciliationRun run = TenantOwnership.require(
+                repository.findRunByIdAndTenantId(id, CallerTenant.require()), "Reconciliation run");
+        return ResponseEntity.ok(toResponse(run));
     }
 
     /**
      * Lists settlement records for a reconciliation run.
      */
     @GetMapping("/runs/{id}/records")
-    public ResponseEntity<List<SettlementRecordResponse>> getRunRecords(@PathVariable String id) {
-        List<SettlementRecord> records = repository.findSettlementRecordsByRunId(id);
+    @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
+    public ResponseEntity<List<SettlementRecordResponse>> getRunRecords(
+            @PathVariable String id,
+            @RequestParam(defaultValue = "" + DEFAULT_RECORDS_LIMIT) int limit,
+            @RequestParam(defaultValue = "0") int offset) {
+
+        String tenantId = CallerTenant.require();
+
+        // SEC-27: assert the run belongs to the caller BEFORE returning any of its lines. A foreign
+        // run id 404s via the tenant-scoped finder (no existence oracle). Without this, scoping only
+        // the records query would silently return an empty 200 for a foreign run — leaking nothing,
+        // but also masking the not-found contract the rest of the API uses.
+        TenantOwnership.require(
+                repository.findRunByIdAndTenantId(id, tenantId), "Reconciliation run");
+
+        // SEC-27: clamp pagination — this endpoint was unbounded. Cap an oversized limit, floor a
+        // non-positive one to the default, and never allow a negative offset.
+        int clampedLimit = clampLimit(limit);
+        int clampedOffset = Math.max(offset, 0);
+
+        List<SettlementRecord> records = repository.findSettlementRecordsByRunIdAndTenantId(
+                id, tenantId, clampedLimit, clampedOffset);
         return ResponseEntity.ok(records.stream().map(this::toResponse).toList());
     }
 
@@ -105,11 +146,13 @@ public class ReconciliationController {
      * Lists open exceptions for the current tenant.
      */
     @GetMapping("/exceptions")
+    @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<List<ExceptionResponse>> listExceptions(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @RequestParam(defaultValue = "20") int limit,
             @RequestParam(defaultValue = "0") int offset) {
 
+        // SEC-27: list scoped to the authenticated principal's tenant, never a client-supplied header.
+        String tenantId = CallerTenant.require();
         List<ReconciliationException> exceptions = exceptionService.listOpenExceptions(tenantId, limit, offset);
         return ResponseEntity.ok(exceptions.stream().map(this::toResponse).toList());
     }
@@ -118,12 +161,14 @@ public class ReconciliationController {
      * Resolves an exception with resolution notes.
      */
     @PostMapping("/exceptions/{id}/resolve")
+    @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<ExceptionResponse> resolveException(
             @PathVariable String id,
             @RequestBody Map<String, String> body) {
 
         String notes = body.getOrDefault("notes", "");
-        ReconciliationException ex = exceptionService.resolve(id, notes);
+        // SEC-27: mutation scoped to the caller's tenant — a foreign exception id 404s (no oracle).
+        ReconciliationException ex = exceptionService.resolve(id, CallerTenant.require(), notes);
         return ResponseEntity.ok(toResponse(ex));
     }
 
@@ -131,6 +176,7 @@ public class ReconciliationController {
      * Assigns an exception to a user for investigation.
      */
     @PostMapping("/exceptions/{id}/assign")
+    @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<ExceptionResponse> assignException(
             @PathVariable String id,
             @RequestBody Map<String, String> body) {
@@ -139,8 +185,35 @@ public class ReconciliationController {
         if (userId == null || userId.isBlank()) {
             return ResponseEntity.badRequest().build();
         }
-        ReconciliationException ex = exceptionService.assign(id, userId);
+        // SEC-27: mutation scoped to the caller's tenant — a foreign exception id 404s (no oracle).
+        ReconciliationException ex = exceptionService.assign(id, CallerTenant.require(), userId);
         return ResponseEntity.ok(toResponse(ex));
+    }
+
+    /**
+     * Writes off an exception (accepted loss / immaterial discrepancy).
+     */
+    @PostMapping("/exceptions/{id}/write-off")
+    @PreAuthorize("hasAnyRole('admin', 'operator')")
+    public ResponseEntity<ExceptionResponse> writeOffException(
+            @PathVariable String id,
+            @RequestBody Map<String, String> body) {
+
+        String notes = body.getOrDefault("notes", "");
+        // SEC-27: mutation scoped to the caller's tenant — a foreign exception id 404s (no oracle).
+        ReconciliationException ex = exceptionService.writeOff(id, CallerTenant.require(), notes);
+        return ResponseEntity.ok(toResponse(ex));
+    }
+
+    /**
+     * SEC-27: caps an oversized records-page limit to {@link #MAX_RECORDS_LIMIT} and floors a
+     * non-positive one to {@link #DEFAULT_RECORDS_LIMIT}, keeping the worst-case page bounded.
+     */
+    private static int clampLimit(int requested) {
+        if (requested <= 0) {
+            return DEFAULT_RECORDS_LIMIT;
+        }
+        return Math.min(requested, MAX_RECORDS_LIMIT);
     }
 
     // ---- Response DTOs ----

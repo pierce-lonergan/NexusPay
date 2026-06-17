@@ -18,6 +18,9 @@ public interface JpaFxRateLockRepository extends JpaRepository<FxRateLockEntity,
 
     Optional<FxRateLockEntity> findByPaymentId(String paymentId);
 
+    /** SEC-27: tenant-scoped by-id lookup; the tenant predicate is pushed to SQL. */
+    Optional<FxRateLockEntity> findByIdAndTenantId(UUID id, String tenantId);
+
     @Modifying
     @Query("UPDATE FxRateLockEntity e SET e.consumed = true, e.consumedAt = :now " +
            "WHERE e.consumed = false AND e.expiresAt < :now")

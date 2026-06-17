@@ -1,6 +1,7 @@
 package io.nexuspay.workflow.application.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.nexuspay.common.exception.ResourceNotFoundException;
 import io.nexuspay.workflow.application.port.in.ManageWorkflowUseCase;
 import io.nexuspay.workflow.application.port.out.WorkflowBuilderRepository;
 import io.nexuspay.workflow.application.port.out.WorkflowEventPublisher;
@@ -59,7 +60,7 @@ class WorkflowDefinitionServiceTest {
     @Test
     void getWorkflow_returnsResult() {
         WorkflowDefinition wf = WorkflowDefinition.create("tenant-1", "Test", "desc", TriggerType.MANUAL, "admin-1");
-        when(repository.findWorkflowById(wf.getId())).thenReturn(Optional.of(wf));
+        when(repository.findWorkflowByIdAndTenantId(wf.getId(), "tenant-1")).thenReturn(Optional.of(wf));
 
         var result = service.getWorkflow(wf.getId(), "tenant-1");
 
@@ -69,9 +70,56 @@ class WorkflowDefinitionServiceTest {
 
     @Test
     void getWorkflow_throwsWhenNotFound() {
-        when(repository.findWorkflowById("wf_missing")).thenReturn(Optional.empty());
+        when(repository.findWorkflowByIdAndTenantId("wf_missing", "tenant-1")).thenReturn(Optional.empty());
 
-        assertThrows(IllegalArgumentException.class, () -> service.getWorkflow("wf_missing", "tenant-1"));
+        assertThrows(ResourceNotFoundException.class, () -> service.getWorkflow("wf_missing", "tenant-1"));
+    }
+
+    // ---------- SEC-27: cross-tenant isolation ----------
+
+    @Test
+    void getWorkflow_foreignTenant_throwsNotFound_andQueriesByCallerTenant() {
+        // A tenant-A workflow exists, but tenant-B asks for it by id. The tenant-scoped finder returns
+        // empty (no row for the caller's tenant) -> 404, not a 403 existence oracle.
+        WorkflowDefinition tenantAWorkflow =
+                WorkflowDefinition.create("tenant-a", "Secret Flow", "desc", TriggerType.MANUAL, "admin-a");
+        when(repository.findWorkflowByIdAndTenantId(tenantAWorkflow.getId(), "tenant-b"))
+                .thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> service.getWorkflow(tenantAWorkflow.getId(), "tenant-b"));
+
+        verify(repository).findWorkflowByIdAndTenantId(tenantAWorkflow.getId(), "tenant-b");
+        // The dead, unscoped finder (the IDOR) must never be used for the lookup.
+        verify(repository, never()).findWorkflowById(any());
+    }
+
+    @Test
+    void updateWorkflow_foreignTenant_throwsNotFound_andDoesNotMutate() {
+        WorkflowDefinition tenantAWorkflow =
+                WorkflowDefinition.create("tenant-a", "Old", "old", TriggerType.MANUAL, "admin-a");
+        when(repository.findWorkflowByIdAndTenantId(tenantAWorkflow.getId(), "tenant-b"))
+                .thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () -> service.updateWorkflow(
+                tenantAWorkflow.getId(), "tenant-b",
+                new ManageWorkflowUseCase.UpdateWorkflowCommand("Hijacked", null, null, null)));
+
+        // No write may reach the repository for a foreign-tenant id.
+        verify(repository, never()).saveWorkflow(any());
+    }
+
+    @Test
+    void archiveWorkflow_foreignTenant_throwsNotFound_andDoesNotMutate() {
+        WorkflowDefinition tenantAWorkflow =
+                WorkflowDefinition.create("tenant-a", "Flow", null, TriggerType.WEBHOOK, "admin-a");
+        when(repository.findWorkflowByIdAndTenantId(tenantAWorkflow.getId(), "tenant-b"))
+                .thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> service.archiveWorkflow(tenantAWorkflow.getId(), "tenant-b"));
+
+        verify(repository, never()).saveWorkflow(any());
     }
 
     @Test
@@ -90,7 +138,7 @@ class WorkflowDefinitionServiceTest {
     @Test
     void updateWorkflow_updatesFields() {
         WorkflowDefinition wf = WorkflowDefinition.create("tenant-1", "Old", "old desc", TriggerType.MANUAL, "admin-1");
-        when(repository.findWorkflowById(wf.getId())).thenReturn(Optional.of(wf));
+        when(repository.findWorkflowByIdAndTenantId(wf.getId(), "tenant-1")).thenReturn(Optional.of(wf));
         when(repository.saveWorkflow(any())).thenAnswer(inv -> inv.getArgument(0));
 
         var result = service.updateWorkflow(wf.getId(), "tenant-1",
@@ -105,7 +153,7 @@ class WorkflowDefinitionServiceTest {
     void publishWorkflow_changesStatusAndCreatesVersion() {
         WorkflowDefinition wf = WorkflowDefinition.create("tenant-1", "Flow", null, TriggerType.WEBHOOK, "admin-1");
         wf.addNode(WorkflowNode.create(NodeType.TRIGGER, "Start", null, 0, 0));
-        when(repository.findWorkflowById(wf.getId())).thenReturn(Optional.of(wf));
+        when(repository.findWorkflowByIdAndTenantId(wf.getId(), "tenant-1")).thenReturn(Optional.of(wf));
         when(repository.saveWorkflow(any())).thenAnswer(inv -> inv.getArgument(0));
 
         var result = service.publishWorkflow(wf.getId(), "tenant-1", "admin-1", "Initial publish");
@@ -118,7 +166,7 @@ class WorkflowDefinitionServiceTest {
     @Test
     void publishWorkflow_failsWithNoNodes() {
         WorkflowDefinition wf = WorkflowDefinition.create("tenant-1", "Empty", null, TriggerType.MANUAL, "admin-1");
-        when(repository.findWorkflowById(wf.getId())).thenReturn(Optional.of(wf));
+        when(repository.findWorkflowByIdAndTenantId(wf.getId(), "tenant-1")).thenReturn(Optional.of(wf));
 
         assertThrows(IllegalStateException.class, () ->
                 service.publishWorkflow(wf.getId(), "tenant-1", "admin-1", "Should fail"));
@@ -127,7 +175,7 @@ class WorkflowDefinitionServiceTest {
     @Test
     void archiveWorkflow_changesStatus() {
         WorkflowDefinition wf = WorkflowDefinition.create("tenant-1", "Flow", null, TriggerType.WEBHOOK, "admin-1");
-        when(repository.findWorkflowById(wf.getId())).thenReturn(Optional.of(wf));
+        when(repository.findWorkflowByIdAndTenantId(wf.getId(), "tenant-1")).thenReturn(Optional.of(wf));
         when(repository.saveWorkflow(any())).thenAnswer(inv -> inv.getArgument(0));
 
         var result = service.archiveWorkflow(wf.getId(), "tenant-1");
@@ -139,7 +187,7 @@ class WorkflowDefinitionServiceTest {
     @Test
     void addNode_addsToGraph() {
         WorkflowDefinition wf = WorkflowDefinition.create("tenant-1", "Flow", null, TriggerType.WEBHOOK, "admin-1");
-        when(repository.findWorkflowById(wf.getId())).thenReturn(Optional.of(wf));
+        when(repository.findWorkflowByIdAndTenantId(wf.getId(), "tenant-1")).thenReturn(Optional.of(wf));
         when(repository.saveWorkflow(any())).thenAnswer(inv -> inv.getArgument(0));
 
         var result = service.addNode(wf.getId(), "tenant-1",
@@ -161,7 +209,7 @@ class WorkflowDefinitionServiceTest {
         WorkflowEdge edge = WorkflowEdge.create(node1.getId(), node2.getId(), null, "to payment");
         wf.addEdge(edge);
 
-        when(repository.findWorkflowById(wf.getId())).thenReturn(Optional.of(wf));
+        when(repository.findWorkflowByIdAndTenantId(wf.getId(), "tenant-1")).thenReturn(Optional.of(wf));
         when(repository.saveWorkflow(any())).thenAnswer(inv -> inv.getArgument(0));
 
         var result = service.removeNode(wf.getId(), "tenant-1", node1.getId());
@@ -178,7 +226,7 @@ class WorkflowDefinitionServiceTest {
         wf.addNode(node1);
         wf.addNode(node2);
 
-        when(repository.findWorkflowById(wf.getId())).thenReturn(Optional.of(wf));
+        when(repository.findWorkflowByIdAndTenantId(wf.getId(), "tenant-1")).thenReturn(Optional.of(wf));
         when(repository.saveWorkflow(any())).thenAnswer(inv -> inv.getArgument(0));
 
         var result = service.addEdge(wf.getId(), "tenant-1",
@@ -199,7 +247,7 @@ class WorkflowDefinitionServiceTest {
         WorkflowEdge edge = WorkflowEdge.create(node1.getId(), node2.getId(), null, "finish");
         wf.addEdge(edge);
 
-        when(repository.findWorkflowById(wf.getId())).thenReturn(Optional.of(wf));
+        when(repository.findWorkflowByIdAndTenantId(wf.getId(), "tenant-1")).thenReturn(Optional.of(wf));
         when(repository.saveWorkflow(any())).thenAnswer(inv -> inv.getArgument(0));
 
         var result = service.removeEdge(wf.getId(), "tenant-1", edge.getId());

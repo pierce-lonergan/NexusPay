@@ -1,5 +1,6 @@
 package io.nexuspay.workflow.application.service;
 
+import io.nexuspay.common.tenant.TenantOwnership;
 import io.nexuspay.workflow.application.port.in.ExecuteWorkflowUseCase;
 import io.nexuspay.workflow.application.port.out.WorkflowBuilderRepository;
 import io.nexuspay.workflow.application.port.out.WorkflowEventPublisher;
@@ -36,8 +37,11 @@ public class WorkflowExecutionService implements ExecuteWorkflowUseCase {
     @Override
     @Transactional
     public ExecutionResult triggerWorkflow(String workflowId, String tenantId, String triggerPayload) {
-        WorkflowDefinition wf = repository.findWorkflowById(workflowId)
-                .orElseThrow(() -> new IllegalArgumentException("Workflow not found: " + workflowId));
+        // SEC-27: scope the workflow lookup to the caller's tenant — a tenant-A caller cannot trigger a
+        // tenant-B workflow by id. Absent OR foreign -> 404 (no existence oracle), before any execution
+        // is created under the caller's tenant.
+        WorkflowDefinition wf = TenantOwnership.require(
+                repository.findWorkflowByIdAndTenantId(workflowId, tenantId), "Workflow");
 
         if (wf.getStatus() != WorkflowStatus.PUBLISHED) {
             throw new IllegalStateException("Can only trigger PUBLISHED workflows, current: " + wf.getStatus());
@@ -65,13 +69,13 @@ public class WorkflowExecutionService implements ExecuteWorkflowUseCase {
     @Override
     @Transactional(readOnly = true)
     public ExecutionResult getExecution(String executionId, String tenantId) {
-        return toResult(findOrThrow(executionId));
+        return toResult(findOrThrow(executionId, tenantId));
     }
 
     @Override
     @Transactional
     public void cancelExecution(String executionId, String tenantId) {
-        WorkflowExecution execution = findOrThrow(executionId);
+        WorkflowExecution execution = findOrThrow(executionId, tenantId);
         execution.cancel();
         repository.saveExecution(execution);
 
@@ -81,9 +85,14 @@ public class WorkflowExecutionService implements ExecuteWorkflowUseCase {
         log.info("Workflow execution cancelled: executionId={}", executionId);
     }
 
-    private WorkflowExecution findOrThrow(String executionId) {
-        return repository.findExecutionById(executionId)
-                .orElseThrow(() -> new IllegalArgumentException("Execution not found: " + executionId));
+    /**
+     * SEC-27: tenant-scoped fetch-or-404 for an execution. By-id read (getExecution) and mutation
+     * (cancelExecution) route through here so a tenant-A caller cannot read or cancel a tenant-B
+     * execution by id. Absent OR foreign -> 404 (no existence oracle).
+     */
+    private WorkflowExecution findOrThrow(String executionId, String tenantId) {
+        return TenantOwnership.require(
+                repository.findExecutionByIdAndTenantId(executionId, tenantId), "Execution");
     }
 
     private ExecutionResult toResult(WorkflowExecution ex) {

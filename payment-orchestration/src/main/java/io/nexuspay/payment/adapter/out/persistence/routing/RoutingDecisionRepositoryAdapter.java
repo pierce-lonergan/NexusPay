@@ -45,8 +45,18 @@ public class RoutingDecisionRepositoryAdapter implements RoutingDecisionReposito
     }
 
     @Override
+    public Optional<RoutingDecision> findByIdAndTenantId(UUID id, String tenantId) {
+        return jpaRepo.findByIdAndTenantId(id, tenantId).map(this::toDomain);
+    }
+
+    @Override
     public Optional<RoutingDecision> findByPaymentId(String paymentId) {
         return jpaRepo.findByPaymentId(paymentId).map(this::toDomain);
+    }
+
+    @Override
+    public Optional<RoutingDecision> findByPaymentIdAndTenantId(String paymentId, String tenantId) {
+        return jpaRepo.findByPaymentIdAndTenantId(paymentId, tenantId).map(this::toDomain);
     }
 
     @Override

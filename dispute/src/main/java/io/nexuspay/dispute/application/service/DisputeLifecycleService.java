@@ -1,6 +1,7 @@
 package io.nexuspay.dispute.application.service;
 
 import io.nexuspay.common.id.PrefixedId;
+import io.nexuspay.common.tenant.TenantOwnership;
 import io.nexuspay.dispute.application.port.out.DisputeRepository;
 import io.nexuspay.dispute.application.port.out.EvidenceStoragePort;
 import io.nexuspay.dispute.application.port.out.LedgerPort;
@@ -125,7 +126,11 @@ public class DisputeLifecycleService {
                                           InputStream content, String contentType,
                                           String description) {
 
-        Dispute dispute = getOrThrow(disputeId);
+        // SEC-27: resolve the dispute through the tenant-scoped finder so a tenant-A caller cannot
+        // attach evidence to (or even confirm the existence of) a tenant-B dispute. The {@code tenantId}
+        // here is the authenticated caller's tenant (CallerTenant.require() at the controller), never a
+        // client X-Tenant-Id header. Absent OR foreign -> 404, BEFORE anything is stored.
+        Dispute dispute = getOrThrow(disputeId, tenantId);
 
         // Store file in object storage
         String fileKey = evidenceStorage.store(tenantId, disputeId, fileName, content, contentType);
@@ -150,6 +155,11 @@ public class DisputeLifecycleService {
 
     /**
      * Submits collected evidence (marks dispute as EVIDENCE_SUBMITTED).
+     *
+     * <p>UNSCOPED webhook/internal path: invoked by {@code DisputeWebhookHandler} (no REST
+     * caller-tenant; the dispute is resolved server-side) and by {@code AutoRepresentmentService}
+     * (triggered from the SEC-2-hardened webhook). The REST controller uses the tenant-scoped
+     * {@link #submitEvidence(String, String, String)} overload instead.</p>
      */
     @Transactional
     public Dispute submitEvidence(String disputeId, String actor) {
@@ -159,6 +169,24 @@ public class DisputeLifecycleService {
         dispute = disputeRepository.save(dispute);
         saveNewEvents(dispute, eventsBefore);
         log.info("Evidence submitted: dispute={}", disputeId);
+        return dispute;
+    }
+
+    /**
+     * SEC-27: tenant-scoped evidence submission for the REST {@code POST /v1/disputes/{id}/submit}
+     * endpoint. Resolves the dispute through the tenant-scoped finder + {@link TenantOwnership#require}
+     * so a tenant-A caller cannot submit evidence on (or probe the existence of) a tenant-B dispute —
+     * a foreign/absent id 404s (no oracle) BEFORE any state transition. {@code tenantId} is the
+     * authenticated caller's tenant (CallerTenant.require()), never a client header.
+     */
+    @Transactional
+    public Dispute submitEvidence(String disputeId, String tenantId, String actor) {
+        Dispute dispute = getOrThrow(disputeId, tenantId);
+        int eventsBefore = dispute.getEvents().size();
+        dispute.submitEvidence(actor);
+        dispute = disputeRepository.save(dispute);
+        saveNewEvents(dispute, eventsBefore);
+        log.info("Evidence submitted (tenant-scoped): dispute={}, tenant={}", disputeId, tenantId);
         return dispute;
     }
 
@@ -237,6 +265,16 @@ public class DisputeLifecycleService {
     }
 
     /**
+     * SEC-27: tenant-scoped by-id lookup for the REST {@code GET /v1/disputes/{id}} endpoint. Returns
+     * the dispute only when it belongs to {@code tenantId}; an absent OR foreign-tenant dispute yields
+     * an empty Optional so the controller 404s identically for both (no cross-tenant existence oracle).
+     * {@code tenantId} is the authenticated caller's tenant (CallerTenant.require()), never a header.
+     */
+    public Optional<Dispute> findById(String id, String tenantId) {
+        return disputeRepository.findByIdAndTenantId(id, tenantId);
+    }
+
+    /**
      * Idempotency lookup used by the webhook handler to distinguish a first
      * delivery from a replay (so it can return {@code created} vs {@code duplicate}).
      */
@@ -252,15 +290,41 @@ public class DisputeLifecycleService {
         return disputeRepository.findEventsByDisputeId(disputeId);
     }
 
+    /**
+     * SEC-27: tenant-scoped event timeline for the REST {@code GET /v1/disputes/{id}/events} endpoint.
+     * Filters the timeline to {@code tenantId} so a tenant-A caller cannot read a tenant-B dispute's
+     * event history by id. A foreign/absent dispute yields an empty list (no oracle).
+     */
+    public List<DisputeEvent> getTimeline(String disputeId, String tenantId) {
+        return disputeRepository.findEventsByDisputeIdAndTenantId(disputeId, tenantId);
+    }
+
     public List<DisputeEvidence> getEvidence(String disputeId) {
         return disputeRepository.findEvidenceByDisputeId(disputeId);
     }
 
     // -- Helpers --
 
+    /**
+     * UNSCOPED fetch-or-throw. Used ONLY by the server-authoritative webhook/internal transitions
+     * (win/lose/expire/requestEvidence and the unscoped submitEvidence), where the dispute id is
+     * resolved server-side, not from a REST caller. Throws {@link IllegalArgumentException} (not the
+     * no-oracle 404) because there is no caller-tenant to scope against on those paths.
+     */
     private Dispute getOrThrow(String disputeId) {
         return disputeRepository.findById(disputeId)
                 .orElseThrow(() -> new IllegalArgumentException("Dispute not found: " + disputeId));
+    }
+
+    /**
+     * SEC-27: tenant-scoped fetch-or-404 for REST reads/mutations. Pairs the tenant-scoped finder with
+     * {@link TenantOwnership#require} so a tenant-A caller cannot read/mutate a tenant-B dispute by id.
+     * Returns 404 (ResourceNotFoundException, via TenantOwnership) on a foreign/absent id — no
+     * existence oracle. Mirrors the SEC-26 {@code SubscriptionLifecycleService.getOrThrow} idiom.
+     */
+    private Dispute getOrThrow(String disputeId, String tenantId) {
+        return TenantOwnership.require(
+                disputeRepository.findByIdAndTenantId(disputeId, tenantId), "Dispute");
     }
 
     private void saveNewEvents(Dispute dispute, int eventsBefore) {

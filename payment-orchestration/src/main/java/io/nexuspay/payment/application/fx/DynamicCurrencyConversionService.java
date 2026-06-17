@@ -1,5 +1,6 @@
 package io.nexuspay.payment.application.fx;
 
+import io.nexuspay.common.tenant.TenantOwnership;
 import io.nexuspay.payment.domain.fx.DccOffer;
 import io.nexuspay.payment.domain.fx.FxRate;
 import org.slf4j.Logger;
@@ -125,40 +126,44 @@ public class DynamicCurrencyConversionService {
     }
 
     /**
-     * Records customer acceptance of a DCC offer.
+     * Records customer acceptance of a DCC offer, scoped to the caller's tenant.
      * After acceptance, the payment should proceed in the cardholder's currency.
+     *
+     * <p>SEC-27: a by-id mutation must not be reachable cross-tenant. The offer is resolved through
+     * the in-memory store and its tenant asserted against {@code callerTenant} before mutation, so a
+     * foreign-owned or absent id collapses to a single {@code ResourceNotFoundException} -> 404 with
+     * no existence oracle.</p>
      *
      * @return the accepted offer with updated status
      */
-    public DccOffer acceptOffer(UUID offerId) {
-        DccOffer offer = offerStore.get(offerId);
-        if (offer == null) {
-            throw new IllegalArgumentException("DCC offer not found: " + offerId);
-        }
+    public DccOffer acceptOffer(UUID offerId, String callerTenant) {
+        DccOffer offer = TenantOwnership.assertOwned(
+                getOffer(offerId), callerTenant, DccOffer::tenantId, "DCC offer");
 
         DccOffer accepted = offer.accept();
-        offerStore.put(offerId, accepted);
+        offerStore.put(offer.id(), accepted);
         LOG.info("DCC offer {} accepted for payment {} — proceeding in {} at rate {}",
-                offerId, accepted.paymentId(), accepted.cardholderCurrency(), accepted.offeredRate());
+                offer.id(), accepted.paymentId(), accepted.cardholderCurrency(), accepted.offeredRate());
         return accepted;
     }
 
     /**
-     * Records customer decline of a DCC offer.
+     * Records customer decline of a DCC offer, scoped to the caller's tenant.
      * The payment proceeds in the original presentment currency.
+     *
+     * <p>SEC-27: same tenant-scoped resolution as {@link #acceptOffer(UUID, String)} — foreign/absent
+     * ids both 404 with no existence oracle.</p>
      *
      * @return the declined offer with updated status
      */
-    public DccOffer declineOffer(UUID offerId) {
-        DccOffer offer = offerStore.get(offerId);
-        if (offer == null) {
-            throw new IllegalArgumentException("DCC offer not found: " + offerId);
-        }
+    public DccOffer declineOffer(UUID offerId, String callerTenant) {
+        DccOffer offer = TenantOwnership.assertOwned(
+                getOffer(offerId), callerTenant, DccOffer::tenantId, "DCC offer");
 
         DccOffer declined = offer.decline();
-        offerStore.put(offerId, declined);
+        offerStore.put(offer.id(), declined);
         LOG.info("DCC offer {} declined for payment {} — proceeding in {}",
-                offerId, declined.paymentId(), declined.presentmentCurrency());
+                offer.id(), declined.paymentId(), declined.presentmentCurrency());
         return declined;
     }
 

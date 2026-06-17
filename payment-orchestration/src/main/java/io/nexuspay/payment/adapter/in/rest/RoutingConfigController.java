@@ -1,5 +1,7 @@
 package io.nexuspay.payment.adapter.in.rest;
 
+import io.nexuspay.common.tenant.CallerTenant;
+import io.nexuspay.common.tenant.TenantOwnership;
 import io.nexuspay.payment.application.port.routing.PspFeeRepository;
 import io.nexuspay.payment.application.port.routing.PspHealthRepository;
 import io.nexuspay.payment.application.port.routing.RoutingConfigRepository;
@@ -59,9 +61,10 @@ public class RoutingConfigController {
     @PostMapping("/configs")
     @PreAuthorize("hasRole('admin')")
     public ResponseEntity<Map<String, Object>> createConfig(
-            @RequestBody CreateConfigRequest request,
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId) {
+            @RequestBody CreateConfigRequest request) {
 
+        // SEC-27: tenant resolved from the authenticated principal, never from a client X-Tenant-Id header.
+        String tenantId = CallerTenant.require();
         RoutingConfig config = new RoutingConfig(
                 UUID.randomUUID(), tenantId, request.configName(), request.strategy(),
                 request.pspList() != null ? request.pspList() : List.of(),
@@ -80,9 +83,11 @@ public class RoutingConfigController {
     @GetMapping("/configs/{configId}")
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<Map<String, Object>> getConfig(@PathVariable UUID configId) {
-        return configRepository.findById(configId)
-                .map(c -> ResponseEntity.ok(configToMap(c)))
-                .orElse(ResponseEntity.notFound().build());
+        // SEC-27: tenant-scoped by-id read. A config id owned by another tenant (or absent) 404s via
+        // TenantOwnership.require — no cross-tenant existence oracle.
+        RoutingConfig config = TenantOwnership.require(
+                configRepository.findByIdAndTenantId(configId, CallerTenant.require()), "Routing config");
+        return ResponseEntity.ok(configToMap(config));
     }
 
     /**
@@ -90,8 +95,9 @@ public class RoutingConfigController {
      */
     @GetMapping("/configs/active")
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
-    public ResponseEntity<Map<String, Object>> getActiveConfig(
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId) {
+    public ResponseEntity<Map<String, Object>> getActiveConfig() {
+        // SEC-27: tenant from the authenticated principal, never a client header.
+        String tenantId = CallerTenant.require();
         return configRepository.findActiveByTenant(tenantId)
                 .map(c -> ResponseEntity.ok(configToMap(c)))
                 .orElse(ResponseEntity.ok(configToMap(RoutingConfig.defaults(tenantId))));
@@ -102,8 +108,9 @@ public class RoutingConfigController {
      */
     @GetMapping("/configs")
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
-    public ResponseEntity<List<Map<String, Object>>> listConfigs(
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId) {
+    public ResponseEntity<List<Map<String, Object>>> listConfigs() {
+        // SEC-27: tenant from the authenticated principal, never a client header.
+        String tenantId = CallerTenant.require();
         List<Map<String, Object>> configs = configRepository.findByTenantId(tenantId).stream()
                 .map(this::configToMap)
                 .toList();
@@ -118,9 +125,10 @@ public class RoutingConfigController {
     @GetMapping("/decisions/{decisionId}")
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<Map<String, Object>> getDecision(@PathVariable UUID decisionId) {
-        return decisionRepository.findById(decisionId)
-                .map(d -> ResponseEntity.ok(decisionToMap(d)))
-                .orElse(ResponseEntity.notFound().build());
+        // SEC-27: tenant-scoped by-id read. A decision owned by another tenant (or absent) 404s.
+        RoutingDecision decision = TenantOwnership.require(
+                decisionRepository.findByIdAndTenantId(decisionId, CallerTenant.require()), "Routing decision");
+        return ResponseEntity.ok(decisionToMap(decision));
     }
 
     /**
@@ -129,9 +137,10 @@ public class RoutingConfigController {
     @GetMapping("/decisions/by-payment/{paymentId}")
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<Map<String, Object>> getDecisionByPayment(@PathVariable String paymentId) {
-        return decisionRepository.findByPaymentId(paymentId)
-                .map(d -> ResponseEntity.ok(decisionToMap(d)))
-                .orElse(ResponseEntity.notFound().build());
+        // SEC-27: tenant-scoped by-payment read. A decision for another tenant's payment (or absent) 404s.
+        RoutingDecision decision = TenantOwnership.require(
+                decisionRepository.findByPaymentIdAndTenantId(paymentId, CallerTenant.require()), "Routing decision");
+        return ResponseEntity.ok(decisionToMap(decision));
     }
 
     // --- PSP Fee Models ---
@@ -142,9 +151,10 @@ public class RoutingConfigController {
     @GetMapping("/fees")
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<List<Map<String, Object>>> listFees(
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId,
             @RequestParam(required = false) String currency) {
 
+        // SEC-27: tenant from the authenticated principal, never a client header.
+        String tenantId = CallerTenant.require();
         List<PspFeeModel> fees = currency != null
                 ? feeRepository.findByTenantAndCurrency(tenantId, currency.toUpperCase())
                 : feeRepository.findByTenantId(tenantId);
@@ -158,9 +168,10 @@ public class RoutingConfigController {
     @PostMapping("/fees")
     @PreAuthorize("hasRole('admin')")
     public ResponseEntity<Map<String, Object>> createFee(
-            @RequestBody CreateFeeRequest request,
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId) {
+            @RequestBody CreateFeeRequest request) {
 
+        // SEC-27: tenant from the authenticated principal, never a client header.
+        String tenantId = CallerTenant.require();
         PspFeeModel fee = new PspFeeModel(
                 UUID.randomUUID(), tenantId, request.pspConnector(),
                 PspFeeModel.FeeType.valueOf(request.feeType()),
@@ -268,9 +279,10 @@ public class RoutingConfigController {
     @PostMapping("/simulate")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<Map<String, Object>> simulateRoute(
-            @RequestBody SimulateRouteRequest request,
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId) {
+            @RequestBody SimulateRouteRequest request) {
 
+        // SEC-27: tenant from the authenticated principal, never a client header.
+        String tenantId = CallerTenant.require();
         RoutingContext context = new RoutingContext(
                 tenantId, "simulate_" + UUID.randomUUID(),
                 request.amount(), request.currency(),
