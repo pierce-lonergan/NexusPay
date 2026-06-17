@@ -115,6 +115,74 @@ class StartupSecretsValidatorTest {
                 .hasMessageContaining("DISPUTE_WEBHOOK_SECRET");
     }
 
+    // ---- SEC-28: a guarded secret that is null/blank is as dangerous as the public default ----
+
+    /** A resolver: every secret managed (non-default, non-blank) EXCEPT one key forced to {@code value}. */
+    private static Function<String, String> allManagedExcept(String key, String value) {
+        Map<String, String> m = new HashMap<>();
+        StartupSecretsValidator.KNOWN_DEFAULTS.keySet()
+                .forEach(k -> m.put(k, "managed-" + k.hashCode()));
+        m.put(key, value);
+        return m::get;
+    }
+
+    @Test
+    void throwsWhenGuardedSecretIsBlankUnderProdProfile() {
+        // SEC-28: an env var set EMPTY in prod (blank HMAC key) must REFUSE TO BOOT — a blank webhook
+        // secret fails open (HyperSwitch/dispute gates reject, but a blank JWT/vault key is forgeable).
+        assertThatThrownBy(() ->
+                StartupSecretsValidator.validate(new String[]{"prod"},
+                        allManagedExcept("nexuspay.hyperswitch.webhook-secret", ""), false))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Refusing to start")
+                .hasMessageContaining("nexuspay.hyperswitch.webhook-secret");
+    }
+
+    @Test
+    void throwsWhenGuardedSecretIsNullUnderProdProfile() {
+        // SEC-28: a guarded key resolving to null (env var entirely unset, no default left) under prod.
+        assertThatThrownBy(() ->
+                StartupSecretsValidator.validate(new String[]{"prod"},
+                        allManagedExcept("nexuspay.session.jwt-secret", null), false))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Refusing to start")
+                .hasMessageContaining("nexuspay.session.jwt-secret");
+    }
+
+    @Test
+    void throwsWhenGuardedSecretIsBlankUnderForceManaged() {
+        // SEC-28: the explicit prod signal (NEXUSPAY_REQUIRE_MANAGED_SECRETS=true) also catches blanks,
+        // even with no recognised prod profile name.
+        assertThatThrownBy(() ->
+                StartupSecretsValidator.validate(new String[]{},
+                        allManagedExcept("nexuspay.vault.encryption.master-key", "   "), true))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("nexuspay.vault.encryption.master-key");
+    }
+
+    @Test
+    void allowsProdWhenSecretsAreManagedAndNonBlank() {
+        // CONTROL: managed (non-default, non-blank) secrets under prod must still boot — the new
+        // blank check must not regress the existing managed-ok path.
+        assertThatCode(() ->
+                StartupSecretsValidator.validate(new String[]{"prod"}, allManaged(), true))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void blankSecretUnderDevProfile_warnsButDoesNotThrow() {
+        // SEC-28: dev ergonomics preserved — a blank secret under local/test/dev (or no profile) only
+        // WARNs, never blocks the local run.
+        assertThatCode(() ->
+                StartupSecretsValidator.validate(new String[]{"local"},
+                        allManagedExcept("nexuspay.dispute.webhook-secret", ""), false))
+                .doesNotThrowAnyException();
+        assertThatCode(() ->
+                StartupSecretsValidator.validate(new String[]{},
+                        allManagedExcept("nexuspay.dispute.webhook-secret", ""), false))
+                .doesNotThrowAnyException();
+    }
+
     @Test
     void detectsExactlyTheDefaultedKeys() {
         // One managed, two still default -> only the two are flagged.

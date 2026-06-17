@@ -15,7 +15,11 @@ import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 
@@ -53,6 +57,13 @@ class WebhookDedupRollbackReleaseTest {
     private static final String EVENT_ID = "evt_x";
     private static final String PAYMENT_ID = "pay_123";
 
+    // SEC-28: the webhook gate is now UNCONDITIONALLY fail-closed (a blank secret -> 401 before any
+    // parse/dedup/outbox work). These tests assert SEC-15 dedup-release logic, which lives AFTER the gate,
+    // so they configure a non-blank secret and SIGN each payload (HmacSHA512 hex) — mirroring the sibling
+    // HyperSwitchWebhookControllerTenantStampTest. The blank-secret "skip verification" dev path is gone.
+    private static final String WEBHOOK_SECRET = "unit_test_webhook_secret";
+    private static final String HMAC_ALGO = "HmacSHA512";
+
     private static final String PAYLOAD = """
             {
               "event_id": "evt_x",
@@ -60,6 +71,18 @@ class WebhookDedupRollbackReleaseTest {
               "content": { "object": { "payment_id": "pay_123" } }
             }
             """;
+
+    /** Signs a payload with {@link #WEBHOOK_SECRET} exactly as {@code verifySignature} expects (hex HMAC). */
+    private static String signed(String payload) {
+        try {
+            Mac mac = Mac.getInstance(HMAC_ALGO);
+            mac.init(new SecretKeySpec(WEBHOOK_SECRET.getBytes(StandardCharsets.UTF_8), HMAC_ALGO));
+            byte[] hash = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (Exception e) {
+            throw new IllegalStateException("failed to sign test payload", e);
+        }
+    }
 
     private InboundWebhookRepository webhookRepository;
     private OutboxEventRepository outboxRepository;
@@ -81,10 +104,12 @@ class WebhookDedupRollbackReleaseTest {
         when(screeningOrigins.find(PAYMENT_ID))
                 .thenReturn(Optional.of(new ScreeningOriginService.Origin("tenant-A", ScreeningMode.INTERACTIVE)));
 
-        // Empty webhook secret -> signature verification is skipped (dev path), so the test posts unsigned.
+        // SEC-28: a NON-BLANK secret so the fail-closed gate verifies the (signed) payload instead of
+        // rejecting it 401. Each handleWebhook call below passes signed(PAYLOAD) so the post-gate SEC-15
+        // dedup-release logic under test is actually reached.
         controller = new HyperSwitchWebhookController(
                 webhookRepository, outboxRepository, redisTemplate, new ObjectMapper(),
-                screeningOrigins, new SimpleMeterRegistry(), "");
+                screeningOrigins, new SimpleMeterRegistry(), WEBHOOK_SECRET);
     }
 
     @AfterEach
@@ -107,7 +132,7 @@ class WebhookDedupRollbackReleaseTest {
         when(outboxRepository.save(any(OutboxEvent.class)))
                 .thenThrow(new RuntimeException("DB down — tx will roll back"));
 
-        assertThatThrownBy(() -> controller.handleWebhook(PAYLOAD, null))
+        assertThatThrownBy(() -> controller.handleWebhook(PAYLOAD, signed(PAYLOAD)))
                 .isInstanceOf(RuntimeException.class);
 
         // The claim was RELEASED (vulnerable code never calls delete -> this assertion fails on revert).
@@ -118,7 +143,7 @@ class WebhookDedupRollbackReleaseTest {
         org.mockito.Mockito.reset(outboxRepository);
         when(outboxRepository.save(any(OutboxEvent.class))).thenReturn(null);
 
-        var response = controller.handleWebhook(PAYLOAD, null);
+        var response = controller.handleWebhook(PAYLOAD, signed(PAYLOAD));
         assertThat(response.getStatusCode().value()).isEqualTo(200);
         verify(outboxRepository).save(any(OutboxEvent.class)); // re-processed, NOT 200-skipped
     }
@@ -133,7 +158,7 @@ class WebhookDedupRollbackReleaseTest {
                 .thenReturn(Boolean.TRUE);
         when(outboxRepository.save(any(OutboxEvent.class))).thenReturn(null);
 
-        var first = controller.handleWebhook(PAYLOAD, null);
+        var first = controller.handleWebhook(PAYLOAD, signed(PAYLOAD));
         assertThat(first.getStatusCode().value()).isEqualTo(200);
 
         // On the happy path the key is NOT released (no active tx here; the fallback only deletes on a
@@ -143,7 +168,7 @@ class WebhookDedupRollbackReleaseTest {
         // Second (duplicate) delivery: setIfAbsent now returns FALSE -> 200, NO second outbox save.
         when(valueOps.setIfAbsent(eq(DEDUP_PREFIX + EVENT_ID), anyString(), any(Duration.class)))
                 .thenReturn(Boolean.FALSE);
-        var dup = controller.handleWebhook(PAYLOAD, null);
+        var dup = controller.handleWebhook(PAYLOAD, signed(PAYLOAD));
         assertThat(dup.getStatusCode().value()).isEqualTo(200);
         verify(outboxRepository, times(1)).save(any(OutboxEvent.class)); // still only the first save
     }
@@ -161,7 +186,7 @@ class WebhookDedupRollbackReleaseTest {
                     .thenReturn(Boolean.TRUE);
             when(outboxRepository.save(any(OutboxEvent.class))).thenReturn(null);
 
-            controller.handleWebhook(PAYLOAD, null);
+            controller.handleWebhook(PAYLOAD, signed(PAYLOAD));
 
             List<TransactionSynchronization> syncs =
                     TransactionSynchronizationManager.getSynchronizations();
@@ -191,7 +216,7 @@ class WebhookDedupRollbackReleaseTest {
                     .thenReturn(Boolean.TRUE);
             when(outboxRepository.save(any(OutboxEvent.class))).thenReturn(null);
 
-            controller.handleWebhook(PAYLOAD, null);
+            controller.handleWebhook(PAYLOAD, signed(PAYLOAD));
 
             TransactionSynchronization sync =
                     TransactionSynchronizationManager.getSynchronizations().get(0);

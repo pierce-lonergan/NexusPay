@@ -15,9 +15,11 @@ import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.UUID;
 
@@ -114,6 +116,53 @@ public class GlobalExceptionHandler {
                 ? fieldError.getField() + ": " + fieldError.getDefaultMessage()
                 : ex.getMessage();
         return body(HttpStatus.BAD_REQUEST, ApiError.TYPE_VALIDATION, "invalid_parameter", message);
+    }
+
+    /**
+     * SEC-28: Spring 6.1 enforces constraints placed DIRECTLY on a controller method parameter
+     * (e.g. the {@code @Size}/{@code @NotEmpty} batch cap on {@code VendorPaymentController#createBatch}
+     * under class-level {@code @Validated}) via built-in method validation, which throws
+     * {@link org.springframework.web.method.annotation.HandlerMethodValidationException}. That type
+     * extends {@link ResponseStatusException} and carries a 400 status, but WITHOUT this handler the
+     * most-specific match in this advice is the {@code Exception} catch-all (resolved by
+     * {@code ExceptionHandlerExceptionResolver} BEFORE {@code ResponseStatusExceptionResolver} can honor
+     * the embedded status) — so a rejected (oversized/empty) batch surfaces as a generic HTTP 500,
+     * misrepresenting a client error as a server fault and tripping ops alerts / client retries.
+     *
+     * <p>Handling the {@link ResponseStatusException} superclass also lets controllers/services throw a
+     * {@code ResponseStatusException} (e.g. the configurable batch-size check) and have its status honored
+     * rather than swallowed by the catch-all. The embedded status is preserved verbatim; 5xx reasons are
+     * leak-hardened to the generic message (matching the other 500 handlers), while 4xx reasons — which are
+     * developer-authored, safe text — are passed through.</p>
+     */
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ApiErrorResponse> handleResponseStatus(ResponseStatusException ex) {
+        HttpStatusCode statusCode = ex.getStatusCode();
+        HttpStatus status = HttpStatus.resolve(statusCode.value());
+        if (status == null) {
+            status = HttpStatus.INTERNAL_SERVER_ERROR;
+        }
+
+        if (status.is5xxServerError()) {
+            // Leak hardening: a 5xx body never echoes the reason (mirrors the other 500 handlers).
+            log.error("Response-status error [{}]: {}", status.value(), ex.getMessage());
+            return body(status, ApiError.TYPE_INTERNAL, "internal_error", GENERIC_500_MESSAGE);
+        }
+
+        String reason = (ex.getReason() != null && !ex.getReason().isBlank())
+                ? ex.getReason()
+                : status.getReasonPhrase();
+        String type = switch (status) {
+            case BAD_REQUEST, UNPROCESSABLE_ENTITY -> ApiError.TYPE_VALIDATION;
+            case NOT_FOUND -> ApiError.TYPE_NOT_FOUND;
+            case UNAUTHORIZED -> ApiError.TYPE_UNAUTHORIZED;
+            case FORBIDDEN -> ApiError.TYPE_FORBIDDEN;
+            case CONFLICT -> ApiError.TYPE_CONFLICT;
+            case TOO_MANY_REQUESTS -> ApiError.TYPE_RATE_LIMIT;
+            default -> ApiError.TYPE_VALIDATION;
+        };
+        log.warn("Response-status error [{}]: {}", status.value(), reason);
+        return body(status, type, "invalid_request", reason);
     }
 
     /**

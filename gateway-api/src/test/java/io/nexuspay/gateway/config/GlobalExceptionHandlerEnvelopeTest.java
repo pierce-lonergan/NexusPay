@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.is;
@@ -171,6 +172,25 @@ class GlobalExceptionHandlerEnvelopeTest {
                 .andExpect(jsonPath("$.error.request_id").isNotEmpty());
     }
 
+    @Test
+    void responseStatus400_is400Validation() throws Exception {
+        // SEC-28: a ResponseStatusException(400) (the family that includes Spring 6.1's
+        // HandlerMethodValidationException for method-parameter @Size/@NotEmpty) maps to a 400 validation
+        // envelope, NOT the generic 500 it produced before the dedicated handler existed.
+        assertEnvelope("/throw/response-status-400", HttpStatus.BAD_REQUEST, "validation_error", "invalid_request");
+    }
+
+    @Test
+    void responseStatus500_isGenericMessage_noLeak() throws Exception {
+        // A 5xx ResponseStatusException is leak-hardened to the generic message (mirrors the other 500s).
+        mockMvc.perform(get("/throw/response-status-500").header(CorrelationIdFilter.REQUEST_ID_HEADER, RID))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error.type", is("internal_error")))
+                .andExpect(jsonPath("$.error.message", is("An unexpected error occurred")))
+                .andExpect(jsonPath("$.error.request_id", is(RID)))
+                .andExpect(content().string(not(containsString("SECRET-SQL-leak"))));
+    }
+
     /** A concrete NexusPayException subtype with no dedicated handler (exercises the fallback handler). */
     private static class GenericDomainException extends NexusPayException {
         GenericDomainException(String message) {
@@ -243,6 +263,16 @@ class GlobalExceptionHandlerEnvelopeTest {
         @GetMapping("/throw/runtime")
         String runtime() {
             throw new RuntimeException(SENTINEL);
+        }
+
+        @GetMapping("/throw/response-status-400")
+        String responseStatus400() {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "batch size must not exceed 100");
+        }
+
+        @GetMapping("/throw/response-status-500")
+        String responseStatus500() {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, SENTINEL);
         }
     }
 }
