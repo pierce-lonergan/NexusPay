@@ -6,6 +6,13 @@ the NexusPay contracts with hand-rolled code. This document maps Snap's current
 integration to the NexusPay contracts, calls out the residual gaps, and gives a
 concrete, low-risk path to adopt the official SDK.
 
+> **The SDK is now published.** As of 2026-06-16 the client SDKs are **live on npm at
+> `0.1.0`**, built and signed from CI with Sigstore provenance: [`@nexus-pay/js`](https://www.npmjs.com/package/@nexus-pay/js),
+> [`@nexus-pay/node`](https://www.npmjs.com/package/@nexus-pay/node),
+> [`@nexus-pay/react`](https://www.npmjs.com/package/@nexus-pay/react). The npm scope is
+> **`@nexus-pay`** (with a hyphen) — `@nexuspay` was unavailable. The SDKs are MIT-licensed
+> and embeddable in client apps even though the platform itself is PolyForm-Noncommercial.
+
 > Snap files are referenced **read-only** below for orientation. This document
 > proposes changes; it does not modify any Snap code.
 
@@ -38,6 +45,14 @@ behavior.
 ---
 
 ## Recommended adoption of `@nexus-pay/node`
+
+Snap only needs the **server** SDK (the credit checkout + webhook receiver run on Next.js API
+routes, not in the browser). Install it and pin a range so a future major can't silently change
+the contract:
+
+```bash
+npm i @nexus-pay/node@^0.1.0
+```
 
 ### Checkout — replace the raw `fetch`
 
@@ -78,6 +93,27 @@ import { constructEvent } from '@nexus-pay/node';
 const event = constructEvent(rawBody, req.headers, process.env.NEXUSPAY_WEBHOOK_SECRET);
 // then read event.data.metadata.userId / event.data.metadata.packId  (see GAP-01)
 ```
+
+---
+
+## Platform security posture (what Snap gets for free)
+
+NexusPay completed a security-hardening pass (SEC-1b…28, 2026-06-16) that strengthens this
+integration without any change on Snap's side:
+
+- **Tenant is server-authoritative.** Snap's tenant is derived from its `sk_test_` **API key**, never
+  from a client-supplied header — the platform now rejects/ignores any `X-Tenant-Id` header on every
+  endpoint (a repo-wide audit confirmed zero header-trust). Snap already sends only the API key, so
+  there is nothing to change; cross-tenant access is impossible by construction.
+- **Money mutations are idempotent.** `createPayment` (and capture/void/refund) dedupe on the
+  idempotency key, so a retried or double-fired checkout cannot double-charge or double-credit. Snap's
+  `idempotencyKey: checkout:${userId}:${pack.id}` is exactly the right shape — keep it stable per
+  (user, pack) attempt.
+- **Webhooks are signed, replay-safe, and rotatable.** Deliveries to Snap are HMAC-signed over the raw
+  body with at-least-once delivery, a stable `event.id` for dedupe, and secret rotation support (INT-4).
+  Verify the signature before parsing (Snap already does) and dedupe on `event.id` (GAP-07).
+- **Test mode never moves real money.** An `sk_test_` key routes to the in-process mock gateway (INT-3) —
+  no real PSP call — satisfying Snap's CHARTER.
 
 ---
 
