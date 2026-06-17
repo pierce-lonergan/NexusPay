@@ -31,6 +31,12 @@ KC_CLIENT_ID="${KEYCLOAK_CLIENT_ID:-nexuspay-api}"
 KC_CLIENT_SECRET="${KEYCLOAK_CLIENT_SECRET:-nexuspay-api-secret}"
 KC_ADMIN_USER="${SEED_ADMIN_USER:-admin@nexuspay.test}"   # seeded realm user
 KC_ADMIN_PASS="${SEED_ADMIN_PASS:-test123}"               # seeded realm password
+# DX-4: the webhook endpoint to register. Default https://example.com (passes @SafeWebhookUrl but
+# BLACK-HOLES every delivery — fine for a smoke test, useless for seeing a credit land locally). To
+# actually receive events on your machine, run an HTTPS tunnel and re-run with:
+#   WEBHOOK_URL=https://<your-tunnel>.ngrok.app/webhooks ./scripts/dev/seed-local.sh
+# (loopback/localhost is rejected by SEC-4b at registration AND delivery — see docs/LOCAL_DEV.md §6.)
+WEBHOOK_URL="${WEBHOOK_URL:-https://example.com/webhooks}"
 
 command -v curl >/dev/null || { echo "ERROR: curl is required" >&2; exit 1; }
 command -v jq   >/dev/null || { echo "ERROR: jq is required (brew/apt install jq)" >&2; exit 1; }
@@ -67,14 +73,15 @@ API_KEY_ID="$(printf '%s' "$KEY_JSON" | jq -r '.id')"
 }
 
 # --- 3. register a webhook endpoint -> whsec_ secret + id --------------------
-# URL is https://example.com (public) so it passes @SafeWebhookUrl at
-# registration. Events are canonical dotted names. localhost CANNOT be used --
-# see the SEC-4b caveat in docs/LOCAL_DEV.md.
-say "Registering webhook endpoint (https://example.com/webhooks)..."
+# Registered as the ADMIN (Keycloak JWT below) because /v1/webhook-endpoints is admin-only — the
+# operator sk_test_ key minted above CANNOT register/rotate/replay (it 403s). Default WEBHOOK_URL is
+# https://example.com (passes @SafeWebhookUrl but black-holes); set WEBHOOK_URL to a tunnel to actually
+# receive events. localhost CANNOT be used -- see the SEC-4b caveat in docs/LOCAL_DEV.md.
+say "Registering webhook endpoint ($WEBHOOK_URL)..."
 WH_JSON="$(curl -fsS -X POST "$APP_URL/v1/webhook-endpoints" \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"url":"https://example.com/webhooks","description":"local dev","events":["payment.succeeded","payment.refunded"]}')"
+  -d "{\"url\":\"$WEBHOOK_URL\",\"description\":\"local dev\",\"events\":[\"payment.succeeded\",\"payment.refunded\"]}")"
 WHSEC="$(printf '%s' "$WH_JSON" | jq -r '.secret')"
 WH_ID="$(printf '%s' "$WH_JSON" | jq -r '.id')"
 [ -n "$WHSEC" ] && [ "$WHSEC" != "null" ] || {
@@ -83,6 +90,10 @@ WH_ID="$(printf '%s' "$WH_JSON" | jq -r '.id')"
 }
 
 # --- 4. print for the developer ----------------------------------------------
+BLACKHOLE_NOTE=""
+if [ "$WEBHOOK_URL" = "https://example.com/webhooks" ]; then
+  BLACKHOLE_NOTE="  (BLACK-HOLE — set WEBHOOK_URL to a tunnel to receive events)"
+fi
 cat <<EOF
 
 --------------------------------------------------------------------
@@ -92,6 +103,15 @@ cat <<EOF
    (api key id          : $API_KEY_ID)
  webhook signing secret: $WHSEC
    (webhook endpoint id : $WH_ID)
+ webhook target        : ${WEBHOOK_URL}${BLACKHOLE_NOTE}
+
+ To point webhooks at YOUR machine, run an HTTPS tunnel and re-run this script:
+   WEBHOOK_URL=https://<your-tunnel>/webhooks ./scripts/dev/seed-local.sh
+ (re-registering is ADMIN-only; re-running the seed handles the admin auth for you. To register
+  manually instead, use an ADMIN token — the operator sk_test_ key above 403s on /v1/webhook-endpoints:
+   curl -X POST $APP_URL/v1/webhook-endpoints -H "Authorization: Bearer \$ADMIN_TOKEN" \\
+     -H 'Content-Type: application/json' \\
+     -d '{"url":"https://<your-tunnel>/webhooks","events":["payment.succeeded","payment.refunded"]}')
 
  Drive a payment (routes to the in-process mock):
    curl -X POST $APP_URL/v1/payments \\

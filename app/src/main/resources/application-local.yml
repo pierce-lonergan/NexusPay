@@ -1,5 +1,17 @@
-# Local development profile (Docker Compose)
+# Local development profile (Docker Compose, host bootRun).
 spring:
+  # DX-4: default the two env vars the happy-path bootRun used to require, so a dev who forgets them
+  # doesn't hit a SILENT failure. Both stay env-overridable.
+  #  - Vault: spring-cloud-starter-vault-config auto-activates and would fail to boot (no Vault locally);
+  #    the local stack has no Vault, so default it OFF here. Set SPRING_CLOUD_VAULT_ENABLED=true to override.
+  #  - Kafka: the base default localhost:9092 is the IN-NETWORK listener; a HOST bootRun must reach the
+  #    docker-mapped PLAINTEXT_HOST listener at localhost:29092, or the outbox publish silently times out
+  #    (no webhook ever fires). Set KAFKA_BOOTSTRAP_SERVERS to override (e.g. a remapped host port).
+  cloud:
+    vault:
+      enabled: ${SPRING_CLOUD_VAULT_ENABLED:false}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
   jpa:
     hibernate:
       ddl-auto: validate
