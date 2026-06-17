@@ -1,6 +1,8 @@
 package io.nexuspay.iam.application;
 
 import io.nexuspay.common.exception.AuthorizationException;
+import io.nexuspay.common.exception.ConflictException;
+import io.nexuspay.common.exception.InvalidRequestException;
 import io.nexuspay.common.id.PrefixedId;
 import io.nexuspay.iam.adapter.out.persistence.ApiKeyEntity;
 import io.nexuspay.iam.adapter.out.persistence.JpaApiKeyRepository;
@@ -13,12 +15,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
 
 /**
- * Manages API key lifecycle: creation, authentication, revocation.
+ * Manages API key lifecycle: creation, authentication, expiry, rotation, revocation.
  * Keys follow Stripe convention: sk_test_{random} / sk_live_{random}.
  */
 @Service
@@ -27,43 +30,55 @@ public class ApiKeyService {
     private static final Logger log = LoggerFactory.getLogger(ApiKeyService.class);
     private static final int KEY_RANDOM_BYTES = 24;
     private static final int PREFIX_DISPLAY_LENGTH = 12;
+    // DX-5c: throttle window for the best-effort last_used_at stamp. We only re-touch a key whose
+    // last_used_at is null or older than this — keeping authenticate() off a write on every request.
+    private static final Duration LAST_USED_THROTTLE = Duration.ofMinutes(5);
 
     private final JpaApiKeyRepository apiKeyRepository;
+    private final ApiKeyUsageTracker usageTracker;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     private final SecureRandom secureRandom = new SecureRandom();
 
-    public ApiKeyService(JpaApiKeyRepository apiKeyRepository) {
+    public ApiKeyService(JpaApiKeyRepository apiKeyRepository, ApiKeyUsageTracker usageTracker) {
         this.apiKeyRepository = apiKeyRepository;
+        this.usageTracker = usageTracker;
     }
 
     /**
-     * Creates a new API key. Returns the full key (shown once) and the persisted entity.
+     * Back-compat 4-arg overload: creates a never-expiring API key (expiresAt = null).
      */
     @Transactional
     public CreateApiKeyResult createApiKey(String name, String role, String tenantId, boolean live) {
-        String prefix = live ? "sk_live_" : "sk_test_";
-        byte[] randomBytes = new byte[KEY_RANDOM_BYTES];
-        secureRandom.nextBytes(randomBytes);
-        String randomPart = Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes);
-        String fullKey = prefix + randomPart;
+        return createApiKey(name, role, tenantId, live, null);
+    }
 
-        String keyHash = passwordEncoder.encode(fullKey);
-        String keyPrefix = fullKey.substring(0, Math.min(fullKey.length(), PREFIX_DISPLAY_LENGTH));
-        String id = PrefixedId.apiKey();
-
-        // Critique 3.2 (belt-and-suspenders): the prefix and the is_live flag are derived from the SAME
-        // `live` argument above, so they always agree here. Lock that invariant at the write boundary so a
-        // future refactor cannot persist a mismatched row — authenticate() enforces the same invariant at
-        // the read boundary (fail-closed), making the prefix a verified control rather than cosmetic.
-        if (!prefixAgreesWithLive(keyPrefix, live)) {
-            throw new IllegalStateException("API key prefix/is_live mismatch at creation");
+    /**
+     * Creates a new API key with an OPTIONAL absolute expiry. Returns the full key (shown once).
+     *
+     * <p>DX-5c fail-closed guard: if {@code expiresAt} is non-null it MUST be in the future
+     * (strictly after now); creating an already-expired key is rejected with
+     * {@link IllegalArgumentException}. A {@code null} {@code expiresAt} means the key never expires.
+     */
+    @Transactional
+    public CreateApiKeyResult createApiKey(String name, String role, String tenantId, boolean live,
+                                           Instant expiresAt) {
+        Instant now = Instant.now();
+        if (expiresAt != null && !expiresAt.isAfter(now)) {
+            // Reject minting a key whose expiry is at-or-before now — a key that is born expired.
+            // Caller-caused → InvalidRequestException (400), NOT a raw IllegalArgumentException (which the
+            // codebase reserves for internal invariants and maps to 500).
+            throw new InvalidRequestException("API key expiresAt must be in the future");
         }
 
-        var entity = new ApiKeyEntity(id, keyHash, keyPrefix, name, role, tenantId, live, Instant.now(), null);
+        GeneratedKey generated = generateKey(live);
+        var entity = new ApiKeyEntity(generated.id(), generated.keyHash(), generated.keyPrefix(),
+                name, role, tenantId, live, now, null, expiresAt, null, null);
         apiKeyRepository.save(entity);
 
-        log.info("Created API key: id={}, prefix={}, role={}, tenant={}", id, keyPrefix, role, tenantId);
-        return new CreateApiKeyResult(id, fullKey, keyPrefix, name, role, tenantId, live);
+        log.info("Created API key: id={}, prefix={}, role={}, tenant={}, expiresAt={}",
+                generated.id(), generated.keyPrefix(), role, tenantId, expiresAt);
+        return new CreateApiKeyResult(generated.id(), generated.fullKey(), generated.keyPrefix(),
+                name, role, tenantId, live, expiresAt);
     }
 
     /**
@@ -74,6 +89,7 @@ public class ApiKeyService {
             return null; // Not an API key — let JWT filter handle it
         }
 
+        Instant now = Instant.now();
         String prefix = rawKey.substring(0, Math.min(rawKey.length(), PREFIX_DISPLAY_LENGTH));
         List<ApiKeyEntity> candidates = apiKeyRepository.findByKeyPrefixAndRevokedAtIsNull(prefix);
 
@@ -98,6 +114,22 @@ public class ApiKeyService {
                             candidate.getId(), candidate.getKeyPrefix(), candidate.isLive());
                     continue;
                 }
+                // DX-5c: FAIL-CLOSED expiry check. A key with a non-null expires_at that is at-or-after
+                // `now` is EXPIRED. Log a WARNING (id/prefix only — NEVER the raw key) and `continue` so
+                // an expired key is treated IDENTICALLY to a non-match and falls through to the single
+                // terminal invalidApiKey() throw below — same exception, no oracle (an expired key is
+                // indistinguishable from an invalid one to the caller). A null expires_at never expires.
+                if (candidate.getExpiresAt() != null && !now.isBefore(candidate.getExpiresAt())) {
+                    log.warn("Rejecting expired API key: id={}, prefix={}, expiresAt={}",
+                            candidate.getId(), candidate.getKeyPrefix(), candidate.getExpiresAt());
+                    continue;
+                }
+                // DX-5c: best-effort, THROTTLED last_used_at stamp. Observability only, fail-OPEN — wrapped
+                // in try/catch with the exception SWALLOWED (logged at debug); a touch failure must NEVER
+                // deny a valid key. Throttled so we don't write on every request: only when last_used_at is
+                // null or older than the throttle window. Delegated to a separate bean so the
+                // @Transactional proxy applies (a self-invoked method would bypass it).
+                touchIfStale(candidate, now);
                 // INT-3: the mode is SERVER-DERIVED from the matched entity's is_live column — never
                 // inferred from the raw key string. A sk_test_ key (is_live=false) yields a TEST
                 // principal whose payment ops route to the mock gateway; a sk_live_ key yields a LIVE
@@ -115,13 +147,81 @@ public class ApiKeyService {
         throw AuthorizationException.invalidApiKey();
     }
 
+    /**
+     * DX-5c: tenant-scoped revoke (IDOR fix). Looks the key up by id AND tenantId so an admin can only
+     * revoke keys in their OWN tenant; an other-tenant key id resolves to the SAME uniform
+     * {@code invalidApiKey()} as a missing id (no cross-tenant existence oracle).
+     */
     @Transactional
-    public void revokeApiKey(String keyId) {
-        var entity = apiKeyRepository.findById(keyId)
-                .orElseThrow(() -> AuthorizationException.invalidApiKey());
+    public void revokeApiKey(String keyId, String tenantId) {
+        var entity = apiKeyRepository.findByIdAndTenantId(keyId, tenantId)
+                .orElseThrow(AuthorizationException::invalidApiKey);
         entity.setRevokedAt(Instant.now());
         apiKeyRepository.save(entity);
-        log.info("Revoked API key: id={}", keyId);
+        log.info("Revoked API key: id={}, tenant={}", keyId, tenantId);
+    }
+
+    /**
+     * DX-5c: rotate a key with an overlap window. Mints a NEW key (new id + secret, same role/tenant/
+     * live/expiry-policy as the old) and SHORTENS the old key's life to an overlap deadline so existing
+     * callers have time to swap. Tenant-scoped (IDOR-safe) like revoke.
+     *
+     * <ul>
+     *   <li>The old key is found via {@code findByIdAndTenantId}; absent => {@code invalidApiKey()}
+     *       (an other-tenant key id is indistinguishable from a missing one — no oracle).</li>
+     *   <li>The old key must be USABLE now (not revoked, not already expired) and not already
+     *       superseded ({@code replaced_by} unset) — else {@code IllegalStateException}.</li>
+     *   <li>The new key inherits the old key's ORIGINAL {@code expiresAt} (or null).</li>
+     *   <li>The old key's new {@code expires_at} NEVER EXTENDS its life: it becomes the EARLIER of its
+     *       original expiry and {@code now+overlap}. A zero/negative overlap retires it immediately
+     *       ({@code expires_at = now}).</li>
+     * </ul>
+     *
+     * @return the NEW key's result (full key shown once).
+     */
+    @Transactional
+    public CreateApiKeyResult rotateApiKey(String keyId, String tenantId, Duration overlap) {
+        Instant now = Instant.now();
+        ApiKeyEntity old = apiKeyRepository.findByIdAndTenantId(keyId, tenantId)
+                .orElseThrow(AuthorizationException::invalidApiKey);
+
+        // The old key must still be usable (not revoked, not already expired) to be rotated. These are
+        // caller-caused state conflicts → ConflictException (409). We log the key id (caller's own,
+        // tenant-scoped) but keep the thrown MESSAGE id-free so the 409 body carries no identifier.
+        if (old.getRevokedAt() != null
+                || (old.getExpiresAt() != null && !now.isBefore(old.getExpiresAt()))) {
+            log.warn("Refusing to rotate a revoked/expired API key: id={}, tenant={}", keyId, tenantId);
+            throw new ConflictException("API key cannot be rotated in its current state", "key_not_rotatable");
+        }
+        // Do not re-rotate an already-superseded key.
+        if (old.getReplacedBy() != null) {
+            log.warn("Refusing to re-rotate an already-superseded API key: id={}, tenant={}", keyId, tenantId);
+            throw new ConflictException("API key has already been rotated", "key_not_rotatable");
+        }
+
+        Instant inheritedExpiry = old.getExpiresAt(); // new key inherits the ORIGINAL expiry (or null)
+
+        // Mint the NEW key: same role/tenant/live as the old; inherits the old key's original expiry.
+        GeneratedKey generated = generateKey(old.isLive());
+        var newEntity = new ApiKeyEntity(generated.id(), generated.keyHash(), generated.keyPrefix(),
+                old.getName(), old.getRole(), old.getTenantId(), old.isLive(), now, null,
+                inheritedExpiry, null, null);
+        apiKeyRepository.save(newEntity);
+
+        // Shorten the OLD key: expires_at = EARLIER of (original expiry, now+overlap). Never extend.
+        // A zero/negative overlap => now+overlap <= now => retire immediately.
+        Instant overlapDeadline = now.plus(overlap);
+        Instant newOldExpiry = (old.getExpiresAt() == null)
+                ? overlapDeadline
+                : earlier(old.getExpiresAt(), overlapDeadline);
+        old.setExpiresAt(newOldExpiry);
+        old.setReplacedBy(generated.id());
+        apiKeyRepository.save(old);
+
+        log.info("Rotated API key: oldId={}, newId={}, tenant={}, oldExpiresAt={}, overlap={}",
+                keyId, generated.id(), tenantId, newOldExpiry, overlap);
+        return new CreateApiKeyResult(generated.id(), generated.fullKey(), generated.keyPrefix(),
+                old.getName(), old.getRole(), old.getTenantId(), old.isLive(), inheritedExpiry);
     }
 
     @Transactional(readOnly = true)
@@ -129,6 +229,55 @@ public class ApiKeyService {
         return apiKeyRepository.findAllByTenantIdAndRevokedAtIsNull(tenantId).stream()
                 .map(this::toDomain)
                 .toList();
+    }
+
+    /**
+     * DX-5c: best-effort, throttled last_used_at stamp. Fail-OPEN — any exception is swallowed (logged
+     * at debug). Only re-touches when last_used_at is null or older than {@link #LAST_USED_THROTTLE}.
+     */
+    private void touchIfStale(ApiKeyEntity candidate, Instant now) {
+        Instant lastUsed = candidate.getLastUsedAt();
+        boolean stale = lastUsed == null || lastUsed.isBefore(now.minus(LAST_USED_THROTTLE));
+        if (!stale) {
+            return;
+        }
+        try {
+            usageTracker.touch(candidate.getId(), now);
+        } catch (Exception e) {
+            // Observability only — never deny a valid key because the stamp failed.
+            log.debug("last_used_at touch failed for id={}: {}", candidate.getId(), e.getMessage());
+        }
+    }
+
+    private record GeneratedKey(String id, String fullKey, String keyHash, String keyPrefix) {}
+
+    /**
+     * DX-5c: shared key generation + fail-closed prefix/is_live assertion. Used by both createApiKey
+     * and rotateApiKey so the minting path (and the Critique-3.2 write-boundary invariant) is identical.
+     */
+    private GeneratedKey generateKey(boolean live) {
+        String prefix = live ? "sk_live_" : "sk_test_";
+        byte[] randomBytes = new byte[KEY_RANDOM_BYTES];
+        secureRandom.nextBytes(randomBytes);
+        String randomPart = Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes);
+        String fullKey = prefix + randomPart;
+
+        String keyHash = passwordEncoder.encode(fullKey);
+        String keyPrefix = fullKey.substring(0, Math.min(fullKey.length(), PREFIX_DISPLAY_LENGTH));
+        String id = PrefixedId.apiKey();
+
+        // Critique 3.2 (belt-and-suspenders): the prefix and the is_live flag are derived from the SAME
+        // `live` argument above, so they always agree here. Lock that invariant at the write boundary so a
+        // future refactor cannot persist a mismatched row — authenticate() enforces the same invariant at
+        // the read boundary (fail-closed), making the prefix a verified control rather than cosmetic.
+        if (!prefixAgreesWithLive(keyPrefix, live)) {
+            throw new IllegalStateException("API key prefix/is_live mismatch at creation");
+        }
+        return new GeneratedKey(id, fullKey, keyHash, keyPrefix);
+    }
+
+    private static Instant earlier(Instant a, Instant b) {
+        return a.isBefore(b) ? a : b;
     }
 
     /**
@@ -155,11 +304,12 @@ public class ApiKeyService {
     private ApiKey toDomain(ApiKeyEntity entity) {
         return new ApiKey(entity.getId(), entity.getKeyHash(), entity.getKeyPrefix(),
                 entity.getName(), entity.getRole(), entity.getTenantId(), entity.isLive(),
-                entity.getCreatedAt(), entity.getRevokedAt());
+                entity.getCreatedAt(), entity.getRevokedAt(),
+                entity.getExpiresAt(), entity.getLastUsedAt(), entity.getReplacedBy());
     }
 
     public record CreateApiKeyResult(
             String id, String fullKey, String keyPrefix, String name,
-            String role, String tenantId, boolean live
+            String role, String tenantId, boolean live, Instant expiresAt
     ) {}
 }

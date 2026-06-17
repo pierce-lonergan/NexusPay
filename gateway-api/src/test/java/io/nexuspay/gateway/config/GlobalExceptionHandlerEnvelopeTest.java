@@ -1,6 +1,8 @@
 package io.nexuspay.gateway.config;
 
 import io.nexuspay.common.exception.AuthorizationException;
+import io.nexuspay.common.exception.ConflictException;
+import io.nexuspay.common.exception.InvalidRequestException;
 import io.nexuspay.common.exception.LedgerException;
 import io.nexuspay.common.exception.NexusPayException;
 import io.nexuspay.common.exception.PaymentException;
@@ -181,6 +183,48 @@ class GlobalExceptionHandlerEnvelopeTest {
     }
 
     @Test
+    void conflictException_is409Conflict() throws Exception {
+        // DX-5c: ApiKeyService.rotateApiKey throws a TYPED ConflictException for a revoked/expired or
+        // already-replaced key — mapped to a 409 conflict envelope with the curated, id-free message. (A
+        // raw IllegalStateException is NOT handled here: it stays a 500, see internalInvariant test below.)
+        mockMvc.perform(get("/throw/conflict").header(CorrelationIdFilter.REQUEST_ID_HEADER, RID))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.type", is("conflict")))
+                .andExpect(jsonPath("$.error.code", is("key_not_rotatable")))
+                .andExpect(jsonPath("$.error.message", is("API key has already been rotated")))
+                .andExpect(jsonPath("$.error.request_id", is(RID)))
+                .andExpect(jsonPath("$.error.param").doesNotExist());
+    }
+
+    @Test
+    void invalidRequestException_is400Validation() throws Exception {
+        // DX-5c: ApiKeyService.createApiKey throws a TYPED InvalidRequestException for an at-or-before-now
+        // expiresAt (defence-in-depth behind the @Future DTO validation) — mapped to a 400 validation
+        // envelope with the curated message.
+        mockMvc.perform(get("/throw/invalid-request").header(CorrelationIdFilter.REQUEST_ID_HEADER, RID))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.type", is("validation_error")))
+                .andExpect(jsonPath("$.error.code", is("invalid_request")))
+                .andExpect(jsonPath("$.error.message", is("API key expiresAt must be in the future")))
+                .andExpect(jsonPath("$.error.request_id", is(RID)))
+                .andExpect(jsonPath("$.error.param").doesNotExist());
+    }
+
+    @Test
+    void rawIllegalState_internalInvariant_is500GenericMessage_noLeak() throws Exception {
+        // A RAW IllegalStateException (an INTERNAL invariant/corruption guard, e.g.
+        // ApiKeyService.generateKey's prefix/is_live mismatch) must remain a leak-hardened 500 — NOT a 409.
+        // This guards against re-introducing a blanket IllegalStateException->409 advice that would mislabel
+        // server faults as client conflicts across the codebase's 40-plus internal throws.
+        mockMvc.perform(get("/throw/illegal-state").header(CorrelationIdFilter.REQUEST_ID_HEADER, RID))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error.type", is("internal_error")))
+                .andExpect(jsonPath("$.error.message", is("An unexpected error occurred")))
+                .andExpect(jsonPath("$.error.request_id", is(RID)))
+                .andExpect(content().string(not(containsString("SECRET-SQL-leak"))));
+    }
+
+    @Test
     void responseStatus500_isGenericMessage_noLeak() throws Exception {
         // A 5xx ResponseStatusException is leak-hardened to the generic message (mirrors the other 500s).
         mockMvc.perform(get("/throw/response-status-500").header(CorrelationIdFilter.REQUEST_ID_HEADER, RID))
@@ -273,6 +317,27 @@ class GlobalExceptionHandlerEnvelopeTest {
         @GetMapping("/throw/response-status-500")
         String responseStatus500() {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, SENTINEL);
+        }
+
+        @GetMapping("/throw/conflict")
+        String conflict() {
+            // Mirrors ApiKeyService.rotateApiKey's typed state-conflict throw (already-rotated). The
+            // curated, id-free message IS echoed onto the 409 body (safe code-with-text, like PaymentException).
+            throw new ConflictException("API key has already been rotated", "key_not_rotatable");
+        }
+
+        @GetMapping("/throw/invalid-request")
+        String invalidRequest() {
+            // Mirrors ApiKeyService.createApiKey's typed past-expiry guard (defence-in-depth behind @Future).
+            throw new InvalidRequestException("API key expiresAt must be in the future");
+        }
+
+        @GetMapping("/throw/illegal-state")
+        String illegalState() {
+            // A RAW IllegalStateException stands in for an INTERNAL invariant/corruption guard (e.g.
+            // ApiKeyService.generateKey's prefix/is_live mismatch). It must remain a leak-hardened 500 — NOT
+            // a 409 — so a server fault still trips 5xx alerts. The SENTINEL must not reach the wire.
+            throw new IllegalStateException("internal invariant violated: " + SENTINEL);
         }
     }
 }

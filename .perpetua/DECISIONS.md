@@ -1021,3 +1021,37 @@ amount (use it for partial claw-back), and a new GAP-17 row in snap-loyalty.md t
 (scale the claw-back by event.data.object.amount, the one refund-path exception to GAP-13). Metadata still
 answers WHICH account; data.object.amount answers HOW MUCH. L-065. ADR-047 (carves out the refund case from
 the ADR documenting the "resolve from your catalog" guidance).
+
+## ADR-048 | 2026-06-17 | DX-5c: API-key lifecycle (expiry + last-used + rotate-with-overlap + revoke IDOR fix) (T3)
+Snap critique 3.3 (lifecycle half; per-key SCOPES deferred to DX-5c-ii to avoid reshaping the widely-used
+NexusPayPrincipal record in the same batch). Migration V4036 adds three NULLABLE additive columns to
+api_keys (back-compat: every existing row keeps working): expires_at (NULL=never), last_used_at, replaced_by.
+ApiKeyService changes: (1) authenticate() now FAIL-CLOSED on expiry — a matched candidate with expires_at
+at-or-after now `continue`s to the SAME single terminal invalidApiKey() throw as a non-match (no oracle;
+identical to the SEC-22 prefix-consistency pattern); (2) a best-effort, THROTTLED (5-min), FAIL-OPEN
+last_used_at stamp via a SEPARATE @Component ApiKeyUsageTracker (separate bean so the @Transactional proxy
+applies; any touch failure is swallowed — observability must never deny a valid key); (3) rotateApiKey
+mints a successor (same role/tenant/live, inherits the OLD key's ORIGINAL expiry) and shortens the old key
+to expires_at = EARLIER(original, now+overlap) so rotation can NEVER EXTEND a key's lifetime (a security
+property — a sooner-expiring key stays sooner); sets replaced_by; guards revoked/expired/already-replaced;
+(4) revokeApiKey + rotateApiKey are now TENANT-SCOPED via findByIdAndTenantId — fixing a real IDOR (the old
+revokeApiKey did a bare findById, so any admin could revoke ANY tenant's key by id); an other-tenant id is
+indistinguishable from a missing one (no existence oracle). New admin-only POST /v1/api-keys/{id}/rotate
+(default overlap 86400s, hard cap 604800s, clamped). Back-compat 4-arg createApiKey overload preserved;
+9-arg ApiKey/ApiKeyEntity ctors preserved (existing fixtures compile unchanged).
+REVIEW (4 lenses: auth-bypass, tenant-IDOR, back-compat, correctness) found the IDOR fix + no-oracle sound
+and ONE SHOULD_FIX (raised by TWO lenses): the new service-layer state guards threw raw
+IllegalStateException (rotate revoked/expired/already-replaced) and IllegalArgumentException (create past
+expiry) which GlobalExceptionHandler had no handler for -> fell through to the catch-all 500, contradicting
+the OpenAPI 400/409 contract. The workflow's fix agent patched it with a BLANKET
+@ExceptionHandler(IllegalStateException)->409 + @ExceptionHandler(IllegalArgumentException)->400. On
+diff-review I REJECTED that as too broad: a blanket advice on those two java.lang types silently re-maps the
+codebase's ~100 internal Illegal* throws (53 IllegalArgument + 47 IllegalState) — including
+ApiKeyService.generateKey's own "prefix/is_live mismatch" corruption guard, which is a SERVER fault that MUST
+stay 500 and would have been mislabelled "409 key_not_rotatable". Replaced it with the reviewer's PREFERRED
+contained option: two new typed domain exceptions in :common — ConflictException (->409) and
+InvalidRequestException (->400, named to avoid the jakarta.validation.ValidationException clash) — each
+mirroring ResourceNotFoundException, with type-SPECIFIC @ExceptionHandlers. Brand-new types => ZERO blast
+radius; the 100 internal Illegal* throws stay 500 (locked by a new envelope test asserting raw
+IllegalStateException -> 500 generic/no-leak). Messages are curated/id-free (key id logged at the throw
+site, never on the wire) so the 4xx echo is safe. CI is the oracle (Gradle can't run locally). L-066. ADR-048.

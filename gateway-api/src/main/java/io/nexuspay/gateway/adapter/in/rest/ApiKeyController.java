@@ -2,6 +2,7 @@ package io.nexuspay.gateway.adapter.in.rest;
 
 import io.nexuspay.gateway.adapter.in.rest.dto.CreateApiKeyRequest;
 import io.nexuspay.gateway.adapter.in.rest.dto.CreateApiKeyResponse;
+import io.nexuspay.gateway.adapter.in.rest.dto.RotateApiKeyRequest;
 import io.nexuspay.iam.application.ApiKeyService;
 import io.nexuspay.iam.domain.NexusPayPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
@@ -13,12 +14,18 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Duration;
 import java.time.Instant;
 
 @RestController
 @RequestMapping("/v1/api-keys")
 @Tag(name = "API Keys", description = "Manage API keys")
 public class ApiKeyController {
+
+    // DX-5c: rotation overlap policy — server default and a hard cap. An unbounded client value is
+    // CLAMPED to the cap (never trusted): rotation must not be a way to extend a key's life arbitrarily.
+    private static final long DEFAULT_OVERLAP_SECONDS = 86_400L;      // 24h
+    private static final long MAX_OVERLAP_SECONDS = 7L * 86_400L;     // 7 days
 
     private final ApiKeyService apiKeyService;
 
@@ -32,19 +39,46 @@ public class ApiKeyController {
     public ResponseEntity<CreateApiKeyResponse> create(
             @Valid @RequestBody CreateApiKeyRequest request,
             @AuthenticationPrincipal NexusPayPrincipal principal) {
+        // DX-5c: pass the optional expiry through. @Future on the DTO rejects an at-or-before-now value
+        // early; the service re-validates fail-closed (defence in depth).
         var result = apiKeyService.createApiKey(
-                request.name(), request.role(), principal.tenantId(), request.live());
+                request.name(), request.role(), principal.tenantId(), request.live(), request.expiresAt());
         return ResponseEntity.status(HttpStatus.CREATED).body(new CreateApiKeyResponse(
                 result.id(), result.fullKey(), result.keyPrefix(),
-                request.name(), request.role(), request.live(), Instant.now()
+                result.name(), result.role(), result.live(), Instant.now(), result.expiresAt()
         ));
     }
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('admin')")
     @Operation(summary = "Revoke an API key")
-    public ResponseEntity<Void> revoke(@PathVariable String id) {
-        apiKeyService.revokeApiKey(id);
+    public ResponseEntity<Void> revoke(@PathVariable String id,
+                                       @AuthenticationPrincipal NexusPayPrincipal principal) {
+        // DX-5c IDOR fix: tenant-scoped revoke — an admin can only revoke keys in their OWN tenant. An
+        // other-tenant key id resolves to the uniform invalid_api_key (no cross-tenant existence oracle).
+        apiKeyService.revokeApiKey(id, principal.tenantId());
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{id}/rotate")
+    @PreAuthorize("hasRole('admin')")
+    @Operation(summary = "Rotate an API key with an overlap window. The new full key is shown once.")
+    public ResponseEntity<CreateApiKeyResponse> rotate(
+            @PathVariable String id,
+            @Valid @RequestBody(required = false) RotateApiKeyRequest request,
+            @AuthenticationPrincipal NexusPayPrincipal principal) {
+        // Resolve overlap: client value or server default, CLAMPED to [0, cap]. Never trust an unbounded
+        // value (rotation is not a lifetime-escalation lever).
+        long requested = (request != null && request.overlapSeconds() != null)
+                ? request.overlapSeconds()
+                : DEFAULT_OVERLAP_SECONDS;
+        long clamped = Math.max(0L, Math.min(requested, MAX_OVERLAP_SECONDS));
+        Duration overlap = Duration.ofSeconds(clamped);
+
+        var result = apiKeyService.rotateApiKey(id, principal.tenantId(), overlap);
+        return ResponseEntity.status(HttpStatus.CREATED).body(new CreateApiKeyResponse(
+                result.id(), result.fullKey(), result.keyPrefix(),
+                result.name(), result.role(), result.live(), Instant.now(), result.expiresAt()
+        ));
     }
 }
