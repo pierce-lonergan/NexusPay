@@ -5,11 +5,17 @@ payment or refund changes state. This document is the integration contract:
 event taxonomy, the canonical envelope, signature headers, verification, retries,
 and the SSRF rules that govern delivery targets.
 
-Register an endpoint with `POST /v1/webhook-endpoints` (admin):
+Register an endpoint with `POST /v1/webhook-endpoints`.
+
+> **Auth: these management endpoints require an `admin`-role API key.** Register, rotate-secret, and
+> replay are `@PreAuthorize("hasRole('admin')")`; an `operator`/`viewer` key gets a **403**. Note the
+> lite-stack `seed-local.sh` mints an **operator** `sk_test_` key — to call these, use an admin key
+> (mint one as admin, or `seed-local.sh` prints an admin re-register command). Listing deliveries is
+> `admin`/`operator`. Below, `sk_test_admin_xxx` denotes an admin-role key.
 
 ```bash
 curl -X POST http://localhost:8090/v1/webhook-endpoints \
-  -H "Authorization: Bearer sk_test_xxx" \
+  -H "Authorization: Bearer sk_test_admin_xxx" \
   -H "Content-Type: application/json" \
   -d '{
         "url": "https://merchant.example.com/webhooks/nexuspay",
@@ -230,7 +236,7 @@ row is re-sent:
 
 ```bash
 curl -X POST http://localhost:8090/v1/webhook-deliveries/whd_xxx/replay \
-  -H "Authorization: Bearer sk_test_xxx"
+  -H "Authorization: Bearer sk_test_admin_xxx"   # admin-role key (operator → 403)
 ```
 
 **Rotate the signing secret** (admin) — returns the new `whsec_…` once; the next
@@ -238,7 +244,7 @@ attempt signs with it automatically:
 
 ```bash
 curl -X POST http://localhost:8090/v1/webhook-endpoints/we_xxx/rotate-secret \
-  -H "Authorization: Bearer sk_test_xxx"
+  -H "Authorization: Bearer sk_test_admin_xxx"   # admin-role key (operator → 403)
 ```
 
 ---

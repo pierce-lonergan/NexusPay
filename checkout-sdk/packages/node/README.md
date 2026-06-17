@@ -14,16 +14,18 @@ npm install @nexus-pay/node
 import { NexusPay } from '@nexus-pay/node';
 
 const nexus = new NexusPay({
-  apiKey: process.env.NEXUSPAY_SECRET_KEY!, // "sk_..."; never logged
-  baseUrl: 'https://api.nexuspay.io',
+  apiKey: process.env.NEXUSPAY_API_KEY!,   // "sk_test_…" / "sk_live_…"; never logged
+  baseUrl: process.env.NEXUSPAY_API_URL!,  // your NexusPay base URL, e.g. http://localhost:8090
 });
 
 // `capture: true` is the boolean alias for capture_method: 'automatic'
 // (`false` -> 'manual'). Pass an idempotencyKey to make the create safely
-// retryable — a retry with the same key returns the original payment.
+// retryable — a retry with the SAME key returns the original payment. Use a fresh
+// key per ATTEMPT (not one stable across distinct purchases), or a repeat buy is
+// silently served the first attempt's cached response for 24h.
 const payment = await nexus.createPayment(
-  { amount: 1000, currency: 'usd', capture: true },
-  { idempotencyKey: 'order_42_attempt_1' },
+  { amount: 1000, currency: 'USD', capture: true },
+  { idempotencyKey: crypto.randomUUID() },
 );
 
 console.log(payment.id, payment.status);
