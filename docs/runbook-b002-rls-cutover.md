@@ -20,30 +20,21 @@ complete and proven by integration tests. Activation is a config + ops action, n
 
 ## 1. Blocking preconditions (must ALL be true before cutover)
 
-### 1.1 — SEC-26: every authorization path must derive the tenant from the principal, not a header  ⛔ OPEN
+### 1.1 — SEC-26: every authorization path must derive the tenant from the principal, not a header  ✅ CLOSED
 
-RLS only isolates correctly if the bound tenant is server-authoritative. Most paths already are
-(SEC-1b: payment-lifecycle / ledger-query / webhook fan-out; SEC-23: b2b + fraud; INT-1/INT-3:
-canonical webhook + sandbox), via `common.tenant.CallerTenant.require()` /
-`TenantContextFilter` reading `NexusPayPrincipal.tenantId()`.
+RLS only isolates correctly if the bound tenant is server-authoritative. All known paths now are:
+SEC-1b (payment-lifecycle / ledger-query / webhook fan-out), SEC-23 (b2b + fraud), INT-1/INT-3
+(canonical webhook + sandbox), and **SEC-26** (analytics `AnalyticsController` + billing
+`{Invoice,Product,Subscription}Controller`) — all derive the tenant from
+`common.tenant.CallerTenant.require()` / `TenantContextFilter` reading `NexusPayPrincipal.tenantId()`,
+with by-id reads/writes tenant-scoped via `findByIdAndTenantId` + `TenantOwnership` (404, no oracle).
+SEC-26 also closed a secondary cross-tenant input (a client-supplied `priceId` reaching an unscoped
+price lookup in `createSubscription`/`changePlan`; see ADR-041 / L-059).
 
-**Still open as of this writing — these trust the client header and MUST be fixed first:**
-
-| Controller | Header use |
-|---|---|
-| `analytics/.../AnalyticsController` (4 endpoints) | `@RequestHeader(value="X-Tenant-Id", defaultValue="default")` |
-| `billing/.../InvoiceController` | `@RequestHeader("X-Tenant-Id")` |
-| `billing/.../ProductController` (4 endpoints) | `@RequestHeader("X-Tenant-Id")` |
-| `billing/.../SubscriptionController` | `@RequestHeader("X-Tenant-Id")` |
-
-These are a cross-tenant IDOR **today** (an authenticated tenant-A caller can pass
-`X-Tenant-Id: tenant-B`), and turning RLS on does **not** fix them — the app would bind the
-header-supplied tenant and RLS would return that tenant's data. Close them (route through
-`CallerTenant.require()`, mirroring SEC-23) **before** cutover.
-
-**Verification (must return nothing in any authorization path):**
+**Verification — re-run in CI; must return only comments, never a live `@RequestHeader("X-Tenant-Id")`
+in an authorization path (a new one silently reopens the hole RLS cannot catch):**
 ```bash
-grep -rn 'X-Tenant-Id' --include='*.java' */src/main
+grep -rn '@RequestHeader.*X-Tenant-Id' --include='*.java' */src/main   # expect: none
 ```
 
 ### 1.2 — Database role passwords are set in production
