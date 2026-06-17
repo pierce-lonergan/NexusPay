@@ -53,6 +53,11 @@ public class JpaInvoiceRepositoryAdapter implements InvoiceRepository {
     }
 
     @Override
+    public Optional<Invoice> findByIdAndTenantId(String id, String tenantId) {
+        return jpaInvoices.findByIdAndTenantId(id, tenantId).map(this::toInvoice);
+    }
+
+    @Override
     public List<Invoice> findByTenant(String tenantId, int limit, int offset) {
         return jpaInvoices.findByTenantIdOrderByCreatedAtDesc(tenantId, PageRequest.of(offset / Math.max(limit, 1), limit))
                 .stream().map(this::toInvoice).toList();
@@ -161,6 +166,7 @@ public class JpaInvoiceRepositoryAdapter implements InvoiceRepository {
     // ==================== Spring Data JPA interfaces ====================
 
     interface JpaInvoiceRepo extends JpaRepository<InvoiceEntity, String> {
+        Optional<InvoiceEntity> findByIdAndTenantId(String id, String tenantId);
         List<InvoiceEntity> findByTenantIdOrderByCreatedAtDesc(String tenantId, PageRequest page);
         List<InvoiceEntity> findBySubscriptionId(String subscriptionId);
         List<InvoiceEntity> findByTenantIdAndCustomerIdOrderByCreatedAtDesc(String tenantId, String customerId, PageRequest page);

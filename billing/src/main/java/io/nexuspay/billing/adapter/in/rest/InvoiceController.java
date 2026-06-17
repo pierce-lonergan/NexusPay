@@ -3,6 +3,7 @@ package io.nexuspay.billing.adapter.in.rest;
 import io.nexuspay.billing.application.service.InvoiceGenerationService;
 import io.nexuspay.billing.domain.Invoice;
 import io.nexuspay.billing.domain.InvoiceLineItem;
+import io.nexuspay.common.tenant.CallerTenant;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -26,17 +27,19 @@ public class InvoiceController {
 
     @GetMapping
     public ResponseEntity<List<InvoiceResponse>> list(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @RequestParam(defaultValue = "20") int limit,
             @RequestParam(defaultValue = "0") int offset) {
 
+        // SEC-26: tenant resolved from the authenticated principal, never from a client X-Tenant-Id header.
+        String tenantId = CallerTenant.require();
         return ResponseEntity.ok(invoiceService.listByTenant(tenantId, limit, offset)
                 .stream().map(this::toResponse).toList());
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<InvoiceResponse> get(@PathVariable String id) {
-        return invoiceService.findById(id)
+        // SEC-26: by-id read scoped to the caller's tenant — a foreign-tenant id 404s (no oracle).
+        return invoiceService.findById(id, CallerTenant.require())
                 .map(inv -> ResponseEntity.ok(toResponse(inv)))
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -49,7 +52,8 @@ public class InvoiceController {
         String paymentMethodId = body.get("payment_method_id");
         if (paymentMethodId == null) return ResponseEntity.badRequest().build();
 
-        Invoice invoice = invoiceService.findById(id).orElse(null);
+        // SEC-26: load scoped to the caller's tenant so a tenant-A caller cannot pay a tenant-B invoice.
+        Invoice invoice = invoiceService.findById(id, CallerTenant.require()).orElse(null);
         if (invoice == null) return ResponseEntity.notFound().build();
 
         boolean success = invoiceService.collectPayment(invoice, paymentMethodId);
@@ -58,7 +62,8 @@ public class InvoiceController {
 
     @GetMapping("/{id}/line-items")
     public ResponseEntity<List<LineItemResponse>> getLineItems(@PathVariable String id) {
-        return ResponseEntity.ok(invoiceService.getLineItems(id)
+        // SEC-26: line items are gated behind tenant-scoped invoice ownership (404 on foreign id).
+        return ResponseEntity.ok(invoiceService.getLineItems(id, CallerTenant.require())
                 .stream().map(this::toLineItemResponse).toList());
     }
 

@@ -19,6 +19,12 @@ public interface InvoiceRepository {
 
     Optional<Invoice> findById(String id);
 
+    /**
+     * SEC-26: tenant-scoped by-id finder. Empty result means "absent OR not owned by this tenant",
+     * so callers can collapse both into a single not-found path (no cross-tenant existence oracle).
+     */
+    Optional<Invoice> findByIdAndTenantId(String id, String tenantId);
+
     List<Invoice> findByTenant(String tenantId, int limit, int offset);
 
     List<Invoice> findBySubscription(String subscriptionId);

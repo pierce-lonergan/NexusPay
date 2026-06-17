@@ -5,6 +5,7 @@ import io.nexuspay.billing.application.port.out.InvoiceRepository;
 import io.nexuspay.billing.application.port.out.PaymentPort;
 import io.nexuspay.billing.domain.*;
 import io.nexuspay.common.id.PrefixedId;
+import io.nexuspay.common.tenant.TenantOwnership;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -121,15 +122,34 @@ public class InvoiceGenerationService {
 
     // -- Query methods --
 
-    public Optional<Invoice> findById(String id) {
-        return invoiceRepository.findById(id);
+    /**
+     * SEC-26: tenant-scoped by-id lookup. Returns the invoice only when it belongs to {@code tenantId};
+     * an absent OR foreign-tenant invoice yields an empty Optional (no cross-tenant existence oracle).
+     */
+    public Optional<Invoice> findById(String id, String tenantId) {
+        return invoiceRepository.findByIdAndTenantId(id, tenantId);
+    }
+
+    /**
+     * SEC-26: tenant-scoped fetch-or-404. Mirrors the SEC-23 {@code getAssessment} idiom — pairs a
+     * tenant-scoped finder with {@link TenantOwnership#require} so a tenant-A caller cannot fetch a
+     * tenant-B invoice by id.
+     */
+    public Invoice getOwnedInvoice(String id, String tenantId) {
+        return TenantOwnership.require(invoiceRepository.findByIdAndTenantId(id, tenantId), "Invoice");
     }
 
     public List<Invoice> listByTenant(String tenantId, int limit, int offset) {
         return invoiceRepository.findByTenant(tenantId, limit, offset);
     }
 
-    public List<InvoiceLineItem> getLineItems(String invoiceId) {
+    /**
+     * SEC-26: line items are reachable only through their tenant-scoped parent invoice. Asserting
+     * invoice ownership first (404 on absent/foreign) prevents reading another tenant's line items by
+     * passing a foreign invoice id.
+     */
+    public List<InvoiceLineItem> getLineItems(String invoiceId, String tenantId) {
+        getOwnedInvoice(invoiceId, tenantId); // throws ResourceNotFoundException (404) if not owned
         return invoiceRepository.findLineItemsByInvoice(invoiceId);
     }
 }

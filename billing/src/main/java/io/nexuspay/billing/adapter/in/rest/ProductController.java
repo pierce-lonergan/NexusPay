@@ -4,6 +4,7 @@ import io.nexuspay.billing.application.port.out.ProductRepository;
 import io.nexuspay.billing.domain.Price;
 import io.nexuspay.billing.domain.PricingModel;
 import io.nexuspay.billing.domain.Product;
+import io.nexuspay.common.tenant.CallerTenant;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -28,9 +29,10 @@ public class ProductController {
 
     @PostMapping("/products")
     public ResponseEntity<ProductResponse> createProduct(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @RequestBody CreateProductRequest request) {
 
+        // SEC-26: tenant resolved from the authenticated principal, never from a client X-Tenant-Id header.
+        String tenantId = CallerTenant.require();
         Product product = Product.create(tenantId, request.name(), request.description(), request.metadata());
         product = productRepository.saveProduct(product);
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(product));
@@ -38,19 +40,21 @@ public class ProductController {
 
     @GetMapping("/products")
     public ResponseEntity<List<ProductResponse>> listProducts(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @RequestParam(defaultValue = "20") int limit,
             @RequestParam(defaultValue = "0") int offset) {
 
+        // SEC-26: tenant resolved from the authenticated principal, never from a client X-Tenant-Id header.
+        String tenantId = CallerTenant.require();
         return ResponseEntity.ok(productRepository.findProductsByTenant(tenantId, limit, offset)
                 .stream().map(this::toResponse).toList());
     }
 
     @PostMapping("/prices")
     public ResponseEntity<PriceResponse> createPrice(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @RequestBody CreatePriceRequest request) {
 
+        // SEC-26: tenant resolved from the authenticated principal, never from a client X-Tenant-Id header.
+        String tenantId = CallerTenant.require();
         Price price = switch (PricingModel.valueOf(request.pricingModel().toUpperCase())) {
             case FLAT -> Price.createFlat(request.productId(), tenantId, request.currency(),
                     request.unitAmount(), request.billingInterval(), request.billingIntervalCount(),
@@ -69,10 +73,11 @@ public class ProductController {
 
     @GetMapping("/prices")
     public ResponseEntity<List<PriceResponse>> listPrices(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @RequestParam(defaultValue = "20") int limit,
             @RequestParam(defaultValue = "0") int offset) {
 
+        // SEC-26: tenant resolved from the authenticated principal, never from a client X-Tenant-Id header.
+        String tenantId = CallerTenant.require();
         return ResponseEntity.ok(productRepository.findPricesByTenant(tenantId, limit, offset)
                 .stream().map(this::toPriceResponse).toList());
     }

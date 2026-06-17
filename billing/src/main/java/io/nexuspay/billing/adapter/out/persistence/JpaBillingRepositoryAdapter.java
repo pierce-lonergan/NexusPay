@@ -76,6 +76,11 @@ public class JpaBillingRepositoryAdapter implements SubscriptionRepository, Prod
     }
 
     @Override
+    public Optional<Price> findPriceByIdAndTenantId(String id, String tenantId) {
+        return jpaPrices.findByIdAndTenantId(id, tenantId).map(this::toPrice);
+    }
+
+    @Override
     public List<Price> findPricesByProduct(String productId) {
         return jpaPrices.findByProductIdAndActiveTrue(productId).stream().map(this::toPrice).toList();
     }
@@ -97,6 +102,11 @@ public class JpaBillingRepositoryAdapter implements SubscriptionRepository, Prod
     @Override
     public Optional<Subscription> findById(String id) {
         return jpaSubscriptions.findById(id).map(this::toSubscription);
+    }
+
+    @Override
+    public Optional<Subscription> findByIdAndTenantId(String id, String tenantId) {
+        return jpaSubscriptions.findByIdAndTenantId(id, tenantId).map(this::toSubscription);
     }
 
     @Override
@@ -222,11 +232,13 @@ public class JpaBillingRepositoryAdapter implements SubscriptionRepository, Prod
     }
 
     interface JpaPriceRepo extends JpaRepository<PriceEntity, String> {
+        Optional<PriceEntity> findByIdAndTenantId(String id, String tenantId);
         List<PriceEntity> findByProductIdAndActiveTrue(String productId);
         List<PriceEntity> findByTenantIdOrderByCreatedAtDesc(String tenantId, PageRequest page);
     }
 
     interface JpaSubscriptionRepo extends JpaRepository<SubscriptionEntity, String> {
+        Optional<SubscriptionEntity> findByIdAndTenantId(String id, String tenantId);
         List<SubscriptionEntity> findByTenantIdOrderByCreatedAtDesc(String tenantId, PageRequest page);
         List<SubscriptionEntity> findByTenantIdAndCustomerId(String tenantId, String customerId);
         List<SubscriptionEntity> findByStatus(String status, PageRequest page);

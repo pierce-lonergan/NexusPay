@@ -9,14 +9,18 @@ import io.nexuspay.billing.domain.InvoiceStatus;
 import io.nexuspay.billing.domain.Price;
 import io.nexuspay.billing.domain.PricingModel;
 import io.nexuspay.billing.domain.Subscription;
+import io.nexuspay.common.exception.ResourceNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -213,5 +217,51 @@ class InvoiceGenerationServiceTest {
         assertThat(open.getStatus()).isEqualTo(InvoiceStatus.OPEN);
         verify(outboxPort, never()).publishEvent(anyString(), anyString(), eq("InvoicePaid"),
                 any(Map.class), anyString());
+    }
+
+    // ---- SEC-26: tenant-scoped by-id queries (cross-tenant IDOR teeth) ----
+
+    @Test
+    void findByIdScopesToTenant_andDoesNotFallBackToUnscopedLookup() {
+        Invoice owned = openInvoice(5000);
+        when(invoiceRepository.findByIdAndTenantId(owned.getId(), "t1")).thenReturn(Optional.of(owned));
+
+        assertThat(service.findById(owned.getId(), "t1")).contains(owned);
+
+        // The unscoped finder must NEVER be used by the controller-facing read.
+        verify(invoiceRepository).findByIdAndTenantId(owned.getId(), "t1");
+        verify(invoiceRepository, never()).findById(anyString());
+    }
+
+    @Test
+    void findByIdForeignTenantReturnsEmpty() {
+        // Repo finder returns empty for a foreign tenant (absent OR not owned).
+        when(invoiceRepository.findByIdAndTenantId("inv_victim", "attacker"))
+                .thenReturn(Optional.empty());
+
+        assertThat(service.findById("inv_victim", "attacker")).isEmpty();
+    }
+
+    @Test
+    void getLineItemsAssertsInvoiceOwnershipFirst_andThrows404ForForeignTenant() {
+        when(invoiceRepository.findByIdAndTenantId("inv_victim", "attacker"))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getLineItems("inv_victim", "attacker"))
+                .isInstanceOf(ResourceNotFoundException.class);
+
+        // No line items are read for a non-owned invoice — no cross-tenant line-item leak.
+        verify(invoiceRepository, never()).findLineItemsByInvoice(anyString());
+    }
+
+    @Test
+    void getLineItemsReturnsItemsWhenInvoiceOwnedByTenant() {
+        Invoice owned = openInvoice(5000);
+        when(invoiceRepository.findByIdAndTenantId(owned.getId(), "t1")).thenReturn(Optional.of(owned));
+        InvoiceLineItem li = new InvoiceLineItem("ili_1", owned.getId(), "t1", "charge", 5000, "USD",
+                1, false, owned.getPeriodStart(), owned.getPeriodEnd());
+        when(invoiceRepository.findLineItemsByInvoice(owned.getId())).thenReturn(List.of(li));
+
+        assertThat(service.getLineItems(owned.getId(), "t1")).containsExactly(li);
     }
 }

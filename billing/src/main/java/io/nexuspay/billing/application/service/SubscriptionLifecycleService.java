@@ -4,6 +4,8 @@ import io.nexuspay.billing.application.port.out.BillingOutboxPort;
 import io.nexuspay.billing.application.port.out.ProductRepository;
 import io.nexuspay.billing.application.port.out.SubscriptionRepository;
 import io.nexuspay.billing.domain.*;
+import io.nexuspay.common.exception.ResourceNotFoundException;
+import io.nexuspay.common.tenant.TenantOwnership;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -50,8 +52,11 @@ public class SubscriptionLifecycleService {
                                             String paymentMethodId,
                                             Map<String, Object> metadata) {
 
-        Price price = productRepository.findPriceById(priceId)
-                .orElseThrow(() -> new IllegalArgumentException("Price not found: " + priceId));
+        // SEC-26: the priceId is client-supplied (request body). Resolve it through the tenant-scoped
+        // finder so a tenant-A caller cannot bind their subscription to a tenant-B Price (and thereby
+        // import another tenant's economic terms). Absent OR foreign -> 404, no existence oracle.
+        Price price = productRepository.findPriceByIdAndTenantId(priceId, tenantId)
+                .orElseThrow(() -> ResourceNotFoundException.of("Price", priceId));
 
         Subscription sub = Subscription.create(tenantId, customerId, price, quantity,
                 paymentMethodId, metadata);
@@ -83,8 +88,8 @@ public class SubscriptionLifecycleService {
      * Cancels a subscription immediately or at period end.
      */
     @Transactional
-    public Subscription cancel(String subscriptionId, boolean atPeriodEnd) {
-        Subscription sub = getOrThrow(subscriptionId);
+    public Subscription cancel(String subscriptionId, String tenantId, boolean atPeriodEnd) {
+        Subscription sub = getOrThrow(subscriptionId, tenantId);
         sub.cancel(atPeriodEnd);
         sub = subscriptionRepository.save(sub);
 
@@ -103,8 +108,8 @@ public class SubscriptionLifecycleService {
      * Pauses a subscription (admin action).
      */
     @Transactional
-    public Subscription pause(String subscriptionId) {
-        Subscription sub = getOrThrow(subscriptionId);
+    public Subscription pause(String subscriptionId, String tenantId) {
+        Subscription sub = getOrThrow(subscriptionId, tenantId);
         sub.pause();
         sub = subscriptionRepository.save(sub);
 
@@ -121,11 +126,13 @@ public class SubscriptionLifecycleService {
      * Resumes a paused subscription.
      */
     @Transactional
-    public Subscription resume(String subscriptionId) {
-        Subscription sub = getOrThrow(subscriptionId);
+    public Subscription resume(String subscriptionId, String tenantId) {
+        Subscription sub = getOrThrow(subscriptionId, tenantId);
         String priceId = sub.getPriceId();
-        Price price = productRepository.findPriceById(priceId)
-                .orElseThrow(() -> new IllegalArgumentException("Price not found: " + priceId));
+        // SEC-26: priceId is the sub's own stored value (lower risk), but route it through the same
+        // tenant-scoped finder to keep the price-lookup invariant uniform across the service.
+        Price price = productRepository.findPriceByIdAndTenantId(priceId, tenantId)
+                .orElseThrow(() -> ResourceNotFoundException.of("Price", priceId));
         sub.resume(price);
         sub = subscriptionRepository.save(sub);
 
@@ -143,11 +150,14 @@ public class SubscriptionLifecycleService {
      * Changes the subscription to a new price (upgrade/downgrade).
      */
     @Transactional
-    public Subscription changePlan(String subscriptionId, String newPriceId) {
-        Subscription sub = getOrThrow(subscriptionId);
+    public Subscription changePlan(String subscriptionId, String tenantId, String newPriceId) {
+        Subscription sub = getOrThrow(subscriptionId, tenantId);
         String oldPriceId = sub.getPriceId();
-        Price newPrice = productRepository.findPriceById(newPriceId)
-                .orElseThrow(() -> new IllegalArgumentException("Price not found: " + newPriceId));
+        // SEC-26: newPriceId is client-supplied (request body). Resolve it through the tenant-scoped
+        // finder so a tenant-A caller cannot repoint their subscription onto a tenant-B Price. Absent
+        // OR foreign -> 404, no existence oracle, and never reaches Subscription.setPriceId.
+        Price newPrice = productRepository.findPriceByIdAndTenantId(newPriceId, tenantId)
+                .orElseThrow(() -> ResourceNotFoundException.of("Price", newPriceId));
 
         sub.setPriceId(newPriceId);
         sub = subscriptionRepository.save(sub);
@@ -165,8 +175,13 @@ public class SubscriptionLifecycleService {
 
     // -- Query methods --
 
-    public Optional<Subscription> findById(String id) {
-        return subscriptionRepository.findById(id);
+    /**
+     * SEC-26: tenant-scoped by-id lookup. Returns the subscription only when it belongs to
+     * {@code tenantId}; an absent OR foreign-tenant subscription yields an empty Optional (no
+     * cross-tenant existence oracle).
+     */
+    public Optional<Subscription> findById(String id, String tenantId) {
+        return subscriptionRepository.findByIdAndTenantId(id, tenantId);
     }
 
     public List<Subscription> listByTenant(String tenantId, int limit, int offset) {
@@ -175,8 +190,14 @@ public class SubscriptionLifecycleService {
 
     // -- Helpers --
 
-    private Subscription getOrThrow(String id) {
-        return subscriptionRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Subscription not found: " + id));
+    /**
+     * SEC-26: tenant-scoped fetch-or-404. Mirrors the SEC-23 {@code getAssessment} idiom — pairs a
+     * tenant-scoped finder with {@link TenantOwnership#require} so a tenant-A caller cannot mutate a
+     * tenant-B subscription by id (cancel/pause/resume/changePlan). 404 (not 403) avoids an existence
+     * oracle on foreign ids.
+     */
+    private Subscription getOrThrow(String id, String tenantId) {
+        return TenantOwnership.require(
+                subscriptionRepository.findByIdAndTenantId(id, tenantId), "Subscription");
     }
 }
