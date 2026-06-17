@@ -1,5 +1,6 @@
 package io.nexuspay.workflow.adapter.in.rest;
 
+import io.nexuspay.common.tenant.CallerTenant;
 import io.nexuspay.workflow.adapter.in.rest.dto.*;
 import io.nexuspay.workflow.application.port.in.ManageWorkflowUseCase;
 import io.nexuspay.workflow.application.port.in.ManageWorkflowVersionUseCase;
@@ -32,11 +33,11 @@ public class WorkflowDefinitionController {
     @PostMapping
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<WorkflowResponse> createWorkflow(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @Valid @RequestBody CreateWorkflowRequest request) {
 
+        // SEC-27: tenant resolved from the authenticated principal, never from a client X-Tenant-Id header.
         var result = workflowUseCase.createWorkflow(new ManageWorkflowUseCase.CreateWorkflowCommand(
-                tenantId, request.name(), request.description(),
+                CallerTenant.require(), request.name(), request.description(),
                 request.triggerType(), request.createdBy()));
 
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(result));
@@ -45,30 +46,30 @@ public class WorkflowDefinitionController {
     @GetMapping("/{workflowId}")
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<WorkflowResponse> getWorkflow(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String workflowId) {
 
-        var result = workflowUseCase.getWorkflow(workflowId, tenantId);
+        // SEC-27: by-id read scoped to the caller's tenant — a foreign-tenant id 404s (no oracle).
+        var result = workflowUseCase.getWorkflow(workflowId, CallerTenant.require());
         return ResponseEntity.ok(toResponse(result));
     }
 
     @GetMapping
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
-    public ResponseEntity<List<WorkflowResponse>> listWorkflows(
-            @RequestHeader("X-Tenant-Id") String tenantId) {
+    public ResponseEntity<List<WorkflowResponse>> listWorkflows() {
 
-        var results = workflowUseCase.listWorkflows(tenantId);
+        // SEC-27: tenant resolved from the authenticated principal, never from a client X-Tenant-Id header.
+        var results = workflowUseCase.listWorkflows(CallerTenant.require());
         return ResponseEntity.ok(results.stream().map(this::toResponse).toList());
     }
 
     @PutMapping("/{workflowId}")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<WorkflowResponse> updateWorkflow(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String workflowId,
             @Valid @RequestBody UpdateWorkflowRequest request) {
 
-        var result = workflowUseCase.updateWorkflow(workflowId, tenantId,
+        // SEC-27: mutation scoped to the caller's tenant — a tenant-A caller cannot update a tenant-B workflow.
+        var result = workflowUseCase.updateWorkflow(workflowId, CallerTenant.require(),
                 new ManageWorkflowUseCase.UpdateWorkflowCommand(
                         request.name(), request.description(),
                         request.triggerType(), request.triggerConfig()));
@@ -79,11 +80,11 @@ public class WorkflowDefinitionController {
     @PostMapping("/{workflowId}/publish")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<WorkflowResponse> publishWorkflow(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String workflowId,
             @Valid @RequestBody PublishWorkflowRequest request) {
 
-        var result = workflowUseCase.publishWorkflow(workflowId, tenantId,
+        // SEC-27: mutation scoped to the caller's tenant.
+        var result = workflowUseCase.publishWorkflow(workflowId, CallerTenant.require(),
                 request.publishedBy(), request.changeDescription());
 
         return ResponseEntity.ok(toResponse(result));
@@ -92,21 +93,21 @@ public class WorkflowDefinitionController {
     @PostMapping("/{workflowId}/archive")
     @PreAuthorize("hasRole('admin')")
     public ResponseEntity<Void> archiveWorkflow(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String workflowId) {
 
-        workflowUseCase.archiveWorkflow(workflowId, tenantId);
+        // SEC-27: mutation scoped to the caller's tenant.
+        workflowUseCase.archiveWorkflow(workflowId, CallerTenant.require());
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{workflowId}/nodes")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<WorkflowResponse> addNode(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String workflowId,
             @Valid @RequestBody AddNodeRequest request) {
 
-        var result = workflowUseCase.addNode(workflowId, tenantId,
+        // SEC-27: mutation scoped to the caller's tenant.
+        var result = workflowUseCase.addNode(workflowId, CallerTenant.require(),
                 new ManageWorkflowUseCase.AddNodeCommand(
                         request.nodeType(), request.label(), request.config(),
                         request.positionX(), request.positionY()));
@@ -117,22 +118,22 @@ public class WorkflowDefinitionController {
     @DeleteMapping("/{workflowId}/nodes/{nodeId}")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<WorkflowResponse> removeNode(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String workflowId,
             @PathVariable String nodeId) {
 
-        var result = workflowUseCase.removeNode(workflowId, tenantId, nodeId);
+        // SEC-27: mutation scoped to the caller's tenant.
+        var result = workflowUseCase.removeNode(workflowId, CallerTenant.require(), nodeId);
         return ResponseEntity.ok(toResponse(result));
     }
 
     @PostMapping("/{workflowId}/edges")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<WorkflowResponse> addEdge(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String workflowId,
             @Valid @RequestBody AddEdgeRequest request) {
 
-        var result = workflowUseCase.addEdge(workflowId, tenantId,
+        // SEC-27: mutation scoped to the caller's tenant.
+        var result = workflowUseCase.addEdge(workflowId, CallerTenant.require(),
                 new ManageWorkflowUseCase.AddEdgeCommand(
                         request.sourceNodeId(), request.targetNodeId(),
                         request.conditionExpression(), request.label()));
@@ -143,22 +144,22 @@ public class WorkflowDefinitionController {
     @DeleteMapping("/{workflowId}/edges/{edgeId}")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<WorkflowResponse> removeEdge(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String workflowId,
             @PathVariable String edgeId) {
 
-        var result = workflowUseCase.removeEdge(workflowId, tenantId, edgeId);
+        // SEC-27: mutation scoped to the caller's tenant.
+        var result = workflowUseCase.removeEdge(workflowId, CallerTenant.require(), edgeId);
         return ResponseEntity.ok(toResponse(result));
     }
 
     @PostMapping("/{workflowId}/rollback")
     @PreAuthorize("hasRole('admin')")
     public ResponseEntity<WorkflowResponse> rollbackWorkflow(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @PathVariable String workflowId,
             @Valid @RequestBody RollbackRequest request) {
 
-        var result = versionUseCase.rollbackToVersion(workflowId, tenantId,
+        // SEC-27: mutation scoped to the caller's tenant.
+        var result = versionUseCase.rollbackToVersion(workflowId, CallerTenant.require(),
                 request.targetVersion(), request.publishedBy());
 
         return ResponseEntity.ok(toResponse(result));

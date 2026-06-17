@@ -1,6 +1,7 @@
 package io.nexuspay.workflow.application.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.nexuspay.common.exception.ResourceNotFoundException;
 import io.nexuspay.workflow.application.port.out.WorkflowBuilderRepository;
 import io.nexuspay.workflow.application.port.out.WorkflowEventPublisher;
 import io.nexuspay.workflow.domain.*;
@@ -37,11 +38,13 @@ class WorkflowVersionServiceTest {
 
     @Test
     void listVersions_returnsVersionHistory() {
-        var v1 = WorkflowVersion.create("wf_123", 1, "{}", "Initial", "admin-1");
-        var v2 = WorkflowVersion.create("wf_123", 2, "{}", "Update nodes", "admin-1");
-        when(repository.findVersionsByWorkflowId("wf_123")).thenReturn(List.of(v1, v2));
+        WorkflowDefinition wf = WorkflowDefinition.create("tenant-1", "Flow", null, TriggerType.WEBHOOK, "admin-1");
+        var v1 = WorkflowVersion.create(wf.getId(), 1, "{}", "Initial", "admin-1");
+        var v2 = WorkflowVersion.create(wf.getId(), 2, "{}", "Update nodes", "admin-1");
+        when(repository.findWorkflowByIdAndTenantId(wf.getId(), "tenant-1")).thenReturn(Optional.of(wf));
+        when(repository.findVersionsByWorkflowId(wf.getId())).thenReturn(List.of(v1, v2));
 
-        var results = service.listVersions("wf_123", "tenant-1");
+        var results = service.listVersions(wf.getId(), "tenant-1");
 
         assertEquals(2, results.size());
         assertEquals(1, results.get(0).versionNumber());
@@ -49,9 +52,24 @@ class WorkflowVersionServiceTest {
     }
 
     @Test
+    void listVersions_foreignTenant_throwsNotFound_andDoesNotLeakHistory() {
+        // Listing versions of a tenant-A workflow as tenant-B must 404 via the parent-workflow scope —
+        // never reach the (unscoped) version-history query.
+        WorkflowDefinition tenantAWorkflow =
+                WorkflowDefinition.create("tenant-a", "Flow", null, TriggerType.WEBHOOK, "admin-a");
+        when(repository.findWorkflowByIdAndTenantId(tenantAWorkflow.getId(), "tenant-b"))
+                .thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> service.listVersions(tenantAWorkflow.getId(), "tenant-b"));
+
+        verify(repository, never()).findVersionsByWorkflowId(any());
+    }
+
+    @Test
     void getVersion_returnsVersion() {
         var version = WorkflowVersion.create("wf_123", 1, "{}", "Initial", "admin-1");
-        when(repository.findVersionById(version.getId())).thenReturn(Optional.of(version));
+        when(repository.findVersionByIdAndTenantId(version.getId(), "tenant-1")).thenReturn(Optional.of(version));
 
         var result = service.getVersion(version.getId(), "tenant-1");
 
@@ -62,9 +80,24 @@ class WorkflowVersionServiceTest {
 
     @Test
     void getVersion_throwsWhenNotFound() {
-        when(repository.findVersionById("wv_missing")).thenReturn(Optional.empty());
+        when(repository.findVersionByIdAndTenantId("wv_missing", "tenant-1")).thenReturn(Optional.empty());
 
-        assertThrows(IllegalArgumentException.class, () -> service.getVersion("wv_missing", "tenant-1"));
+        assertThrows(ResourceNotFoundException.class, () -> service.getVersion("wv_missing", "tenant-1"));
+    }
+
+    @Test
+    void getVersion_foreignTenant_throwsNotFound_andQueriesByCallerTenant() {
+        // A version exists under tenant-A's workflow; tenant-B reads it by id. The scoped finder joins to
+        // the parent workflow and filters on tenant, so it returns empty -> 404 (no oracle on the snapshot).
+        var tenantAVersion = WorkflowVersion.create("wf_a", 1, "{}", "Initial", "admin-a");
+        when(repository.findVersionByIdAndTenantId(tenantAVersion.getId(), "tenant-b"))
+                .thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> service.getVersion(tenantAVersion.getId(), "tenant-b"));
+
+        verify(repository).findVersionByIdAndTenantId(tenantAVersion.getId(), "tenant-b");
+        verify(repository, never()).findVersionById(any());
     }
 
     @Test
@@ -74,7 +107,7 @@ class WorkflowVersionServiceTest {
         String snapshot = "{\"nodes\":[{\"id\":\"nd_abc\",\"nodeType\":\"TRIGGER\",\"label\":\"Start\",\"config\":null,\"positionX\":0,\"positionY\":0}],\"edges\":[]}";
         WorkflowVersion targetVersion = WorkflowVersion.create(wf.getId(), 1, snapshot, "Initial", "admin-1");
 
-        when(repository.findWorkflowById(wf.getId())).thenReturn(Optional.of(wf));
+        when(repository.findWorkflowByIdAndTenantId(wf.getId(), "tenant-1")).thenReturn(Optional.of(wf));
         when(repository.findVersionByWorkflowIdAndNumber(wf.getId(), 1)).thenReturn(Optional.of(targetVersion));
         when(repository.saveWorkflow(any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -90,9 +123,26 @@ class WorkflowVersionServiceTest {
 
     @Test
     void rollbackToVersion_throwsWhenWorkflowNotFound() {
-        when(repository.findWorkflowById("wf_missing")).thenReturn(Optional.empty());
+        when(repository.findWorkflowByIdAndTenantId("wf_missing", "tenant-1")).thenReturn(Optional.empty());
 
-        assertThrows(IllegalArgumentException.class, () ->
+        assertThrows(ResourceNotFoundException.class, () ->
                 service.rollbackToVersion("wf_missing", "tenant-1", 1, "admin-1"));
+    }
+
+    @Test
+    void rollbackToVersion_foreignTenant_throwsNotFound_andDoesNotMutate() {
+        // A tenant-A admin's workflow; tenant-B attempts a rollback by id. The scoped workflow load
+        // returns empty -> 404, so no graph is restored and nothing is written.
+        WorkflowDefinition tenantAWorkflow =
+                WorkflowDefinition.create("tenant-a", "Flow", null, TriggerType.WEBHOOK, "admin-a");
+        when(repository.findWorkflowByIdAndTenantId(tenantAWorkflow.getId(), "tenant-b"))
+                .thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () ->
+                service.rollbackToVersion(tenantAWorkflow.getId(), "tenant-b", 1, "attacker"));
+
+        verify(repository, never()).findVersionByWorkflowIdAndNumber(any(), org.mockito.ArgumentMatchers.anyInt());
+        verify(repository, never()).saveWorkflow(any());
+        verify(repository, never()).saveVersion(any());
     }
 }

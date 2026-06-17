@@ -1,14 +1,20 @@
 package io.nexuspay.payment.adapter.in.rest;
 
 import io.nexuspay.common.exception.PaymentException;
+import io.nexuspay.common.tenant.TenantPrincipal;
 import io.nexuspay.payment.application.fx.CrossBorderComplianceService;
 import io.nexuspay.payment.application.fx.CurrencyRoutingService;
 import io.nexuspay.payment.application.fx.DynamicCurrencyConversionService;
 import io.nexuspay.payment.application.fx.FxRateLockService;
 import io.nexuspay.payment.application.fx.FxRateService;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -38,6 +44,18 @@ class FxRateControllerDccErrorEnvelopeTest {
         dccService = mock(DynamicCurrencyConversionService.class);
         controller = new FxRateController(rateService, lockService, routingService,
                 complianceService, dccService);
+
+        // SEC-27: createDccOffer now derives the tenant from the authenticated principal
+        // (CallerTenant.require()) instead of an X-Tenant-Id header, so authenticate the thread.
+        TenantPrincipal principal = () -> "tenant-a";
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(
+                        principal, null, List.of(new SimpleGrantedAuthority("ROLE_operator"))));
+    }
+
+    @AfterEach
+    void tearDown() {
+        SecurityContextHolder.clearContext();
     }
 
     @Test
@@ -51,7 +69,7 @@ class FxRateControllerDccErrorEnvelopeTest {
 
         // The controller now signals the failure as a domain exception (-> GlobalExceptionHandler ->
         // 422 + envelope) rather than hand-rolling a plain-string body.
-        assertThatThrownBy(() -> controller.createDccOffer(request, "tenant-a"))
+        assertThatThrownBy(() -> controller.createDccOffer(request))
                 .isInstanceOf(PaymentException.class)
                 .satisfies(ex -> {
                     PaymentException pe = (PaymentException) ex;

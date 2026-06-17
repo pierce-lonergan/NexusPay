@@ -1,5 +1,6 @@
 package io.nexuspay.dispute.adapter.in.rest;
 
+import io.nexuspay.common.tenant.CallerTenant;
 import io.nexuspay.dispute.application.service.DisputeLifecycleService;
 import io.nexuspay.dispute.domain.*;
 import org.slf4j.Logger;
@@ -25,6 +26,16 @@ import java.util.Map;
  *   <li>{@code GET  /v1/disputes/{id}/events}    — dispute event timeline</li>
  * </ul>
  *
+ * <h3>Tenant isolation (SEC-27)</h3>
+ * <p>Every endpoint derives the tenant from the authenticated principal via
+ * {@link CallerTenant#require()} — NEVER from a client {@code X-Tenant-Id} header (a header, if sent,
+ * is ignored). By-id reads and the state-changing submit/upload operations resolve the dispute
+ * through the tenant-scoped service finders, so a foreign-tenant id 404s with no existence oracle, and
+ * the list endpoint enumerates only the caller's own disputes. All endpoints sit behind the global
+ * {@code SecurityConfig.anyRequest().authenticated()} gate (mirrors the SEC-26 SubscriptionController,
+ * which also relies on the global auth gate rather than a {@code @PreAuthorize} on each method).
+ * The inbound dispute WEBHOOK is a separate, server-authoritative, SEC-2-hardened path.</p>
+ *
  * @since 0.2.4 (Sprint 2.4)
  */
 @RestController
@@ -44,12 +55,13 @@ public class DisputeController {
      */
     @GetMapping
     public ResponseEntity<List<DisputeResponse>> listDisputes(
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "20") int limit,
             @RequestParam(defaultValue = "0") int offset) {
 
-        List<Dispute> disputes = lifecycleService.listByTenant(tenantId, limit, offset);
+        // SEC-27: list scoped to the AUTHENTICATED principal's tenant, never a client X-Tenant-Id
+        // header — a caller can only ever enumerate their own tenant's disputes.
+        List<Dispute> disputes = lifecycleService.listByTenant(CallerTenant.require(), limit, offset);
         return ResponseEntity.ok(disputes.stream().map(this::toResponse).toList());
     }
 
@@ -58,7 +70,8 @@ public class DisputeController {
      */
     @GetMapping("/{id}")
     public ResponseEntity<DisputeResponse> getDispute(@PathVariable String id) {
-        return lifecycleService.findById(id)
+        // SEC-27: by-id read scoped to the caller's tenant — a foreign-tenant id 404s (no oracle).
+        return lifecycleService.findById(id, CallerTenant.require())
                 .map(d -> ResponseEntity.ok(toResponse(d)))
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -69,7 +82,6 @@ public class DisputeController {
     @PostMapping("/{id}/evidence")
     public ResponseEntity<EvidenceResponse> uploadEvidence(
             @PathVariable String id,
-            @RequestHeader("X-Tenant-Id") String tenantId,
             @RequestParam("file") MultipartFile file,
             @RequestParam("type") String evidenceType,
             @RequestParam(value = "description", required = false) String description) throws IOException {
@@ -81,8 +93,11 @@ public class DisputeController {
             return ResponseEntity.badRequest().build();
         }
 
+        // SEC-27: tenant resolved from the authenticated principal, never from a client X-Tenant-Id
+        // header. The service scopes the dispute lookup to this tenant (404 on a foreign id) so a
+        // tenant-A caller cannot attach evidence to a tenant-B dispute.
         DisputeEvidence evidence = lifecycleService.uploadEvidence(
-                id, tenantId, type, file.getOriginalFilename(),
+                id, CallerTenant.require(), type, file.getOriginalFilename(),
                 file.getInputStream(), file.getContentType(), description);
 
         return ResponseEntity.status(HttpStatus.CREATED).body(toEvidenceResponse(evidence));
@@ -97,7 +112,9 @@ public class DisputeController {
             @RequestBody(required = false) Map<String, String> body) {
 
         String actor = body != null ? body.getOrDefault("actor", "api") : "api";
-        Dispute dispute = lifecycleService.submitEvidence(id, actor);
+        // SEC-27: mutation scoped to the caller's tenant — a tenant-A caller cannot submit evidence
+        // on a tenant-B dispute (404 on a foreign id, no oracle). Tenant from the principal, not a header.
+        Dispute dispute = lifecycleService.submitEvidence(id, CallerTenant.require(), actor);
         return ResponseEntity.ok(toResponse(dispute));
     }
 
@@ -106,7 +123,9 @@ public class DisputeController {
      */
     @GetMapping("/{id}/events")
     public ResponseEntity<List<EventResponse>> getEvents(@PathVariable String id) {
-        List<DisputeEvent> events = lifecycleService.getTimeline(id);
+        // SEC-27: event timeline scoped to the caller's tenant — a foreign-tenant id yields an empty
+        // timeline (no oracle). Tenant from the authenticated principal, never a client header.
+        List<DisputeEvent> events = lifecycleService.getTimeline(id, CallerTenant.require());
         return ResponseEntity.ok(events.stream().map(this::toEventResponse).toList());
     }
 

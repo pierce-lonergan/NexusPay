@@ -3,6 +3,8 @@ package io.nexuspay.workflow.application.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.nexuspay.common.exception.ResourceNotFoundException;
+import io.nexuspay.common.tenant.TenantOwnership;
 import io.nexuspay.workflow.application.port.in.ManageWorkflowUseCase;
 import io.nexuspay.workflow.application.port.in.ManageWorkflowVersionUseCase;
 import io.nexuspay.workflow.application.port.out.WorkflowBuilderRepository;
@@ -44,6 +46,10 @@ public class WorkflowVersionService implements ManageWorkflowVersionUseCase {
     @Override
     @Transactional(readOnly = true)
     public List<VersionInfo> listVersions(String workflowId, String tenantId) {
+        // SEC-27: scope the version history to the caller's tenant via the parent workflow — listing
+        // versions of a tenant-B workflow by id must 404, not leak another tenant's snapshot history.
+        TenantOwnership.require(
+                repository.findWorkflowByIdAndTenantId(workflowId, tenantId), "Workflow");
         return repository.findVersionsByWorkflowId(workflowId).stream()
                 .map(this::toInfo).toList();
     }
@@ -51,19 +57,28 @@ public class WorkflowVersionService implements ManageWorkflowVersionUseCase {
     @Override
     @Transactional(readOnly = true)
     public VersionInfo getVersion(String versionId, String tenantId) {
-        return toInfo(repository.findVersionById(versionId)
-                .orElseThrow(() -> new IllegalArgumentException("Version not found: " + versionId)));
+        // SEC-27: tenant-scoped by-id read. The version has no tenant of its own — the scoped finder
+        // joins to the parent workflow and filters on its tenant. Absent OR foreign -> 404 (no oracle).
+        return toInfo(TenantOwnership.require(
+                repository.findVersionByIdAndTenantId(versionId, tenantId), "Version"));
     }
 
     @Override
     @Transactional
     public ManageWorkflowUseCase.WorkflowResult rollbackToVersion(String workflowId, String tenantId,
                                                                      int targetVersion, String publishedBy) {
-        WorkflowDefinition wf = repository.findWorkflowById(workflowId)
-                .orElseThrow(() -> new IllegalArgumentException("Workflow not found: " + workflowId));
+        // SEC-27: scope the workflow load to the caller's tenant — a tenant-A admin cannot roll back a
+        // tenant-B workflow by id. Absent OR foreign -> 404 (no existence oracle).
+        WorkflowDefinition wf = TenantOwnership.require(
+                repository.findWorkflowByIdAndTenantId(workflowId, tenantId), "Workflow");
 
         WorkflowVersion version = repository.findVersionByWorkflowIdAndNumber(workflowId, targetVersion)
-                .orElseThrow(() -> new IllegalArgumentException("Version not found: " + targetVersion));
+                .orElseThrow(() -> ResourceNotFoundException.of("Version", String.valueOf(targetVersion)));
+
+        // SEC-27 defence-in-depth: the version was fetched by the already-tenant-verified workflowId,
+        // but assert the loaded snapshot still belongs to that workflow before restoring its graph, so a
+        // foreign snapshot can never be written into the caller's workflow.
+        TenantOwnership.assertTenant(version, workflowId, WorkflowVersion::getWorkflowId, "Version");
 
         // Restore graph from snapshot
         restoreGraph(wf, version.getGraphSnapshot());

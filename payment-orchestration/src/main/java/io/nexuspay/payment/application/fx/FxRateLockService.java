@@ -1,6 +1,8 @@
 package io.nexuspay.payment.application.fx;
 
+import io.nexuspay.common.exception.ResourceNotFoundException;
 import io.nexuspay.common.rls.SystemTransactional;
+import io.nexuspay.common.tenant.TenantOwnership;
 import io.nexuspay.payment.application.port.fx.FxRateLockRepository;
 import io.nexuspay.payment.application.port.fx.MerchantCurrencyPrefsRepository;
 import io.nexuspay.payment.application.port.fx.MerchantCurrencyPrefsRepository.MerchantCurrencyPrefs;
@@ -98,6 +100,29 @@ public class FxRateLockService {
     public FxRateLock getValidLock(UUID lockId) {
         FxRateLock lock = lockRepository.findById(lockId)
                 .orElseThrow(() -> new IllegalArgumentException("Rate lock not found: " + lockId));
+
+        if (lock.isConsumed()) {
+            return lock; // Already used — return for reference
+        }
+
+        if (lock.isExpired()) {
+            LOG.info("Rate lock {} expired, refreshing automatically", lockId);
+            return refreshLock(lockId);
+        }
+
+        return lock;
+    }
+
+    /**
+     * SEC-27: tenant-scoped variant of {@link #getValidLock(UUID)} for the request path. Loads the
+     * lock through a tenant-scoped finder so a lock id that is absent OR owned by another tenant
+     * resolves to {@link ResourceNotFoundException} (→ 404, no cross-tenant existence oracle). The
+     * auto-refresh path is safe: {@link #refreshLock} derives its tenant from the loaded lock, which
+     * has already been confirmed to belong to {@code tenantId}.
+     */
+    public FxRateLock getValidLock(UUID lockId, String tenantId) {
+        FxRateLock lock = TenantOwnership.require(
+                lockRepository.findByIdAndTenantId(lockId, tenantId), "Rate lock");
 
         if (lock.isConsumed()) {
             return lock; // Already used — return for reference

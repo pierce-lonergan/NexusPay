@@ -52,6 +52,11 @@ public class WorkflowBuilderRepositoryAdapter implements WorkflowBuilderReposito
     }
 
     @Override
+    public Optional<WorkflowDefinition> findWorkflowByIdAndTenantId(String workflowId, String tenantId) {
+        return definitionRepo.findByIdAndTenantId(workflowId, tenantId).map(this::toDefinitionDomain);
+    }
+
+    @Override
     public List<WorkflowDefinition> findWorkflowsByTenantId(String tenantId) {
         return definitionRepo.findByTenantId(tenantId).stream()
                 .map(this::toDefinitionDomain).toList();
@@ -68,6 +73,11 @@ public class WorkflowBuilderRepositoryAdapter implements WorkflowBuilderReposito
     @Override
     public Optional<WorkflowVersion> findVersionById(String versionId) {
         return versionRepo.findById(versionId).map(this::toVersionDomain);
+    }
+
+    @Override
+    public Optional<WorkflowVersion> findVersionByIdAndTenantId(String versionId, String tenantId) {
+        return versionRepo.findByIdAndTenantId(versionId, tenantId).map(this::toVersionDomain);
     }
 
     @Override
@@ -96,6 +106,11 @@ public class WorkflowBuilderRepositoryAdapter implements WorkflowBuilderReposito
     }
 
     @Override
+    public Optional<WebhookTrigger> findTriggerByIdAndTenantId(String triggerId, String tenantId) {
+        return triggerRepo.findByIdAndTenantId(triggerId, tenantId).map(this::toTriggerDomain);
+    }
+
+    @Override
     public Optional<WebhookTrigger> findTriggerByUrlPath(String urlPath) {
         return triggerRepo.findByUrlPath(urlPath).map(this::toTriggerDomain);
     }
@@ -111,6 +126,11 @@ public class WorkflowBuilderRepositoryAdapter implements WorkflowBuilderReposito
     @Override
     public Optional<WorkflowExecution> findExecutionById(String executionId) {
         return executionRepo.findById(executionId).map(this::toExecutionDomain);
+    }
+
+    @Override
+    public Optional<WorkflowExecution> findExecutionByIdAndTenantId(String executionId, String tenantId) {
+        return executionRepo.findByIdAndTenantId(executionId, tenantId).map(this::toExecutionDomain);
     }
 
     // --- Mapping: WorkflowDefinition ---

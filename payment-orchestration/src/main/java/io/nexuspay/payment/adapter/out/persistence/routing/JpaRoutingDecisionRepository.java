@@ -17,5 +17,11 @@ public interface JpaRoutingDecisionRepository extends JpaRepository<RoutingDecis
 
     Optional<RoutingDecisionEntity> findByPaymentId(String paymentId);
 
+    /** SEC-27: tenant-scoped by-id lookup; the tenant predicate is pushed to SQL. */
+    Optional<RoutingDecisionEntity> findByIdAndTenantId(UUID id, String tenantId);
+
+    /** SEC-27: tenant-scoped by-payment lookup; the tenant predicate is pushed to SQL. */
+    Optional<RoutingDecisionEntity> findByPaymentIdAndTenantId(String paymentId, String tenantId);
+
     List<RoutingDecisionEntity> findByAbTestId(UUID abTestId);
 }

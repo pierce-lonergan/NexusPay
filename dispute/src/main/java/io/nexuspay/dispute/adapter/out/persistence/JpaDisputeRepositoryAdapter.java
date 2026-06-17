@@ -49,6 +49,12 @@ public class JpaDisputeRepositoryAdapter implements DisputeRepository {
     }
 
     @Override
+    public Optional<Dispute> findByIdAndTenantId(String id, String tenantId) {
+        // SEC-27: tenant predicate pushed to SQL — a foreign-tenant row never materialises.
+        return jpaDisputeRepo.findByIdAndTenantId(id, tenantId).map(this::toDomain);
+    }
+
+    @Override
     public Optional<Dispute> findByTenantIdAndExternalDisputeId(String tenantId, String externalDisputeId) {
         return jpaDisputeRepo.findByTenantIdAndExternalDisputeId(tenantId, externalDisputeId)
                 .map(this::toDomain);
@@ -94,6 +100,13 @@ public class JpaDisputeRepositoryAdapter implements DisputeRepository {
     @Override
     public List<DisputeEvent> findEventsByDisputeId(String disputeId) {
         return jpaEventRepo.findByDisputeIdOrderByCreatedAt(disputeId)
+                .stream().map(this::toEventDomain).toList();
+    }
+
+    @Override
+    public List<DisputeEvent> findEventsByDisputeIdAndTenantId(String disputeId, String tenantId) {
+        // SEC-27: tenant predicate pushed to SQL — foreign-tenant event rows never leave the DB.
+        return jpaEventRepo.findByDisputeIdAndTenantIdOrderByCreatedAt(disputeId, tenantId)
                 .stream().map(this::toEventDomain).toList();
     }
 
@@ -214,6 +227,8 @@ public class JpaDisputeRepositoryAdapter implements DisputeRepository {
         List<DisputeEntity> findByPaymentId(String paymentId);
         List<DisputeEntity> findByTenantIdAndStatusOrderByCreatedAtDesc(String tenantId, String status, PageRequest page);
         Optional<DisputeEntity> findByTenantIdAndExternalDisputeId(String tenantId, String externalDisputeId);
+        // SEC-27: tenant-scoped by-id finder backing the REST read/mutation control.
+        Optional<DisputeEntity> findByIdAndTenantId(String id, String tenantId);
     }
 
     interface JpaEvidenceRepo extends JpaRepository<DisputeEvidenceEntity, String> {
@@ -222,5 +237,7 @@ public class JpaDisputeRepositoryAdapter implements DisputeRepository {
 
     interface JpaEventRepo extends JpaRepository<DisputeEventEntity, String> {
         List<DisputeEventEntity> findByDisputeIdOrderByCreatedAt(String disputeId);
+        // SEC-27: tenant-scoped event-timeline finder for GET /v1/disputes/{id}/events.
+        List<DisputeEventEntity> findByDisputeIdAndTenantIdOrderByCreatedAt(String disputeId, String tenantId);
     }
 }

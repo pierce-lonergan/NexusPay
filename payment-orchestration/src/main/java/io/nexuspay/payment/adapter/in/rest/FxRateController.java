@@ -1,6 +1,8 @@
 package io.nexuspay.payment.adapter.in.rest;
 
 import io.nexuspay.common.exception.PaymentException;
+import io.nexuspay.common.tenant.CallerTenant;
+import io.nexuspay.common.tenant.TenantOwnership;
 import io.nexuspay.payment.application.fx.CrossBorderComplianceService;
 import io.nexuspay.payment.application.fx.CurrencyRoutingService;
 import io.nexuspay.payment.application.fx.DynamicCurrencyConversionService;
@@ -52,9 +54,10 @@ public class FxRateController {
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<Map<String, Object>> getRate(
             @PathVariable String from,
-            @PathVariable String to,
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId) {
+            @PathVariable String to) {
 
+        // SEC-27: tenant from the authenticated principal, never a client header.
+        String tenantId = CallerTenant.require();
         FxRate rate = rateService.getRate(tenantId, from.toUpperCase(), to.toUpperCase());
         return ResponseEntity.ok(Map.of(
                 "pair", rate.pair().pairId(),
@@ -71,9 +74,10 @@ public class FxRateController {
     @GetMapping("/rates/{baseCurrency}")
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<List<Map<String, Object>>> getAllRates(
-            @PathVariable String baseCurrency,
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId) {
+            @PathVariable String baseCurrency) {
 
+        // SEC-27: tenant from the authenticated principal, never a client header.
+        String tenantId = CallerTenant.require();
         List<FxRate> rates = rateService.getAllRates(tenantId, baseCurrency.toUpperCase());
         List<Map<String, Object>> response = rates.stream()
                 .map(r -> Map.<String, Object>of(
@@ -92,9 +96,10 @@ public class FxRateController {
     @PostMapping("/locks")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<Map<String, Object>> lockRate(
-            @RequestBody LockRateRequest request,
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId) {
+            @RequestBody LockRateRequest request) {
 
+        // SEC-27: tenant from the authenticated principal, never a client header.
+        String tenantId = CallerTenant.require();
         FxRateLock lock = lockService.lockRate(tenantId, request.fromCurrency(), request.toCurrency());
         return ResponseEntity.ok(lockToMap(lock));
     }
@@ -105,7 +110,9 @@ public class FxRateController {
     @GetMapping("/locks/{lockId}")
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<Map<String, Object>> getLock(@PathVariable UUID lockId) {
-        FxRateLock lock = lockService.getValidLock(lockId);
+        // SEC-27: tenant-scoped by-id read. A lock owned by another tenant (or absent) 404s via the
+        // tenant-scoped getValidLock overload — no cross-tenant existence oracle.
+        FxRateLock lock = lockService.getValidLock(lockId, CallerTenant.require());
         return ResponseEntity.ok(lockToMap(lock));
     }
 
@@ -145,9 +152,10 @@ public class FxRateController {
     @PostMapping("/dcc/offers")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<?> createDccOffer(
-            @RequestBody DccOfferRequest request,
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId) {
+            @RequestBody DccOfferRequest request) {
 
+        // SEC-27: tenant from the authenticated principal, never a client header.
+        String tenantId = CallerTenant.require();
         // INT-2: emit the standardized error envelope. A DCC-unavailable result throws a PaymentException
         // (code=dcc_unavailable) which the GlobalExceptionHandler maps to 422 (the default PaymentException
         // status, UNCHANGED from the prior unprocessableEntity()) as { error: { type, code, message,
@@ -167,9 +175,11 @@ public class FxRateController {
     @GetMapping("/dcc/offers/{offerId}")
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
     public ResponseEntity<?> getDccOffer(@PathVariable UUID offerId) {
-        return dccService.getOffer(offerId)
-                .map(offer -> ResponseEntity.ok(dccService.buildDisclosure(offer)))
-                .orElse(ResponseEntity.notFound().build());
+        // SEC-27: tenant-scoped by-id read. The DCC store is in-memory (no SQL finder), so assert the
+        // offer's tenant matches the principal; a foreign/absent offer 404s (no existence oracle).
+        DccOffer offer = TenantOwnership.assertOwned(
+                dccService.getOffer(offerId), CallerTenant.require(), DccOffer::tenantId, "DCC offer");
+        return ResponseEntity.ok(dccService.buildDisclosure(offer));
     }
 
     /**
@@ -178,7 +188,10 @@ public class FxRateController {
     @PostMapping("/dcc/offers/{offerId}/accept")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<Map<String, Object>> acceptDccOffer(@PathVariable UUID offerId) {
-        DccOffer accepted = dccService.acceptOffer(offerId);
+        // SEC-27: tenant-scoped by-id mutation. The offer's tenant is asserted against the authenticated
+        // principal before flipping the DCC election; a foreign/absent offer 404s (no existence oracle),
+        // so tenant A cannot accept tenant B's offer and change the currency a payment settles in.
+        DccOffer accepted = dccService.acceptOffer(offerId, CallerTenant.require());
         return ResponseEntity.ok(Map.of(
                 "dcc_offer_id", accepted.id().toString(),
                 "status", accepted.status().name(),
@@ -194,7 +207,9 @@ public class FxRateController {
     @PostMapping("/dcc/offers/{offerId}/decline")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<Map<String, Object>> declineDccOffer(@PathVariable UUID offerId) {
-        DccOffer declined = dccService.declineOffer(offerId);
+        // SEC-27: tenant-scoped by-id mutation, mirroring acceptDccOffer. A foreign/absent offer 404s
+        // (no existence oracle) before the DCC election is flipped.
+        DccOffer declined = dccService.declineOffer(offerId, CallerTenant.require());
         return ResponseEntity.ok(Map.of(
                 "dcc_offer_id", declined.id().toString(),
                 "status", declined.status().name(),

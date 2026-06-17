@@ -37,6 +37,11 @@ public class FxRateLockRepositoryAdapter implements FxRateLockRepository {
     }
 
     @Override
+    public Optional<FxRateLock> findByIdAndTenantId(UUID id, String tenantId) {
+        return jpaRepo.findByIdAndTenantId(id, tenantId).map(this::toDomain);
+    }
+
+    @Override
     public Optional<FxRateLock> findByPaymentId(String paymentId) {
         return jpaRepo.findByPaymentId(paymentId).map(this::toDomain);
     }

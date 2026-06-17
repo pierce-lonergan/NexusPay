@@ -25,4 +25,7 @@ public interface JpaRoutingConfigRepository extends JpaRepository<RoutingConfigE
     Optional<RoutingConfigEntity> findActiveByTenant(@Param("tenantId") String tenantId);
 
     List<RoutingConfigEntity> findByTenantId(String tenantId);
+
+    /** SEC-27: tenant-scoped by-id lookup; the tenant predicate is pushed to SQL. */
+    Optional<RoutingConfigEntity> findByIdAndTenantId(UUID id, String tenantId);
 }

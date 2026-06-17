@@ -16,6 +16,12 @@ public interface FxRateLockRepository {
 
     Optional<FxRateLock> findById(UUID id);
 
+    /**
+     * SEC-27: tenant-scoped by-id lookup. Empty result means "absent OR owned by another tenant" —
+     * pair with {@code TenantOwnership.require} so a foreign lock id 404s without an existence oracle.
+     */
+    Optional<FxRateLock> findByIdAndTenantId(UUID id, String tenantId);
+
     Optional<FxRateLock> findByPaymentId(String paymentId);
 
     /**

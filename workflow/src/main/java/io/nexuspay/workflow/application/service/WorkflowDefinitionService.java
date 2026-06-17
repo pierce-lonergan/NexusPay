@@ -2,6 +2,7 @@ package io.nexuspay.workflow.application.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.nexuspay.common.tenant.TenantOwnership;
 import io.nexuspay.workflow.application.port.in.ManageWorkflowUseCase;
 import io.nexuspay.workflow.application.port.out.WorkflowBuilderRepository;
 import io.nexuspay.workflow.application.port.out.WorkflowEventPublisher;
@@ -59,7 +60,7 @@ public class WorkflowDefinitionService implements ManageWorkflowUseCase {
     @Override
     @Transactional(readOnly = true)
     public WorkflowResult getWorkflow(String workflowId, String tenantId) {
-        return toResult(findOrThrow(workflowId));
+        return toResult(findOrThrow(workflowId, tenantId));
     }
 
     @Override
@@ -72,7 +73,7 @@ public class WorkflowDefinitionService implements ManageWorkflowUseCase {
     @Override
     @Transactional
     public WorkflowResult updateWorkflow(String workflowId, String tenantId, UpdateWorkflowCommand command) {
-        WorkflowDefinition wf = findOrThrow(workflowId);
+        WorkflowDefinition wf = findOrThrow(workflowId, tenantId);
 
         if (command.name() != null) wf.setName(command.name());
         if (command.description() != null) wf.setDescription(command.description());
@@ -88,7 +89,7 @@ public class WorkflowDefinitionService implements ManageWorkflowUseCase {
     @Transactional
     public WorkflowResult publishWorkflow(String workflowId, String tenantId,
                                             String publishedBy, String changeDescription) {
-        WorkflowDefinition wf = findOrThrow(workflowId);
+        WorkflowDefinition wf = findOrThrow(workflowId, tenantId);
         wf.publish();
         wf = repository.saveWorkflow(wf);
 
@@ -110,7 +111,7 @@ public class WorkflowDefinitionService implements ManageWorkflowUseCase {
     @Override
     @Transactional
     public WorkflowResult archiveWorkflow(String workflowId, String tenantId) {
-        WorkflowDefinition wf = findOrThrow(workflowId);
+        WorkflowDefinition wf = findOrThrow(workflowId, tenantId);
         wf.archive();
         wf = repository.saveWorkflow(wf);
 
@@ -124,7 +125,7 @@ public class WorkflowDefinitionService implements ManageWorkflowUseCase {
     @Override
     @Transactional
     public WorkflowResult addNode(String workflowId, String tenantId, AddNodeCommand command) {
-        WorkflowDefinition wf = findOrThrow(workflowId);
+        WorkflowDefinition wf = findOrThrow(workflowId, tenantId);
 
         WorkflowNode node = WorkflowNode.create(
                 NodeType.valueOf(command.nodeType()), command.label(), command.config(),
@@ -139,7 +140,7 @@ public class WorkflowDefinitionService implements ManageWorkflowUseCase {
     @Override
     @Transactional
     public WorkflowResult removeNode(String workflowId, String tenantId, String nodeId) {
-        WorkflowDefinition wf = findOrThrow(workflowId);
+        WorkflowDefinition wf = findOrThrow(workflowId, tenantId);
         wf.removeNode(nodeId);
         wf = repository.saveWorkflow(wf);
         log.info("Node removed from workflow: workflowId={}, nodeId={}", workflowId, nodeId);
@@ -149,7 +150,7 @@ public class WorkflowDefinitionService implements ManageWorkflowUseCase {
     @Override
     @Transactional
     public WorkflowResult addEdge(String workflowId, String tenantId, AddEdgeCommand command) {
-        WorkflowDefinition wf = findOrThrow(workflowId);
+        WorkflowDefinition wf = findOrThrow(workflowId, tenantId);
 
         WorkflowEdge edge = WorkflowEdge.create(
                 command.sourceNodeId(), command.targetNodeId(),
@@ -164,16 +165,23 @@ public class WorkflowDefinitionService implements ManageWorkflowUseCase {
     @Override
     @Transactional
     public WorkflowResult removeEdge(String workflowId, String tenantId, String edgeId) {
-        WorkflowDefinition wf = findOrThrow(workflowId);
+        WorkflowDefinition wf = findOrThrow(workflowId, tenantId);
         wf.removeEdge(edgeId);
         wf = repository.saveWorkflow(wf);
         log.info("Edge removed from workflow: workflowId={}, edgeId={}", workflowId, edgeId);
         return toResult(wf);
     }
 
-    private WorkflowDefinition findOrThrow(String workflowId) {
-        return repository.findWorkflowById(workflowId)
-                .orElseThrow(() -> new IllegalArgumentException("Workflow not found: " + workflowId));
+    /**
+     * SEC-27: tenant-scoped fetch-or-404. Every by-id read and mutation in this service routes through
+     * here, pairing a tenant-scoped finder with {@link TenantOwnership#require} so a tenant-A caller
+     * cannot read or mutate a tenant-B workflow by id. Absent OR foreign -> 404 (not 403), avoiding an
+     * existence oracle. Previously the lookup used {@code findWorkflowById} (no tenant predicate — the
+     * {@code tenantId} param was dead), the whole-module cross-tenant IDOR this fix closes.
+     */
+    private WorkflowDefinition findOrThrow(String workflowId, String tenantId) {
+        return TenantOwnership.require(
+                repository.findWorkflowByIdAndTenantId(workflowId, tenantId), "Workflow");
     }
 
     private String serializeGraph(WorkflowDefinition wf) {

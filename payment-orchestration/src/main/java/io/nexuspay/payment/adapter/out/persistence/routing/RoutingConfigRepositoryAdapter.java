@@ -43,6 +43,11 @@ public class RoutingConfigRepositoryAdapter implements RoutingConfigRepository {
     }
 
     @Override
+    public Optional<RoutingConfig> findByIdAndTenantId(UUID id, String tenantId) {
+        return jpaRepo.findByIdAndTenantId(id, tenantId).map(this::toDomain);
+    }
+
+    @Override
     public Optional<RoutingConfig> findActiveByTenant(String tenantId) {
         return jpaRepo.findActiveByTenant(tenantId).map(this::toDomain);
     }

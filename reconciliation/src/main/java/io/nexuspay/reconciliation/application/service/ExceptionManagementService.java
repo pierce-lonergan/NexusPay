@@ -1,5 +1,6 @@
 package io.nexuspay.reconciliation.application.service;
 
+import io.nexuspay.common.tenant.TenantOwnership;
 import io.nexuspay.reconciliation.application.port.out.ReconciliationRepository;
 import io.nexuspay.reconciliation.domain.MatchResult;
 import io.nexuspay.reconciliation.domain.ReconciliationException;
@@ -76,11 +77,15 @@ public class ExceptionManagementService {
 
     /**
      * Assigns an exception to a user for investigation.
+     *
+     * <p>SEC-27: loads through the tenant-scoped finder + {@link TenantOwnership#require}. A tenant-A
+     * caller targeting a tenant-B exception id gets 404 (not 403) — no existence oracle — and never
+     * mutates the foreign row.</p>
      */
     @Transactional
-    public ReconciliationException assign(String exceptionId, String userId) {
-        ReconciliationException ex = repository.findExceptionById(exceptionId)
-                .orElseThrow(() -> new IllegalArgumentException("Exception not found: " + exceptionId));
+    public ReconciliationException assign(String exceptionId, String tenantId, String userId) {
+        ReconciliationException ex = TenantOwnership.require(
+                repository.findExceptionByIdAndTenantId(exceptionId, tenantId), "Exception");
 
         ex.assignTo(userId);
         repository.saveException(ex);
@@ -91,11 +96,13 @@ public class ExceptionManagementService {
 
     /**
      * Resolves an exception with notes explaining the resolution.
+     *
+     * <p>SEC-27: tenant-scoped — see {@link #assign}.</p>
      */
     @Transactional
-    public ReconciliationException resolve(String exceptionId, String notes) {
-        ReconciliationException ex = repository.findExceptionById(exceptionId)
-                .orElseThrow(() -> new IllegalArgumentException("Exception not found: " + exceptionId));
+    public ReconciliationException resolve(String exceptionId, String tenantId, String notes) {
+        ReconciliationException ex = TenantOwnership.require(
+                repository.findExceptionByIdAndTenantId(exceptionId, tenantId), "Exception");
 
         ex.resolve(notes);
         repository.saveException(ex);
@@ -106,11 +113,13 @@ public class ExceptionManagementService {
 
     /**
      * Writes off an exception (accepted loss / immaterial discrepancy).
+     *
+     * <p>SEC-27: tenant-scoped — see {@link #assign}.</p>
      */
     @Transactional
-    public ReconciliationException writeOff(String exceptionId, String notes) {
-        ReconciliationException ex = repository.findExceptionById(exceptionId)
-                .orElseThrow(() -> new IllegalArgumentException("Exception not found: " + exceptionId));
+    public ReconciliationException writeOff(String exceptionId, String tenantId, String notes) {
+        ReconciliationException ex = TenantOwnership.require(
+                repository.findExceptionByIdAndTenantId(exceptionId, tenantId), "Exception");
 
         ex.writeOff(notes);
         repository.saveException(ex);

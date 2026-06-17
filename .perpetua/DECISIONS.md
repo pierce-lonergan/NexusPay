@@ -874,3 +874,28 @@ through it (404 on absent/foreign), + 3 tests. Correctly left RenewalScheduler/T
 unchanged (their priceId is the sub's own stored value reached via a server-side scan, not client input).
 L-059. The NIT (billing tests use an advice-backed real-404 assertion vs the assertThatThrownBy idiom
 elsewhere) was kept — the advice approach is the stronger assertion. ADR-041. CI is the oracle.
+
+## ADR-042 | 2026-06-16 | SEC-27: finish cross-tenant tenant-scoping across all remaining controllers (T3)
+The capstone read-only adversarial security audit (6 attack lenses + independent refutation) found that
+the SEC-1b/23/26 tenant-scoping sweep had STOPPED SHORT of four modules — a verified residue of HIGH
+cross-tenant IDORs the earlier batches never reached: workflow (a WHOLE-MODULE IDOR — every by-id read
+AND mutation ignored tenant; the tenantId param was dead in findOrThrow), dispute (by-id read/timeline +
+submitEvidence/uploadEvidence state-changes on a raw disputeId), reconciliation (run/records read +
+exception resolve/assign mutations + unbounded getRunRecords), and three payment-orchestration controllers
+(RoutingConfig with a 'default' header fallback, FxRate, MerchantCurrencyPrefs). 7 controllers, 31
+@RequestHeader("X-Tenant-Id") usages. RLS is dormant (app connects as table owner) so these were LIVE
+exploitable IDORs, not theoretical. Closed by the canonical SEC-23/26 pattern, applied per-module by 4
+parallel implement agents: tenant from CallerTenant.require() (never the header; no 'default' fallback);
+new tenant-scoped repository finders findByIdAndTenantId on every entity (the workflow VERSION entity has
+no tenant_id column, so its finder JOINs to the parent workflow_definitions and filters d.tenant_id); every
+by-id READ and MUTATION routed through the scoped finder + TenantOwnership.require (404, no existence
+oracle); recon getRunRecords pagination clamped; cross-tenant + header-ignored + foreign-id-404 tests per
+module. After this, a repo-wide grep for @RequestHeader("X-Tenant-Id") in any controller returns ZERO —
+no controller on the platform trusts a client-supplied tenant.
+REVIEW (3 adversarial lenses): 1 BLOCKER — the IDOR-completeness lens caught that the payment-orchestration
+agent scoped the DCC READ (getDccOffer) but left the two by-id MUTATIONS acceptDccOffer/declineDccOffer
+UNSCOPED, so a tenant-A operator could flip tenant-B's DCC currency election (a money-affecting cross-tenant
+state change) by guessing the offer UUID. Fixed: tenant-scoped service overloads that
+TenantOwnership.assertOwned the loaded offer before mutating + CallerTenant.require() in the controller. This
+is the SAME class as SEC-26's price-by-id residual — the implement pass scopes the obvious GET and the
+sibling state-changing op is the easy miss. L-060. ADR-042. CI is the oracle (no local Gradle).

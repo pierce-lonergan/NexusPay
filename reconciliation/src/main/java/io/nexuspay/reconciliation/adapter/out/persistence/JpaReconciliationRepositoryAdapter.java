@@ -48,6 +48,12 @@ public class JpaReconciliationRepositoryAdapter implements ReconciliationReposit
     }
 
     @Override
+    public Optional<ReconciliationRun> findRunByIdAndTenantId(String id, String tenantId) {
+        // SEC-27: tenant predicate pushed to SQL — a foreign-tenant run never leaves the database.
+        return runRepo.findByIdAndTenantId(id, tenantId).map(this::toDomain);
+    }
+
+    @Override
     public List<ReconciliationRun> findRunsByTenant(String tenantId, int limit, int offset) {
         return runRepo.findByTenantIdOrderByCreatedAtDesc(tenantId,
                         PageRequest.of(offset / Math.max(limit, 1), Math.max(limit, 1)))
@@ -74,6 +80,17 @@ public class JpaReconciliationRepositoryAdapter implements ReconciliationReposit
     }
 
     @Override
+    public List<SettlementRecord> findSettlementRecordsByRunIdAndTenantId(String runId, String tenantId,
+                                                                          int limit, int offset) {
+        // SEC-27: scope settlement lines by the parent run's tenant (the entity carries tenant_id,
+        // stamped from the run at ingestion) AND bound the page — this endpoint was unbounded before.
+        return settlementRepo.findByReconciliationRunIdAndTenantId(runId, tenantId,
+                        PageRequest.of(offset / Math.max(limit, 1), Math.max(limit, 1),
+                                Sort.by(Sort.Direction.ASC, "createdAt")))
+                .stream().map(this::toDomain).collect(Collectors.toList());
+    }
+
+    @Override
     public ReconciliationException saveException(ReconciliationException exception) {
         exceptionRepo.save(toEntity(exception));
         return exception;
@@ -82,6 +99,12 @@ public class JpaReconciliationRepositoryAdapter implements ReconciliationReposit
     @Override
     public Optional<ReconciliationException> findExceptionById(String id) {
         return exceptionRepo.findById(id).map(this::toDomain);
+    }
+
+    @Override
+    public Optional<ReconciliationException> findExceptionByIdAndTenantId(String id, String tenantId) {
+        // SEC-27: tenant predicate pushed to SQL — a foreign-tenant exception never leaves the database.
+        return exceptionRepo.findByIdAndTenantId(id, tenantId).map(this::toDomain);
     }
 
     @Override
@@ -215,15 +238,25 @@ public class JpaReconciliationRepositoryAdapter implements ReconciliationReposit
 
     public interface JpaRunRepository extends JpaRepository<ReconciliationRunEntity, String> {
         List<ReconciliationRunEntity> findByTenantIdOrderByCreatedAtDesc(String tenantId, PageRequest page);
+
+        // SEC-27: tenant-scoped by-id run lookup.
+        Optional<ReconciliationRunEntity> findByIdAndTenantId(String id, String tenantId);
     }
 
     public interface JpaSettlementRecordRepository extends JpaRepository<SettlementRecordEntity, String> {
         List<SettlementRecordEntity> findByReconciliationRunId(String runId);
+
+        // SEC-27: tenant-scoped, paginated settlement-records lookup for a run.
+        List<SettlementRecordEntity> findByReconciliationRunIdAndTenantId(
+                String runId, String tenantId, PageRequest page);
     }
 
     public interface JpaExceptionRepository extends JpaRepository<ReconciliationExceptionEntity, String> {
         List<ReconciliationExceptionEntity> findByReconciliationRunId(String runId);
         List<ReconciliationExceptionEntity> findByTenantIdAndStatusOrderByCreatedAtDesc(
                 String tenantId, String status, PageRequest page);
+
+        // SEC-27: tenant-scoped by-id exception lookup.
+        Optional<ReconciliationExceptionEntity> findByIdAndTenantId(String id, String tenantId);
     }
 }

@@ -1,5 +1,6 @@
 package io.nexuspay.payment.adapter.in.rest;
 
+import io.nexuspay.common.tenant.CallerTenant;
 import io.nexuspay.payment.application.port.fx.MerchantCurrencyPrefsRepository;
 import io.nexuspay.payment.application.port.fx.MerchantCurrencyPrefsRepository.MerchantCurrencyPrefs;
 import org.springframework.http.ResponseEntity;
@@ -29,9 +30,10 @@ public class MerchantCurrencyPrefsController {
      */
     @GetMapping
     @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
-    public ResponseEntity<Map<String, Object>> getPreferences(
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId) {
+    public ResponseEntity<Map<String, Object>> getPreferences() {
 
+        // SEC-27: tenant from the authenticated principal, never a client header.
+        String tenantId = CallerTenant.require();
         MerchantCurrencyPrefs prefs = prefsRepository.findByTenantId(tenantId)
                 .orElse(MerchantCurrencyPrefs.defaults(tenantId));
 
@@ -44,9 +46,10 @@ public class MerchantCurrencyPrefsController {
     @PutMapping
     @PreAuthorize("hasRole('admin')")
     public ResponseEntity<Map<String, Object>> updatePreferences(
-            @RequestBody UpdatePrefsRequest request,
-            @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String tenantId) {
+            @RequestBody UpdatePrefsRequest request) {
 
+        // SEC-27: tenant from the authenticated principal, never a client header.
+        String tenantId = CallerTenant.require();
         MerchantCurrencyPrefs existing = prefsRepository.findByTenantId(tenantId)
                 .orElse(MerchantCurrencyPrefs.defaults(tenantId));
 
