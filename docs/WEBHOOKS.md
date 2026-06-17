@@ -197,9 +197,21 @@ round-tripped verbatim from the `metadata` you supplied at create time. For
 example, if you create a payment with
 `metadata: { "userId": "usr_xxx", "packId": "starter" }`, the corresponding
 `payment.succeeded` and `payment.refunded` events both carry that same
-`data.metadata`, letting you credit/claw-back the right account. Do not rely on
-the amount in `data.object` for entitlement decisions — resolve it from your own
-catalog keyed by your metadata.
+`data.metadata`, letting you credit/claw-back the right account. For **granting**
+entitlement on `payment.succeeded`, resolve *what* to grant from your own catalog
+keyed by your metadata (`packId`) — do not infer the SKU from the `data.object`
+amount.
+
+> **Refund carve-out — `data.object.amount` IS authoritative for the refunded
+> amount.** On `payment.refunded` and `payment.refund.created`, `data.object` is
+> the **refund** object and `data.object.amount` is the **server-derived amount
+> actually refunded** (a partial refund carries the partial amount, not the
+> original charge). Your `data.metadata` (`packId`) is round-tripped from the
+> original payment for *correlation*, but it cannot tell you *how much* was
+> refunded — only `data.object.amount` can. So for a **partial** claw-back, debit
+> by `data.object.amount` (not your full catalog price for the `packId`), or you
+> will over-claw. This is the one case where `data.object.amount` is the
+> entitlement-relevant figure, because the platform — not the client — computed it.
 
 ---
 
