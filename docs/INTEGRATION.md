@@ -254,3 +254,19 @@ HTTP client) and produces `pay_test_*` ids with connector `mock`. A test key can
 invariant, not a runtime flag. The response `mode`/`livemode` and the webhook
 envelope's `livemode` all reflect `test`/`false`, so your downstream code can
 assert on them too.
+
+## 7. Versioning — three numbers, two meanings
+
+You will see three version-like identifiers. They are **not** the same thing:
+
+| Identifier | What it is | Current value |
+|---|---|---|
+| **API contract version** | Date-based version of the wire contract. Stamped as `api_version` on every webhook envelope, and defaulted/echoed via the `X-API-Version` request header. | `2026-06-16` |
+| **`X-API-Version` request header** | Lets you pin the contract version per request. There is exactly **one** supported version today, so this is **informational** — it is recorded and echoed back, but no per-version request/response transformation is applied yet. Omit it and you get the current version. | `2026-06-16` |
+| **SDK / library version** | The independent npm **semver** of each `@nexus-pay/*` package. Tracks client-library releases — **orthogonal** to the API contract version. | `0.1.x` |
+
+The API contract version (`api_version`) and the SDK semver are deliberately
+distinct: upgrading the SDK package does not change the wire contract, and a
+future contract version will not force an SDK major bump. Both the webhook
+`api_version` and the `X-API-Version` default derive from a **single** server-side
+source of truth, so they can never disagree.

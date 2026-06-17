@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.nexuspay.common.api.ApiVersion;
 
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
@@ -34,8 +35,12 @@ import java.util.Map;
  */
 public class WebhookEnvelopeSerializer {
 
-    /** The contract version stamped on every envelope. Constant by design. */
-    public static final String API_VERSION = "2026-06-16";
+    /**
+     * The contract version stamped on every envelope. DX-5e: references the single canonical
+     * {@link ApiVersion#CURRENT} so the envelope's {@code api_version} can never disagree with the
+     * {@code X-API-Version} request default ({@code ApiVersionInterceptor}). Value: {@code 2026-06-16}.
+     */
+    public static final String API_VERSION = ApiVersion.CURRENT;
 
     /**
      * INT-3: reserved, server-only key in the merchant metadata map carrying the payment's key mode. It

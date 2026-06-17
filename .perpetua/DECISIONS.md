@@ -1055,3 +1055,29 @@ mirroring ResourceNotFoundException, with type-SPECIFIC @ExceptionHandlers. Bran
 radius; the 100 internal Illegal* throws stay 500 (locked by a new envelope test asserting raw
 IllegalStateException -> 500 generic/no-leak). Messages are curated/id-free (key id logged at the throw
 site, never on the wire) so the 4xx echo is safe. CI is the oracle (Gradle can't run locally). L-066. ADR-048.
+
+## ADR-049 | 2026-06-17 | DX-5d + DX-5e: webhook-taxonomy drift guard + collapse the version identifiers (T3)
+Snap critique 5.4 (event taxonomy) + 5.5 (version identifiers). Both turned out SMALLER than the critique
+framed — INT-1 had already regularized the taxonomy — so this is a single hygiene batch, not a contract
+rework.
+DX-5d (5.4): the platform WebhookEventTaxonomy.CANONICAL (8 dotted names) and the hand-maintained TS SDK
+WEBHOOK_EVENT_TYPES union (checkout-sdk/packages/node/src/types.ts) were ALREADY identical, and the
+registration validator (CanonicalWebhookEvents) + WEBHOOKS.md already cover all 8 — so NO taxonomy change,
+NO back-compat aliases. The only gap was DRIFT risk (the two lists live in different toolchains with nothing
+binding them). Added a cross-toolchain parity TEST in :common (WebhookEventTaxonomyParityTest) that resolves
+the repo root by walking up to settings.gradle.kts, reads the SDK types.ts, regex-extracts the union, and
+asserts it equals CANONICAL — failing CI the moment either side drifts. (The implement-time claim of a stale
+"6 types" comment was a MIS-READ: the comment says "the 6 [HyperSwitch-emitted] types plus the two
+domain-emitted" = 8, which is correct — verified against source, no change made.)
+DX-5e (5.5): three version-like identifiers existed; two of them — the webhook envelope api_version
+("2026-06-16", WebhookEnvelopeSerializer, tested) and the X-API-Version request-header default
+("2026-03-01", ApiVersionInterceptor, NO test) — DISAGREED for no reason (only one contract version exists).
+Introduced ONE source of truth common/api/ApiVersion.CURRENT = "2026-06-16"; both surfaces now reference it
+(the envelope value is unchanged so its tests still pass; the interceptor default changes 2026-03-01 ->
+2026-06-16 with no test pinning the old value). The third identifier (SDK npm semver 0.1.x) is orthogonal
+(client-library version) and stays distinct. DECISION on the critique's "honor OR delete X-API-Version": KEPT
+the interceptor but made it HONEST — it remains informational single-version plumbing (parses/echoes, no
+per-version transform), now documented as such (INTEGRATION.md new section 7 + class Javadoc). DELETING the
+inert interceptor (it implies per-request version negotiation that does not exist, and the keep choice
+preserves the documented ADR-008 surface) is the alternative; left as a reversible, low-stakes owner call
+rather than a unilateral subtraction. CI is the oracle. ADR-049.
