@@ -22,7 +22,28 @@ import type { WebhookEvent } from './types';
 const SIGNATURE_HEADER = 'x-nexuspay-signature';
 const TIMESTAMP_HEADER = 'x-nexuspay-timestamp';
 
-type HeaderBag = Record<string, string | string[] | undefined>;
+type PlainHeaderBag = Record<string, string | string[] | undefined>;
+
+/** Minimal structural type for a WHATWG `Headers` (or anything with `.get`). */
+interface HeadersLike {
+  get(name: string): string | null;
+}
+
+/**
+ * Accepted header inputs: a plain object / Node `IncomingHttpHeaders`-style bag,
+ * OR a WHATWG `Headers` instance (e.g. Next.js App Router `req.headers`,
+ * Fetch/Web Request). Both are resolved case-insensitively.
+ */
+type HeaderBag = PlainHeaderBag | HeadersLike;
+
+/** True for a WHATWG `Headers` (or any object exposing a `.get(name)` method). */
+function isHeadersLike(bag: unknown): bag is HeadersLike {
+  return (
+    typeof bag === 'object' &&
+    bag !== null &&
+    typeof (bag as { get?: unknown }).get === 'function'
+  );
+}
 
 /**
  * HMAC-SHA256 hex of the EXACT raw body, lowercase, no prefix.
@@ -79,35 +100,60 @@ export function verifyWebhook(
 
 export interface ConstructEventOptions {
   /**
-   * ADVISORY replay window vs the `X-NexusPay-Timestamp` header (seconds);
-   * 0/undefined skips the check.
+   * ✅ CANONICAL replay window. HARDENED window (seconds) anchored on the SIGNED
+   * `created` field of the verified envelope (epoch seconds —
+   * WebhookEnvelopeSerializer.created), which IS covered by the HMAC and
+   * therefore cannot be rewritten by a replayer. Checked AFTER signature
+   * verification and JSON parse. 0/undefined skips it.
    *
-   * ⚠️ SECURITY: this is NOT cryptographic replay protection. The platform
-   * signs ONLY the raw body (WebhookDeliveryService.computeSignature) and sends
-   * `X-NexusPay-Timestamp` as a SEPARATE, UNSIGNED header (`Instant.now()`),
-   * which is NOT part of the HMAC input. An attacker who captures one valid
-   * delivery can replay the exact body+signature while rewriting this header to
-   * "now" — the check (and the signature) will both pass. Use this only as a
-   * coarse freshness hint behind a trusted transport.
-   *
-   * For tamper-proof replay detection, use {@link createdToleranceSeconds},
-   * which anchors on the signed `created` field inside the verified envelope.
-   */
-  toleranceSeconds?: number;
-  /**
-   * HARDENED replay window (seconds) anchored on the SIGNED `created` field of
-   * the verified envelope (epoch seconds — WebhookEnvelopeSerializer.created),
-   * which IS covered by the HMAC and therefore cannot be rewritten by a
-   * replayer. Checked AFTER signature verification and JSON parse. 0/undefined
-   * skips it. Prefer this over {@link toleranceSeconds} for real replay
-   * protection; the two may be combined.
+   * This is the recommended path for real replay protection. Prefer it over the
+   * `*HeaderToleranceSeconds` options below, which verify only the UNSIGNED
+   * timestamp header and are defeatable by an attacker.
    */
   createdToleranceSeconds?: number;
+  /**
+   * ⚠️ UNSAFE / ADVISORY ONLY — replay window vs the UNSIGNED
+   * `X-NexusPay-Timestamp` header (seconds); 0/undefined skips the check.
+   *
+   * SECURITY: this is NOT cryptographic replay protection and is
+   * attacker-defeatable. The platform signs ONLY the raw body
+   * (WebhookDeliveryService.computeSignature) and sends `X-NexusPay-Timestamp`
+   * as a SEPARATE, UNSIGNED header (`Instant.now()`) that is NOT part of the
+   * HMAC input. An attacker who captures one valid delivery can replay the exact
+   * body+signature while rewriting this header to "now" — both this check and
+   * the signature will pass. Use ONLY as a coarse freshness hint behind a
+   * trusted transport, never as a security boundary.
+   *
+   * For tamper-proof replay detection use {@link createdToleranceSeconds}, which
+   * anchors on the signed `created` field inside the verified envelope. This
+   * option is honored identically to the deprecated {@link toleranceSeconds};
+   * if both are supplied, the larger (more permissive) window is used.
+   */
+  unsafeHeaderToleranceSeconds?: number;
+  /**
+   * @deprecated Use {@link createdToleranceSeconds} (signed, tamper-proof) for
+   * real replay protection, or {@link unsafeHeaderToleranceSeconds} if you
+   * explicitly want the old advisory header check. Retained for back-compat and
+   * still honored identically to `unsafeHeaderToleranceSeconds`.
+   *
+   * ⚠️ SECURITY: verifies the UNSIGNED `X-NexusPay-Timestamp` header and is
+   * attacker-defeatable — see {@link unsafeHeaderToleranceSeconds} for the full
+   * threat model. This is NOT cryptographic replay protection.
+   */
+  toleranceSeconds?: number;
   /** Injectable clock (epoch seconds) for tests. */
   now?: () => number;
 }
 
 function getHeader(bag: HeaderBag, name: string): string | undefined {
+  // WHATWG `Headers` (Next.js App Router, Fetch Request): `.get` is already
+  // case-insensitive and joins multiple values. Object.entries(headers) returns
+  // [] for a Headers instance, so without this branch every App-Router delivery
+  // resolved to `missing_signature`.
+  if (isHeadersLike(bag)) {
+    const v = bag.get(name);
+    return v === null ? undefined : v;
+  }
   const lower = name.toLowerCase();
   for (const [k, v] of Object.entries(bag)) {
     if (k.toLowerCase() === lower) {
@@ -118,15 +164,25 @@ function getHeader(bag: HeaderBag, name: string): string | undefined {
   return undefined;
 }
 
+/** Largest of the defined numeric inputs, or undefined if none are defined. */
+function maxDefined(...values: Array<number | undefined>): number | undefined {
+  let out: number | undefined;
+  for (const v of values) {
+    if (typeof v === 'number' && (out === undefined || v > out)) out = v;
+  }
+  return out;
+}
+
 /**
  * Verifies the signature, optionally enforces a replay window, then JSON-parses
  * the body. Throws SignatureVerificationError on any failure.
  *
  * Two independent replay windows are supported (see {@link ConstructEventOptions}):
- *   - `toleranceSeconds` — ADVISORY only, against the UNSIGNED timestamp header;
- *     a replayer can rewrite that header, so this is not cryptographic protection.
- *   - `createdToleranceSeconds` — HARDENED, against the SIGNED `created` field of
- *     the verified envelope (HMAC-covered, tamper-proof). Prefer this one.
+ *   - `createdToleranceSeconds` — CANONICAL/HARDENED, against the SIGNED `created`
+ *     field of the verified envelope (HMAC-covered, tamper-proof). Prefer this one.
+ *   - `unsafeHeaderToleranceSeconds` (and its deprecated synonym `toleranceSeconds`)
+ *     — ADVISORY only, against the UNSIGNED timestamp header; a replayer can rewrite
+ *     that header, so this is NOT cryptographic protection.
  *
  * @param headersOrSignature a bare signature string, or a header bag (the
  *   X-NexusPay-Signature / X-NexusPay-Timestamp lookups are case-insensitive).
@@ -156,8 +212,14 @@ export function constructEvent(
 
   // ADVISORY replay window against the UNSIGNED timestamp header. This is not
   // cryptographic replay protection (the platform does not sign the timestamp —
-  // see ConstructEventOptions.toleranceSeconds); prefer createdToleranceSeconds.
-  const tolerance = options?.toleranceSeconds;
+  // see ConstructEventOptions.unsafeHeaderToleranceSeconds); prefer
+  // createdToleranceSeconds. `toleranceSeconds` is the deprecated synonym of
+  // `unsafeHeaderToleranceSeconds`; if both are set, use the larger window so
+  // neither caller intent silently tightens the other.
+  const tolerance = maxDefined(
+    options?.unsafeHeaderToleranceSeconds,
+    options?.toleranceSeconds,
+  );
   if (tolerance && tolerance > 0) {
     if (!timestampHeader) {
       throw new SignatureVerificationError(

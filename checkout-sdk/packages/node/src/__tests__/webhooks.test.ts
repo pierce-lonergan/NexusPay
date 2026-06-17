@@ -170,6 +170,106 @@ describe('constructEvent', () => {
     expect(event.type).toBe('payment.succeeded');
   });
 
+  describe('WHATWG Headers input (DX-2 critique 1.2)', () => {
+    it('resolves the signature from a real WHATWG Headers (e.g. Next.js App Router req.headers)', () => {
+      const body = canonicalEnvelope();
+      const headers = new Headers();
+      headers.set('X-NexusPay-Signature', sign(body, SECRET));
+      headers.set('X-NexusPay-Timestamp', '2026-06-16T16:00:00Z');
+
+      // Object.entries(headers) is [] — without the Headers branch this threw
+      // missing_signature on every App-Router delivery.
+      const event = constructEvent(body, headers, SECRET);
+      expect(event.id).toBe('evt_abc123');
+      expect(event.type).toBe('payment.succeeded');
+    });
+
+    it('Headers lookup is case-insensitive (lowercased header name still resolves)', () => {
+      const body = canonicalEnvelope();
+      const headers = new Headers();
+      headers.set('x-nexuspay-signature', sign(body, SECRET));
+      const event = constructEvent(body, headers, SECRET);
+      expect(event.id).toBe('evt_abc123');
+    });
+
+    it('honors the advisory header tolerance window via a WHATWG Headers timestamp', () => {
+      const body = canonicalEnvelope();
+      const headers = new Headers();
+      headers.set('x-nexuspay-signature', sign(body, SECRET));
+      const ts = '2026-06-16T16:00:00Z';
+      headers.set('x-nexuspay-timestamp', ts);
+      expect(() =>
+        constructEvent(body, headers, SECRET, {
+          unsafeHeaderToleranceSeconds: 300,
+          now: () => Date.parse(ts) / 1000 + 10_000,
+        }),
+      ).toThrowError(SignatureVerificationError);
+    });
+
+    it('throws missing_signature for an empty WHATWG Headers (regression: not a false positive)', () => {
+      const body = canonicalEnvelope();
+      try {
+        constructEvent(body, new Headers(), SECRET);
+        expect.unreachable('should have thrown');
+      } catch (err) {
+        expect((err as SignatureVerificationError).code).toBe('missing_signature');
+      }
+    });
+  });
+
+  describe('deprecated toleranceSeconds + unsafeHeaderToleranceSeconds synonym (DX-2 critique 5.3)', () => {
+    const ts = '2026-06-16T16:00:00Z';
+
+    it('deprecated toleranceSeconds STILL enforces (back-compat)', () => {
+      const body = canonicalEnvelope();
+      const sig = sign(body, SECRET);
+      try {
+        constructEvent(
+          body,
+          { 'x-nexuspay-signature': sig, 'x-nexuspay-timestamp': ts },
+          SECRET,
+          { toleranceSeconds: 300, now: () => Date.parse(ts) / 1000 + 10_000 },
+        );
+        expect.unreachable('should have thrown');
+      } catch (err) {
+        expect((err as SignatureVerificationError).code).toBe('timestamp_out_of_tolerance');
+      }
+    });
+
+    it('unsafeHeaderToleranceSeconds enforces identically to the deprecated option', () => {
+      const body = canonicalEnvelope();
+      const sig = sign(body, SECRET);
+      try {
+        constructEvent(
+          body,
+          { 'x-nexuspay-signature': sig, 'x-nexuspay-timestamp': ts },
+          SECRET,
+          { unsafeHeaderToleranceSeconds: 300, now: () => Date.parse(ts) / 1000 + 10_000 },
+        );
+        expect.unreachable('should have thrown');
+      } catch (err) {
+        expect((err as SignatureVerificationError).code).toBe('timestamp_out_of_tolerance');
+      }
+    });
+
+    it('when both are set, the LARGER (more permissive) window wins — neither silently tightens', () => {
+      const body = canonicalEnvelope();
+      const sig = sign(body, SECRET);
+      // 600s offset: outside the 300 window but inside the 1000 window.
+      const event = constructEvent(
+        body,
+        { 'x-nexuspay-signature': sig, 'x-nexuspay-timestamp': ts },
+        SECRET,
+        {
+          toleranceSeconds: 300,
+          unsafeHeaderToleranceSeconds: 1000,
+          now: () => Date.parse(ts) / 1000 + 600,
+        },
+      );
+      expect(event.type).toBe('payment.succeeded');
+    });
+  });
+
   describe('createdToleranceSeconds (signed, tamper-proof replay window)', () => {
     // The canonical envelope's signed `created` is 1718553600.
     const CREATED = 1718553600;

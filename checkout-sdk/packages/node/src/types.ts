@@ -54,6 +54,17 @@ export interface CreatePaymentParams {
   metadata?: Metadata;
 }
 
+/**
+ * A server-side Payment as returned by `POST /v1/payments` and the other
+ * `/v1/payments/*` endpoints.
+ *
+ * NOTE: `POST /v1/payments` returns only the payment `id` (and the fields
+ * below) — it does NOT return a `client_secret`. The `client_secret` needed to
+ * mount the browser payment element / confirm from the client lives on a
+ * {@link PaymentSession}: create one with
+ * {@link NexusPay.createPaymentSession | createPaymentSession} and read
+ * `PaymentSession.client_secret`. Do not look for a secret on this type.
+ */
 export interface Payment {
   id: string;
   status: string;
@@ -130,6 +141,20 @@ export interface RequestOptions {
   idempotencyKey?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
+  /**
+   * Opt-in automatic retry count for transient failures (429, 5xx, and
+   * network/transport errors only — never other 4xx). Default 0, which is the
+   * historical behavior: exactly one fetch, no auto-generated idempotency key.
+   *
+   * When > 0, retries use exponential backoff and honor a `Retry-After` header
+   * on 429 responses. For a mutating (POST) request, a SINGLE `Idempotency-Key`
+   * is reused across the whole attempt sequence; if {@link idempotencyKey} is
+   * not supplied, one is auto-generated (crypto.randomUUID) for that sequence so
+   * retries are safe by construction.
+   *
+   * Overrides {@link NexusPayOptions.maxRetries} for this call when set.
+   */
+  maxRetries?: number;
 }
 
 // ---- webhooks ----
