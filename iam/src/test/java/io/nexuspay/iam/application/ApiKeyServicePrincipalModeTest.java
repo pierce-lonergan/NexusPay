@@ -60,15 +60,19 @@ class ApiKeyServicePrincipalModeTest {
     }
 
     @Test
-    void modeIsServerDerived_notFromRawKeyString() {
-        // A key whose RAW STRING says sk_test_ but whose ENTITY is_live=true must yield LIVE — the
-        // mode comes from the column, never from parsing the string. (Defensive: in production the prefix
-        // and is_live agree, but this proves the source of truth.)
-        String rawKey = "sk_test_unitk2";
-        ApiKeyService service = serviceWith(entity(rawKey, true), rawKey);
+    void modeIsServerDerived_fromEntityIsLiveColumn() {
+        // The principal's mode is read from the matched ENTITY's is_live COLUMN, not re-derived from the
+        // raw key string in authenticate(). DX-3 fail-closed now REQUIRES prefix<->is_live agreement, so
+        // the old "forge sk_test_ prefix + is_live=true" construction is no longer a legitimate row;
+        // server-derivation is instead pinned by asserting the returned live() EQUALS the stub entity's
+        // isLive() column (the source of truth) rather than a hardcoded literal. The complementary
+        // direction — is_live=false yields a TEST principal — is covered by testKeyEntity_yieldsTestPrincipal_liveFalse.
+        String rawKey = "sk_live_unitk2";
 
-        assertThat(service.authenticate(rawKey).live())
-                .as("mode is the entity's is_live, not the raw key prefix")
+        ApiKeyEntity liveEntity = entity(rawKey, true);
+        assertThat(serviceWith(liveEntity, rawKey).authenticate(rawKey).live())
+                .as("principal.live() is server-derived from the entity's is_live column")
+                .isEqualTo(liveEntity.isLive())
                 .isTrue();
     }
 

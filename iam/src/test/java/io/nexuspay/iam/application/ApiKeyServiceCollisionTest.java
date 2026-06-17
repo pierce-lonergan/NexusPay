@@ -39,6 +39,10 @@ class ApiKeyServiceCollisionTest {
     private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
 
     // Two raw keys whose first 12 chars collide: "sk_test_coll" (8 + 4) is exactly PREFIX_DISPLAY_LENGTH.
+    // BOTH are sk_test_ keys with is_live=false: sk_live_ vs sk_test_ differ at char 4, so two keys can
+    // only share a 12-char prefix WITHIN one mode. DX-3's fail-closed prefix<->is_live invariant forbids
+    // the prior cross-mode pairing (sk_test_ prefix + is_live=true), so the colliding siblings are
+    // same-mode here — preserving the >1-candidate iteration coverage without violating the new control.
     private static final String RAW_A = "sk_test_coll_a";
     private static final String RAW_B = "sk_test_coll_b";
     // A third key on the SAME colliding prefix that matches NEITHER stored hash.
@@ -60,7 +64,10 @@ class ApiKeyServiceCollisionTest {
     @Test
     void collidingPrefix_eachKeyAuthenticatesToItsOwnPrincipal() {
         ApiKeyEntity a = entity(RAW_A, false, "key_A", "operator", "tenant_A");
-        ApiKeyEntity b = entity(RAW_B, true, "key_B", "admin", "tenant_B");
+        // Same-mode sibling (sk_test_ prefix + is_live=false): collides on "sk_test_coll" yet stays
+        // consistent under DX-3's prefix<->is_live invariant. Distinct id/role/tenant still prove each
+        // candidate resolves to its OWN principal across a genuine >1-element finder result.
+        ApiKeyEntity b = entity(RAW_B, false, "key_B", "admin", "tenant_B");
 
         // Both un-revoked keys share the same 12-char prefix -> finder returns BOTH.
         ApiKeyService service = serviceReturning(List.of(a, b));
@@ -80,7 +87,7 @@ class ApiKeyServiceCollisionTest {
         assertThat(pb.userId()).isEqualTo("key_B");
         assertThat(pb.tenantId()).isEqualTo("tenant_B");
         assertThat(pb.role()).isEqualTo("admin");
-        assertThat(pb.live()).as("B is sk_live-mode / is_live=true -> LIVE principal").isTrue();
+        assertThat(pb.live()).as("B is sk_test_ / is_live=false -> TEST principal").isFalse();
         assertThat(pb.authMethod()).isEqualTo(NexusPayPrincipal.AuthMethod.API_KEY);
         assertThat(pb.sessionId()).isNull();
     }
@@ -89,7 +96,7 @@ class ApiKeyServiceCollisionTest {
     @Test
     void collidingPrefix_returnOrderDoesNotBiasMatch() {
         ApiKeyEntity a = entity(RAW_A, false, "key_A", "operator", "tenant_A");
-        ApiKeyEntity b = entity(RAW_B, true, "key_B", "admin", "tenant_B");
+        ApiKeyEntity b = entity(RAW_B, false, "key_B", "admin", "tenant_B");
 
         ApiKeyService service = serviceReturning(List.of(b, a)); // reversed order
 
@@ -98,15 +105,15 @@ class ApiKeyServiceCollisionTest {
         assertThat(pa.live()).isFalse();
 
         NexusPayPrincipal pb = service.authenticate(RAW_B);
-        assertThat(pb.userId()).isEqualTo("key_B");
-        assertThat(pb.live()).isTrue();
+        assertThat(pb.userId()).as("B resolves to B regardless of candidate order").isEqualTo("key_B");
+        assertThat(pb.live()).isFalse();
     }
 
     // (b) No oracle: wrong key on a populated colliding prefix is indistinguishable from a non-existent prefix.
     @Test
     void wrongKeyOnCollidingPrefix_isIndistinguishableFromNonexistentPrefix() {
         ApiKeyEntity a = entity(RAW_A, false, "key_A", "operator", "tenant_A");
-        ApiKeyEntity b = entity(RAW_B, true, "key_B", "admin", "tenant_B");
+        ApiKeyEntity b = entity(RAW_B, false, "key_B", "admin", "tenant_B");
 
         // Prefix EXISTS (2 candidates) but the supplied key matches NEITHER hash.
         ApiKeyService populated = serviceReturning(List.of(a, b));
@@ -195,7 +202,7 @@ class ApiKeyServiceCollisionTest {
     @Test
     void twoUnrevokedSiblingsOnPrefix_eachStillResolvesToOwnPrincipal() {
         ApiKeyEntity a = entity(RAW_A, false, "key_A", "operator", "tenant_A");
-        ApiKeyEntity b = entity(RAW_B, true, "key_B", "admin", "tenant_B");
+        ApiKeyEntity b = entity(RAW_B, false, "key_B", "admin", "tenant_B");
 
         ApiKeyService service = serviceReturning(List.of(a, b)); // both un-revoked, same prefix
 
