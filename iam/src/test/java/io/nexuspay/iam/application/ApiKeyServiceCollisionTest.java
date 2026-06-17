@@ -57,7 +57,7 @@ class ApiKeyServiceCollisionTest {
     private ApiKeyService serviceReturning(List<ApiKeyEntity> candidates) {
         JpaApiKeyRepository repo = mock(JpaApiKeyRepository.class);
         when(repo.findByKeyPrefixAndRevokedAtIsNull(anyString())).thenReturn(candidates);
-        return new ApiKeyService(repo);
+        return new ApiKeyService(repo, mock(ApiKeyUsageTracker.class));
     }
 
     // (a) Collision: each key authenticates to ITS OWN principal (the regression — currently 401s).
@@ -221,7 +221,7 @@ class ApiKeyServiceCollisionTest {
     @Test
     void nonApiKey_returnsNull_andNeverHitsRepository() {
         JpaApiKeyRepository repo = mock(JpaApiKeyRepository.class);
-        ApiKeyService service = new ApiKeyService(repo);
+        ApiKeyService service = new ApiKeyService(repo, mock(ApiKeyUsageTracker.class));
 
         assertThat(service.authenticate("Bearer-ish jwt")).isNull();
         verifyNoInteractions(repo);
@@ -231,7 +231,7 @@ class ApiKeyServiceCollisionTest {
     @Test
     void nullRawKey_returnsNull_noNpe() {
         JpaApiKeyRepository repo = mock(JpaApiKeyRepository.class);
-        ApiKeyService service = new ApiKeyService(repo);
+        ApiKeyService service = new ApiKeyService(repo, mock(ApiKeyUsageTracker.class));
 
         assertThat(service.authenticate(null)).isNull();
         verify(repo, never()).findByKeyPrefixAndRevokedAtIsNull(anyString());

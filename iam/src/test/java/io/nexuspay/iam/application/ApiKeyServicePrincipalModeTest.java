@@ -26,7 +26,7 @@ class ApiKeyServicePrincipalModeTest {
     private ApiKeyService serviceWith(ApiKeyEntity entity, String keyPrefix) {
         JpaApiKeyRepository repo = mock(JpaApiKeyRepository.class);
         when(repo.findByKeyPrefixAndRevokedAtIsNull(anyString())).thenReturn(List.of(entity));
-        return new ApiKeyService(repo);
+        return new ApiKeyService(repo, mock(ApiKeyUsageTracker.class));
     }
 
     private ApiKeyEntity entity(String rawKey, boolean live) {

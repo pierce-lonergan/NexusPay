@@ -25,6 +25,9 @@ public record CreateApiKeyResponse(
         boolean live,
 
         @Schema(description = "When the key was created")
-        Instant created_at
+        Instant created_at,
+
+        @Schema(description = "When the key expires, or null if it never expires")
+        Instant expires_at
 ) {
 }

@@ -3,6 +3,8 @@ package io.nexuspay.gateway.config;
 import io.nexuspay.common.domain.ApiError;
 import io.nexuspay.common.domain.ApiErrorResponse;
 import io.nexuspay.common.exception.AuthorizationException;
+import io.nexuspay.common.exception.ConflictException;
+import io.nexuspay.common.exception.InvalidRequestException;
 import io.nexuspay.common.exception.LedgerException;
 import io.nexuspay.common.exception.NexusPayException;
 import io.nexuspay.common.exception.PaymentException;
@@ -176,6 +178,47 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleResourceNotFound(ResourceNotFoundException ex) {
         log.warn("Resource not found: {} [{}]", ex.getMessage(), ex.getErrorCode());
         return body(HttpStatus.NOT_FOUND, ApiError.TYPE_NOT_FOUND, ex.getErrorCode(), ex.getMessage());
+    }
+
+    /**
+     * Caller-caused STATE conflict (a 4xx) — e.g. {@code ApiKeyService.rotateApiKey} refusing to rotate a
+     * key that is already revoked/expired or already superseded (DX-5c). Mapped to 409 CONFLICT.
+     *
+     * <p>This is a TYPED domain exception, deliberately NOT a blanket {@code @ExceptionHandler} on the raw
+     * {@link IllegalStateException}: the codebase has 40-plus internal {@code IllegalStateException} throws
+     * (invariant/corruption guards — including {@code ApiKeyService.generateKey}'s prefix/is_live mismatch)
+     * that MUST stay 500 so a server fault still trips 5xx alerts. Only this typed exception, thrown on a
+     * genuine caller state-conflict, becomes a 409.</p>
+     *
+     * <p>No oracle: rotate's state check runs only AFTER the tenant-scoped {@code findByIdAndTenantId}
+     * succeeds (a key proven to be in the caller's OWN tenant); an other-tenant id resolves to the uniform
+     * {@code invalidApiKey()} first. The thrown message is curated and id-free (the key id is logged at the
+     * throw site, never put on the wire), so echoing it is safe — same contract as the other 4xx domain
+     * handlers ({@code PaymentException}, {@code ResourceNotFoundException}).</p>
+     */
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<ApiErrorResponse> handleConflict(ConflictException ex) {
+        log.warn("Conflict: {} [{}]", ex.getMessage(), ex.getErrorCode());
+        return body(HttpStatus.CONFLICT, ApiError.TYPE_CONFLICT, ex.getErrorCode(), ex.getMessage());
+    }
+
+    /**
+     * Caller-caused invalid ARGUMENT at the service boundary (a 4xx) — e.g. {@code ApiKeyService.createApiKey}
+     * rejecting an at-or-before-now {@code expiresAt} (DX-5c). Mapped to 400 BAD_REQUEST.
+     *
+     * <p>Like {@link #handleConflict}, this is a TYPED domain exception, NOT a blanket handler on the raw
+     * {@link IllegalArgumentException} — a global {@code IllegalArgumentException}→400 mapping would silently
+     * downgrade the 50-plus internal {@code IllegalArgumentException} programming-error throws across the
+     * modules (bad {@code Instant}/{@code enum} parse, {@code requireNonNull}, library guards) from a 500
+     * server-fault to a misleading 400 client-error, hiding real bugs. Most genuine bad inputs are already
+     * rejected at the controller boundary by Bean Validation ({@code @Future} → {@code MethodArgumentNotValid});
+     * this typed exception is the defence-in-depth service guard. The curated message is id/secret-free and
+     * safe to echo.</p>
+     */
+    @ExceptionHandler(InvalidRequestException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidRequest(InvalidRequestException ex) {
+        log.warn("Invalid request: {} [{}]", ex.getMessage(), ex.getErrorCode());
+        return body(HttpStatus.BAD_REQUEST, ApiError.TYPE_VALIDATION, ex.getErrorCode(), ex.getMessage());
     }
 
     @ExceptionHandler(NexusPayException.class)

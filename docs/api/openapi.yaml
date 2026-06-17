@@ -480,6 +480,38 @@ paths:
         '204':
           description: Key revoked (no content)
 
+  /v1/api-keys/{id}/rotate:
+    post:
+      tags: [API Keys]
+      summary: Rotate an API key with an overlap window
+      description: >-
+        Role: admin. Mints a NEW key (shown once) and shortens the old key's
+        life to an overlap deadline so callers can swap without downtime. The
+        old key's lifetime is only ever SHORTENED, never extended. Tenant-scoped:
+        an other-tenant key id is indistinguishable from a missing one.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RotateApiKeyRequest'
+      responses:
+        '201':
+          description: New key created (full key included once); old key shortened
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateApiKeyResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
 components:
   parameters:
     PathId:
@@ -957,10 +989,34 @@ components:
           type: boolean
           description: '`false` → sk_test_ (test mode); `true` → sk_live_.'
           example: false
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: >-
+            Optional ISO-8601 expiry instant. Must be in the future. Omit for a
+            key that never expires.
+          example: '2027-01-01T00:00:00Z'
+
+    RotateApiKeyRequest:
+      type: object
+      description: >-
+        Rotate a key with an overlap window during which the old key still works.
+      properties:
+        overlapSeconds:
+          type: integer
+          format: int64
+          minimum: 0
+          nullable: true
+          description: >-
+            Seconds the old key keeps working after rotation (default 86400 =
+            24h, capped at 604800 = 7 days). The old key's lifetime is only ever
+            SHORTENED, never extended. Zero retires the old key immediately.
+          example: 86400
 
     CreateApiKeyResponse:
       type: object
-      description: Newly created API key. The full `key` is shown ONCE.
+      description: Newly created (or rotated) API key. The full `key` is shown ONCE.
       properties:
         id:
           type: string
@@ -979,6 +1035,11 @@ components:
         created_at:
           type: string
           format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the key expires, or null if it never expires.
 
     WebhookEventType:
       type: string

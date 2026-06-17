@@ -48,7 +48,7 @@ class ApiKeyServicePrefixConsistencyTest {
     private ApiKeyService serviceReturning(List<ApiKeyEntity> candidates) {
         JpaApiKeyRepository repo = mock(JpaApiKeyRepository.class);
         when(repo.findByKeyPrefixAndRevokedAtIsNull(anyString())).thenReturn(candidates);
-        return new ApiKeyService(repo);
+        return new ApiKeyService(repo, mock(ApiKeyUsageTracker.class));
     }
 
     // --- Consistent keys authenticate normally (existing valid keys preserved) ---
