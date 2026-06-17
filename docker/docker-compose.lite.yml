@@ -13,8 +13,10 @@
 # Port templating: the full compose hard-codes host ports (5432, 9092, 6379,
 # 8180, 29092). The `${..._PORT:-default}` wrappers below have DEFAULTS EQUAL to
 # the full-compose values, so this file is behaviourally identical to the full
-# compose's subset out of the box, while docker-compose.override.yml.example can
-# remap host ports without editing this file.
+# compose's subset out of the box. To dodge a host-port collision, set the
+# matching env var (e.g. KAFKA_HOST_PORT=39092) rather than a `-f` override file —
+# a second compose file ADDS a ports entry (double-bind) instead of replacing it
+# (see docs/LOCAL_DEV.md §8).
 # ---------------------------------------------------------------------------
 version: "3.9"
 

@@ -47,32 +47,36 @@ Gradle with the `local` profile, **Vault disabled**, and Kafka pointed at the
 **host** listener:
 
 ```bash
-SPRING_PROFILES_ACTIVE=local SPRING_CLOUD_VAULT_ENABLED=false \
-KAFKA_BOOTSTRAP_SERVERS=localhost:29092 ./gradlew :app:bootRun
+SPRING_PROFILES_ACTIVE=local ./gradlew :app:bootRun
 ```
 
 The app listens on **`http://localhost:8090`**.
 
-**Why `KAFKA_BOOTSTRAP_SERVERS=localhost:29092`?** Kafka advertises two
+> **DX-4:** the `local` profile now **defaults** `spring.cloud.vault.enabled=false` and the Kafka
+> bootstrap to `localhost:29092` (`application-local.yml`), so the two env vars that used to be required
+> are now **optional** — set `SPRING_CLOUD_VAULT_ENABLED` / `KAFKA_BOOTSTRAP_SERVERS` only to **override**
+> (e.g. remapped ports, §8). The rationale below is why each default matters.
+
+**Why Kafka bootstrap = `localhost:29092`?** Kafka advertises two
 listeners (`docker-compose.lite.yml:53`): `PLAINTEXT://kafka:9092` for in-network
-clients and `PLAINTEXT_HOST://localhost:29092` for host clients. The app default
-is `localhost:9092` (`application.yml:59`; the `local` profile adds no Kafka
-override). A host client that bootstraps on `9092` connects, then gets handed the
+clients and `PLAINTEXT_HOST://localhost:29092` for host clients. The base app default
+is `localhost:9092` (`application.yml:59`), so the `local` profile now overrides it to
+`localhost:29092` (DX-4). A host client that bootstrapped on `9092` would connect, then get handed the
 advertised broker address `kafka:9092`, which does **not** resolve from the host —
 so the outbox relay's `payment.succeeded` publish silently times out (10s broker
 ack in `OutboxRelay`) and the webhook in step 5 never fires. Bootstrapping on
 `29092` (the `PLAINTEXT_HOST` listener) advertises back `localhost:29092`, which
 resolves. The app still **boots** without this (topic auto-create is non-fatal);
-only the webhook loop breaks. For remapped ports use `localhost:39092` (see §8).
+only the webhook loop breaks. For remapped ports override with `KAFKA_BOOTSTRAP_SERVERS=localhost:39092` (see §8).
 
-**Why `SPRING_CLOUD_VAULT_ENABLED=false`?** `spring-cloud-starter-vault-config`
+**Why Vault disabled?** `spring-cloud-starter-vault-config`
 is on the app classpath. In this project's configuration the Vault auto-config
 attempts to authenticate at boot unless explicitly disabled — the integration
 test profile disables it for exactly this reason (`application-test.yml`: *"Without
 this, the Vault auto-config fails: Cannot create authentication mechanism for
-TOKEN"*). The `local` profile does **not** disable it, so you pass the env var.
-The in-process card-crypto (`nexuspay.vault.*`, software provider) is independent
-and unaffected.
+TOKEN"*). The `local` profile now defaults `spring.cloud.vault.enabled=false` (DX-4); set
+`SPRING_CLOUD_VAULT_ENABLED=true` to override. The in-process card-crypto (`nexuspay.vault.*`, software
+provider) is independent and unaffected.
 
 **Why everything else still boots without its container:**
 
@@ -81,16 +85,17 @@ and unaffected.
 | **HyperSwitch** | The `RestClient` is built lazily; the first real `/payments` call would dial it, but `sk_test_` is routed to the in-process mock, so it is never dialed. Its health indicator degrades to DOWN gracefully and does not fail startup. Leave `HYPERSWITCH_BASE_URL` at its default (unreachable, never used). |
 | **Temporal** | The worker config is `@ConditionalOnProperty(nexuspay.temporal.enabled=true)`, default false. No stub is created. |
 | **schema-registry** | The Avro client is built lazily (no connect at construction); Avro dual-write defaults off. Nothing eagerly registers schemas at startup. |
-| **Vault** | Disabled via the env var above. |
+| **Vault** | Disabled by the `local` profile default (DX-4); `SPRING_CLOUD_VAULT_ENABLED=true` re-enables. |
 
 > The `local` profile is a recognized dev profile, so the startup secrets
 > validator runs in **warn-only** mode (it does not fail-fast on the dev-default
 > secrets).
 
-**Optional convenience (do this only in your own checkout):** you can add
-`spring.cloud.vault.enabled: false` to `application-local.yml` so the env var is
-no longer needed. INT-8 deliberately does **not** commit that change, to avoid
-altering the `local` profile's behavior for other consumers — prefer the env var.
+**(DX-4) The `local` profile now bakes in `spring.cloud.vault.enabled=false` + Kafka `localhost:29092`**
+(`application-local.yml`), both `${ENV:-default}`-wrapped so an env var still wins. The earlier INT-8
+note (keep these as env-only to avoid changing the profile) was reversed because the silent failure mode
+— a clean boot that never fires a webhook — cost integrators 30–60 min to first webhook (Snap DX critique
+§2.3); a defaulted-but-overridable profile value is the safer default.
 
 ---
 
@@ -195,14 +200,12 @@ VALKEY_PORT=16379 KEYCLOAK_PORT=18180 \
 docker compose -f docker/docker-compose.lite.yml up -d
 ```
 
-> **Avoid the compose-file override for port remapping.** Compose merges the
-> `ports` list **additively** across `-f` files — short-form entries are
-> concatenated, not replaced. Passing
-> `docker-compose.override.yml.example`'s `19092:9092` on top of the base
-> `9092:9092` leaves **both** bound, so the original colliding port stays bound
-> and the remap fails to dodge the collision. That example file is illustrative
-> only. The env-var route above re-templates the single base entry, so it remaps
-> without double-binding.
+> **Avoid a compose-file `-f` override for port remapping — use the env vars above.** Compose merges the
+> `ports` list **additively** across `-f` files — short-form entries are concatenated, not replaced — so
+> a second `ports` entry like `19092:9092` on top of the base `9092:9092` leaves **both** bound, and the
+> original colliding port stays bound (the remap fails to dodge the collision). The `${..._PORT:-default}`
+> env-var route re-templates the single base entry, so it remaps cleanly. (DX-4 removed the former
+> `docker-compose.override.yml.example`, which only demonstrated this footgun.)
 
 Either way, host port remapping is the only thing this changes. If you remap,
 update the matching `bootRun` env vars so the app reaches the moved services
