@@ -9,9 +9,16 @@ import java.util.Map;
 /**
  * Gateway API payment response DTO.
  * Wraps payment-orchestration's PaymentResponse into the public API shape.
+ *
+ * <p>Critique 5.1: the {@code POST /v1/payments} create response carries ONLY the payment {@code id}
+ * (plus status/amount/mode etc.) and has NO {@code client_secret} field. A {@code client_secret} for a
+ * browser/SDK client is issued by {@code POST /v1/payment-sessions} ({@code PaymentSessionResponse}),
+ * not by this server-to-server create. Do not look for a client secret on this object.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-@Schema(description = "Payment object")
+@Schema(description = "Payment object. The create response (POST /v1/payments) returns only the payment "
+        + "id (no client_secret); a browser client_secret comes from POST /v1/payment-sessions "
+        + "(PaymentSessionResponse).")
 public record PaymentApiResponse(
         @Schema(description = "Payment ID from the gateway")
         String id,
@@ -48,6 +55,10 @@ public record PaymentApiResponse(
 
         @Schema(description = "Key mode that produced this payment: \"test\" or \"live\". INT-3: "
                 + "SERVER-DERIVED from the authenticated key's is_live — never from the request body.")
-        String mode
+        String mode,
+
+        @Schema(description = "true when mode == live; mirrors the webhook envelope's livemode. "
+                + "Nullable: dropped (NON_NULL) on the no-mode overload alongside mode.")
+        Boolean livemode
 ) {
 }

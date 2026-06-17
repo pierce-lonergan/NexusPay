@@ -110,8 +110,13 @@ paths:
       summary: Create a payment intent
       description: >-
         Roles: admin, operator. Returns **201 Created**. The response `mode`
-        ("test"/"live") is server-derived from the authenticated key. The
-        optional `Idempotency-Key` header makes the create safely retryable.
+        ("test"/"live") is server-derived from the authenticated key, and
+        `livemode` (boolean) mirrors it (`mode == "live"`), matching the webhook
+        envelope's `livemode`. The optional `Idempotency-Key` header makes the
+        create safely retryable. NOTE (critique 5.1): this create response
+        carries only the payment `id` (no `client_secret`); a browser
+        `client_secret` comes from `POST /v1/payment-sessions`
+        (`PaymentSessionResponse`).
       security:
         - apiKey: []
         - bearerAuth: []
@@ -598,7 +603,11 @@ components:
 
     PaymentApiResponse:
       type: object
-      description: Payment object (NON_NULL — absent fields are omitted).
+      description: >-
+        Payment object (NON_NULL — absent fields are omitted). The create
+        response (POST /v1/payments) returns only the payment `id` (no
+        `client_secret`); a browser `client_secret` comes from
+        `POST /v1/payment-sessions` (`PaymentSessionResponse`).
       properties:
         id:
           type: string
@@ -634,6 +643,11 @@ components:
           description: >-
             Key mode that produced this payment. SERVER-DERIVED from the
             authenticated key's is_live — never from the request body.
+        livemode:
+          type: boolean
+          description: >-
+            true when mode == live; mirrors the webhook envelope's livemode.
+            Omitted (NON_NULL) on responses that also omit mode.
 
     CreatePaymentSessionRequest:
       type: object

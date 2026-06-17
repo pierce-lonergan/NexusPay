@@ -35,12 +35,19 @@ final class ResponseMapper {
      * INT-3: maps a payment and stamps the SERVER-DERIVED key {@code mode} ("test"/"live"). The caller
      * derives {@code mode} from the authenticated principal's {@code live()} flag, never from the request
      * body. A {@code null} mode is dropped by the DTO's NON_NULL include.
+     *
+     * <p>Critique 5.2: {@code livemode} (nullable Boolean) mirrors the webhook envelope's {@code livemode}
+     * so a webhook-side {@code event.livemode} boolean check reuses on the REST side. It is derived purely
+     * from {@code mode}: {@code "live".equals(mode)} when mode is present, else {@code null} (so the no-mode
+     * overload drops BOTH {@code mode} and {@code livemode} under NON_NULL — today's serialization is
+     * preserved).
      */
     static PaymentApiResponse toPaymentResponse(PaymentResponse p, String mode) {
+        Boolean livemode = (mode == null ? null : Boolean.valueOf("live".equals(mode)));
         return new PaymentApiResponse(
                 p.gatewayPaymentId(), p.status(), p.amount(), p.currency(),
                 p.captureMethod(), p.customerId(), p.connectorName(),
-                p.errorCode(), p.errorMessage(), p.createdAt(), p.metadata(), mode
+                p.errorCode(), p.errorMessage(), p.createdAt(), p.metadata(), mode, livemode
         );
     }
 

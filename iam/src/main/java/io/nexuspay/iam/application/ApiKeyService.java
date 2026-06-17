@@ -51,6 +51,14 @@ public class ApiKeyService {
         String keyPrefix = fullKey.substring(0, Math.min(fullKey.length(), PREFIX_DISPLAY_LENGTH));
         String id = PrefixedId.apiKey();
 
+        // Critique 3.2 (belt-and-suspenders): the prefix and the is_live flag are derived from the SAME
+        // `live` argument above, so they always agree here. Lock that invariant at the write boundary so a
+        // future refactor cannot persist a mismatched row — authenticate() enforces the same invariant at
+        // the read boundary (fail-closed), making the prefix a verified control rather than cosmetic.
+        if (!prefixAgreesWithLive(keyPrefix, live)) {
+            throw new IllegalStateException("API key prefix/is_live mismatch at creation");
+        }
+
         var entity = new ApiKeyEntity(id, keyHash, keyPrefix, name, role, tenantId, live, Instant.now(), null);
         apiKeyRepository.save(entity);
 
@@ -76,6 +84,20 @@ public class ApiKeyService {
         // revoked-only prefix (revoked rows are excluded by the query) — uniform failure, no oracle.
         for (ApiKeyEntity candidate : candidates) {
             if (passwordEncoder.matches(rawKey, candidate.getKeyHash())) {
+                // Critique 3.2: FAIL-CLOSED prefix/is_live consistency check. createApiKey derives the
+                // stored key_prefix and is_live from the same `live` argument, but authenticate has, until
+                // now, trusted is_live ALONE for mode — leaving the prefix STRING unverified. Enforce the
+                // invariant at the boundary: a "sk_live_" prefix REQUIRES is_live=true and "sk_test_"
+                // REQUIRES is_live=false. A row with a mismatched prefix/is_live (manual DB edit, a future
+                // code path, corruption) must NOT authenticate. On mismatch, log a WARNING (key id/prefix
+                // only — NEVER the raw key) and fail closed: `continue` so this matched-but-inconsistent
+                // candidate is treated identically to a non-match and falls through to the single terminal
+                // invalidApiKey() throw below — same exception, no distinguishing error/oracle.
+                if (!prefixAgreesWithLive(candidate.getKeyPrefix(), candidate.isLive())) {
+                    log.warn("Rejecting API key with inconsistent prefix/is_live: id={}, prefix={}, is_live={}",
+                            candidate.getId(), candidate.getKeyPrefix(), candidate.isLive());
+                    continue;
+                }
                 // INT-3: the mode is SERVER-DERIVED from the matched entity's is_live column — never
                 // inferred from the raw key string. A sk_test_ key (is_live=false) yields a TEST
                 // principal whose payment ops route to the mock gateway; a sk_live_ key yields a LIVE
@@ -107,6 +129,27 @@ public class ApiKeyService {
         return apiKeyRepository.findAllByTenantIdAndRevokedAtIsNull(tenantId).stream()
                 .map(this::toDomain)
                 .toList();
+    }
+
+    /**
+     * Critique 3.2: does the stored {@code key_prefix} string AGREE with the {@code is_live} flag?
+     * A {@code "sk_live_"} prefix agrees only with {@code live == true}; a {@code "sk_test_"} prefix only
+     * with {@code live == false}. Any other prefix (corruption / a future scheme) agrees with NEITHER and
+     * returns {@code false} — fail-closed by construction. {@code prefix} is the persisted 12-char display
+     * prefix (e.g. {@code "sk_live_AbCd"}), which always starts with the full {@code "sk_live_"} /
+     * {@code "sk_test_"} 8-char token, so {@code startsWith} is exact.
+     */
+    private static boolean prefixAgreesWithLive(String prefix, boolean live) {
+        if (prefix == null) {
+            return false;
+        }
+        if (prefix.startsWith("sk_live_")) {
+            return live;
+        }
+        if (prefix.startsWith("sk_test_")) {
+            return !live;
+        }
+        return false;
     }
 
     private ApiKey toDomain(ApiKeyEntity entity) {

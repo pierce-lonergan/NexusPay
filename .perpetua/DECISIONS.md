@@ -948,3 +948,32 @@ README + CHANGELOG (a genuine tail-behavior delta on the {signal} path; default 
 package-lock not bumped → regenerated. Versions 0.1.0→0.1.1 (js/node/react; private checkout demo stays).
 Republish via the sdk-v0.1.1 tag → release.yml (the 0.1.1 tarball also ships DX-1's corrected node README).
 L-062. ADR-044.
+
+## ADR-045 | 2026-06-17 | DX-3: livemode on /v1/payments + prefix<->is_live binding invariant (refines INT-3) + no-secret doc (T3)
+From the Snap DX critique. (5.2) ConfirmResponse already carried both mode (string) + livemode (boolean); the
+/v1/payments PaymentApiResponse had only mode, so a webhook-side `event.livemode` boolean check had no REST
+equivalent. Added a NULLABLE Boolean livemode (true IFF mode=="live"), set in ResponseMapper.toPaymentResponse(p,
+mode); the legacy no-mode overload passes null so NON_NULL drops both mode+livemode (today's serialization
+preserved). OpenAPI updated. (5.1) PaymentApiResponse Javadoc/@Schema + OpenAPI now state the create response
+carries only the payment id, NO client_secret (browser client_secret comes from POST /v1/payment-sessions).
+(3.2) REFINES INT-3: INT-3 (ADR-028) made mode SERVER-DERIVED from the is_live COLUMN (not the raw key STRING) and
+treated the sk_test_/sk_live_ prefix as cosmetic. That left a residual footgun: a row whose displayed prefix
+disagreed with is_live (DB corruption / a future bad code path) would authenticate and route by is_live — so a
+sk_test_-DISPLAYED key could, in principle, move REAL money, violating the integrator's "sk_test_ == test" mental
+model (and Snap's CHARTER). DX-3 makes the prefix a BINDING invariant: ApiKeyService.authenticate now, AFTER the
+constant-time bcrypt match, verifies prefixAgreesWithLive(keyPrefix, isLive) (sk_live_⟺true, sk_test_⟺false,
+null/other→reject) and on mismatch `continue`s to the single terminal invalidApiKey() throw — fail-closed, no
+oracle, no timing signal (post-match). createApiKey gets a belt-and-suspenders assert (prefix+live already derive
+from one arg). INT-3's CORE guarantee is PRESERVED for all consistent (i.e. all real, createApiKey-minted) keys —
+mode is still the is_live column — but an inconsistent pair now fails closed instead of trusting is_live, so the
+prefix is finally a trustworthy safety signal. NOT a contradiction of INT-3, a strengthening of it.
+Test reconciliation (NOT a weakening): the two pre-existing security tests that intentionally FORGED an
+inconsistent row (ApiKeyServicePrincipalModeTest.modeIsServerDerived_* forged sk_test_+is_live=true to prove
+column-authority; SEC-22 ApiKeyServiceCollisionTest RAW_B = sk_test_ prefix + is_live=true) asserted a state the
+new invariant FORBIDS. Reconciled by making the fixtures internally CONSISTENT (mode-derivation now asserts
+principal.live()==entity.isLive() with a consistent sk_live_ row; collision now pairs two same-mode sk_test_/false
+keys sharing the 12-char sk_test_coll prefix) — SEC-22 collision-iteration coverage + column-authority coverage
+both intact, PLUS a new ApiKeyServicePrefixConsistencyTest proving the mismatch is rejected with no oracle. Net
+coverage up. Adversarial review caught the conflict as 3 BLOCKERs (a documented-invariant contradiction, not stale
+data) and escalated rather than silently rewriting a security test — the right call; I verified the refinement is
+strictly safer before accepting. L-063. ADR-045 (refines ADR-028/INT-3). CI is the oracle.
