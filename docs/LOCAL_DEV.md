@@ -99,6 +99,49 @@ note (keep these as env-only to avoid changing the profile) was reversed because
 
 ---
 
+## 3b. (Option B) Run the app as a container — no local JDK/Gradle (DX-6)
+
+If you would rather not install a JDK + Gradle, run the app from a container image
+built by the repo `Dockerfile` (multi-stage: it compiles the bootJar, then ships a
+slim non-root JRE on port 8090).
+
+```bash
+# Build locally (or pull the published image — see below)
+docker build -t nexuspay-app .
+
+# Run it joined to the LITE stack's network so it can reach Postgres/Kafka/Valkey/
+# Keycloak by their in-network hostnames. Vault stays disabled; Kafka points at the
+# in-network broker (kafka:9092) since the app is now INSIDE the compose network.
+docker run --rm \
+  --network "$(basename "$PWD")_default" \
+  -e SPRING_PROFILES_ACTIVE=local \
+  -e SPRING_CLOUD_VAULT_ENABLED=false \
+  -e KAFKA_BOOTSTRAP_SERVERS=kafka:9092 \
+  -e NEXUSPAY_DB_URL=jdbc:postgresql://nexuspay-pg:5432/nexuspay \
+  -e VALKEY_URL=redis://valkey:6379 \
+  -e KEYCLOAK_URL=http://keycloak:8080 \
+  -p 8090:8090 \
+  nexuspay-app
+```
+
+> **Network name:** Compose names the default network `<project>_default` (the
+> project defaults to the working-dir basename). Run `docker network ls` to confirm,
+> or pass `-p`/`--network` to taste. From INSIDE the compose network use the
+> in-network hostnames + ports (`kafka:9092`, `nexuspay-pg:5432`, `keycloak:8080`) —
+> NOT the host-mapped `29092`/`8180` you use from `bootRun` on the host (§3).
+
+**Published image.** A tag-or-dispatch-triggered workflow
+(`.github/workflows/docker-image.yml`) builds and pushes
+`ghcr.io/<owner>/nexuspay-app` to the GitHub Container Registry using the built-in
+`GITHUB_TOKEN` (no extra secret). Push an `app-v*` tag (e.g. `app-v0.1.0`) or run it
+via **workflow_dispatch** to publish `:latest`, `:<sha>`, and `:<semver>`. The same
+workflow build-validates the `Dockerfile` on any PR that touches it.
+
+> Test-mode safety is unchanged in a container: an `sk_test_` key still routes to the
+> in-process mock (INT-3) — the image carries the same code, not a different profile.
+
+---
+
 ## 4. Step 3 — seed a test key + webhook endpoint
 
 ```bash
