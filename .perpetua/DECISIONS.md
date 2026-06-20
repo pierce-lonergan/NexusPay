@@ -1081,3 +1081,34 @@ per-version transform), now documented as such (INTEGRATION.md new section 7 + c
 inert interceptor (it implies per-request version negotiation that does not exist, and the keep choice
 preserves the documented ADR-008 surface) is the alternative; left as a reversible, low-stakes owner call
 rather than a unilateral subtraction. CI is the oracle. ADR-049.
+
+## ADR-050 | 2026-06-17 | DX-5c-ii: per-API-key SCOPES — fail-closed authorization narrowing (T3)
+Snap critique 3.3 (scopes half; lifecycle was DX-5c). An API key MAY now carry a set of SCOPES that NARROW
+what it can do ON TOP OF its role; a key with NO scopes (NULL/empty) is UNRESTRICTED (role-based) — the
+back-compat default, so every existing key + every JWT/session principal is unchanged. Pieces: (1) ONE
+vocabulary common/api/ApiScope (13 resource:action strings; parseCsv/toCanonicalCsv fail-closed on an
+unknown token -> InvalidRequestException 400 code invalid_scope; null/empty csv == unrestricted). (2)
+Migration V4037 adds api_keys.scopes TEXT NULL. (3) NexusPayPrincipal gains a 7th component Set<String>
+scopes + hasScope and implements ScopedPrincipal (a NEW :common interface) — all 4/5/6-arg convenience
+ctors delegate with scopes=null so the JWT/session paths + ~15 test sites stay byte-identical/unrestricted
+(L-062). (4) A FAIL-CLOSED enforcement bean common/tenant/ScopeSecurity @Component scopeAuth read from
+@PreAuthorize SpEL — placed in :common (not gateway-api) and keyed on the ScopedPrincipal contract (mirrors
+CallerTenant) so marketplace/vault/dispute (which depend on :common only, not :iam) can enforce without
+importing NexusPayPrincipal. No/anon principal -> false (deny); ScopedPrincipal -> hasScope; authenticated
+non-ScopedPrincipal -> true (a restricted API key is ALWAYS a ScopedPrincipal, so it can never reach this
+branch). (5) Per-endpoint @PreAuthorize on 8 money-critical/sensitive controllers AND-composes the EXISTING
+role with @scopeAuth.has(...) (scopes narrow, never replace the role). authenticate parses the key csv
+defensively (filters to known vocab, never throws on the auth path); createApiKey gained a scopes overload
+(fail-closed) + 4/5-arg back-compat overloads; rotate INHERITS the rotated key scopes verbatim (never widens).
+REVIEW (4 lenses) found 6 actionable. BLOCKER (x2 same cause): ApiKeyEntity.scopes mapped to varchar(255)
+but V4037 is TEXT -> ddl-auto=validate would fail full-context boot in CI (L-025); FIXED with
+columnDefinition TEXT (the convention all 13 other TEXT String columns use). SHOULD_FIX (auth-bypass): the
+maker-checker ApprovalController.approve SETTLES a refund (moves money) under role-only auth — an admin key
+scoped away from refunds could still settle one; FIXED by gating it on refunds:write (verified refund is the
+only approval action type today). SHOULD_FIX: refunds:write was inert (refund-create used payments:write) ->
+FIXED by switching refund create + settle to refunds:write, making the scope real and the read/write pair
+meaningful. SHOULD_FIX: vault GETs required vault:write -> added vault:read. SHOULD_FIX: only PayoutController
+had a runtime 403 test -> added gateway-api + vault @WebMvcTest scope-enforcement suites (+ a new
+GatewayTestApplication anchor). All 13 vocabulary scopes now have at least one enforcement site (locked by
+ScopeVocabularyGuardTest). dispute/build.gradle.kts gained spring-boot-starter-security (needed for
+@PreAuthorize compile; mirrors marketplace/vault). CI is the oracle. L-067. ADR-050.

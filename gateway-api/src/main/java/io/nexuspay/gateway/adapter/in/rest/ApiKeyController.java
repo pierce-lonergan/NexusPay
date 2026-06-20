@@ -16,6 +16,10 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/v1/api-keys")
@@ -34,23 +38,29 @@ public class ApiKeyController {
     }
 
     @PostMapping
-    @PreAuthorize("hasRole('admin')")
+    @PreAuthorize("hasRole('admin') and @scopeAuth.has('keys:write')")
     @Operation(summary = "Create a new API key. The full key is shown once.")
     public ResponseEntity<CreateApiKeyResponse> create(
             @Valid @RequestBody CreateApiKeyRequest request,
             @AuthenticationPrincipal NexusPayPrincipal principal) {
         // DX-5c: pass the optional expiry through. @Future on the DTO rejects an at-or-before-now value
         // early; the service re-validates fail-closed (defence in depth).
+        // DX-5c-ii: pass the optional scopes through. The service validates fail-closed against the
+        // ApiScope vocabulary (400 on an unknown scope) and persists the canonical csv. null/empty =
+        // unrestricted (role-based) — back-compat.
+        Set<String> requestedScopes = request.scopes() == null ? null : new HashSet<>(request.scopes());
         var result = apiKeyService.createApiKey(
-                request.name(), request.role(), principal.tenantId(), request.live(), request.expiresAt());
+                request.name(), request.role(), principal.tenantId(), request.live(), request.expiresAt(),
+                requestedScopes);
         return ResponseEntity.status(HttpStatus.CREATED).body(new CreateApiKeyResponse(
                 result.id(), result.fullKey(), result.keyPrefix(),
-                result.name(), result.role(), result.live(), Instant.now(), result.expiresAt()
+                result.name(), result.role(), result.live(), Instant.now(), result.expiresAt(),
+                toScopeList(result.scopes())
         ));
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('admin')")
+    @PreAuthorize("hasRole('admin') and @scopeAuth.has('keys:write')")
     @Operation(summary = "Revoke an API key")
     public ResponseEntity<Void> revoke(@PathVariable String id,
                                        @AuthenticationPrincipal NexusPayPrincipal principal) {
@@ -61,7 +71,7 @@ public class ApiKeyController {
     }
 
     @PostMapping("/{id}/rotate")
-    @PreAuthorize("hasRole('admin')")
+    @PreAuthorize("hasRole('admin') and @scopeAuth.has('keys:write')")
     @Operation(summary = "Rotate an API key with an overlap window. The new full key is shown once.")
     public ResponseEntity<CreateApiKeyResponse> rotate(
             @PathVariable String id,
@@ -78,7 +88,13 @@ public class ApiKeyController {
         var result = apiKeyService.rotateApiKey(id, principal.tenantId(), overlap);
         return ResponseEntity.status(HttpStatus.CREATED).body(new CreateApiKeyResponse(
                 result.id(), result.fullKey(), result.keyPrefix(),
-                result.name(), result.role(), result.live(), Instant.now(), result.expiresAt()
+                result.name(), result.role(), result.live(), Instant.now(), result.expiresAt(),
+                toScopeList(result.scopes())  // DX-5c-ii: rotation INHERITS the rotated key's scopes
         ));
+    }
+
+    /** DX-5c-ii: render the result's scope set as a stable List for the JSON response (never null). */
+    private static List<String> toScopeList(Set<String> scopes) {
+        return scopes == null ? List.of() : new ArrayList<>(scopes);
     }
 }

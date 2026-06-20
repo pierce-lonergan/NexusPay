@@ -20,7 +20,7 @@ public class RefundController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
+    @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer') and @scopeAuth.has('refunds:read')")
     @Operation(summary = "Retrieve a refund")
     public ResponseEntity<RefundApiResponse> getRefund(@PathVariable String id) {
         var response = paymentGateway.getRefund(id);

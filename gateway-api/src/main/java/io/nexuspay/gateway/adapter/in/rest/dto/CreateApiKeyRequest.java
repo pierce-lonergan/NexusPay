@@ -6,6 +6,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 
 import java.time.Instant;
+import java.util.List;
 
 @Schema(description = "Create a new API key")
 public record CreateApiKeyRequest(
@@ -24,6 +25,15 @@ public record CreateApiKeyRequest(
         @Future
         @Schema(description = "Optional ISO-8601 expiry instant. Omit for a key that never expires.",
                 example = "2027-01-01T00:00:00Z")
-        Instant expiresAt
+        Instant expiresAt,
+
+        // DX-5c-ii: OPTIONAL scopes restricting this key ON TOP OF its role. Omit (or empty) for an
+        // UNRESTRICTED (role-based) key — back-compat. Each value must be a member of the ApiScope
+        // vocabulary; the service validates fail-closed (400) on any unknown scope. Scopes NARROW the
+        // role, never widen it.
+        @Schema(description = "Optional scopes (resource:action) that NARROW this key. Omit for an "
+                + "unrestricted (role-based) key.",
+                example = "[\"payments:read\",\"payments:write\"]")
+        List<String> scopes
 ) {
 }

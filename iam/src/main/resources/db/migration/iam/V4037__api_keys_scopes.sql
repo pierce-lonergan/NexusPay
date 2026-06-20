@@ -1,0 +1,25 @@
+-- DX-5c-ii: per-API-key SCOPES — an authorization control that NARROWS (never widens) a key's role.
+--
+-- Flyway version V4037 (NOT V4036). All module migrations share ONE global Flyway history with
+-- out-of-order DISABLED (B-011 / L-023): two files with the same Vnnnn across any modules is a boot
+-- failure. V4036 (iam/...api_keys_lifecycle) is the current global max, so V4037 is the next free
+-- GLOBAL version. The iam dir already mixes V1101 and V40xx numbers, so a V40xx number here is correct.
+--
+-- INVARIANT — NULL/empty scopes = UNRESTRICTED (role-based, back-compat). The column is NULLABLE and
+-- additive, so this is safe on a non-empty DB (baseline-on-migrate:true): every existing api_keys row
+-- keeps scopes = NULL and therefore stays UNRESTRICTED, byte-identical to its pre-DX-5c-ii behaviour.
+--   * scopes — a comma-delimited subset of the io.nexuspay.common.api.ApiScope vocabulary
+--              (resource:action tokens, e.g. "payments:read,payments:write"). NULL or empty means
+--              UNRESTRICTED: the key is gated by its ROLE alone. A non-empty value RESTRICTS the key to
+--              exactly those scopes — it can NARROW the role, NEVER widen it. authenticate() parses this
+--              into the principal's scope set; the per-endpoint @PreAuthorize AND-composes the role check
+--              with @scopeAuth.has(...) so a scoped key needs BOTH the role AND the matching scope.
+--              Creation validates every token against the ApiScope vocabulary and FAILS CLOSED on an
+--              unknown token (no unknown scope is ever persisted); rotation INHERITS the rotated key's
+--              scopes unchanged (a rotation can never widen scope).
+--
+-- TEXT (not VARCHAR(n)): the full vocabulary csv is well under any sane bound, but TEXT avoids a width
+-- guess and matches the codebase's nullable free-text columns. No index needed: the scope check happens
+-- on the already-matched row (matched by key_prefix + bcrypt), never as a standalone lookup.
+
+ALTER TABLE api_keys ADD COLUMN scopes TEXT NULL;

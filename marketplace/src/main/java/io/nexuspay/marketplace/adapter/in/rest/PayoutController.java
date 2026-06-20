@@ -28,7 +28,7 @@ public class PayoutController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('admin', 'operator')")
+    @PreAuthorize("hasAnyRole('admin', 'operator') and @scopeAuth.has('payouts:write')")
     public ResponseEntity<PayoutResponse> createPayout(
             @Valid @RequestBody CreatePayoutRequest request) {
 
@@ -41,7 +41,7 @@ public class PayoutController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
+    @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer') and @scopeAuth.has('payouts:read')")
     public ResponseEntity<List<PayoutResponse>> listPayouts(
             @RequestParam String connectedAccountId) {
 
@@ -50,7 +50,7 @@ public class PayoutController {
     }
 
     @GetMapping("/{payoutId}")
-    @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
+    @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer') and @scopeAuth.has('payouts:read')")
     public ResponseEntity<PayoutResponse> getPayout(
             @PathVariable String payoutId) {
 

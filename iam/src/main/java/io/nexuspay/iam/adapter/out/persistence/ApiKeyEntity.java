@@ -51,6 +51,14 @@ public class ApiKeyEntity {
     @Column(name = "replaced_by", length = 64)
     private String replacedBy;
 
+    // DX-5c-ii scope column (V4037). NULL/empty = UNRESTRICTED (role-based, back-compat); otherwise a
+    // comma-delimited subset of the io.nexuspay.common.api.ApiScope vocabulary that NARROWS the role.
+    // columnDefinition = "TEXT" to match the V4037 column — a plain String maps to varchar(255) and would
+    // fail ddl-auto=validate (L-025), as every other TEXT-backed String column here does (e.g.
+    // WebhookDeliveryEntity.canonicalBody).
+    @Column(name = "scopes", columnDefinition = "TEXT")
+    private String scopes;
+
     protected ApiKeyEntity() {}
 
     /**
@@ -65,12 +73,27 @@ public class ApiKeyEntity {
     }
 
     /**
-     * Full DX-5c constructor including the lifecycle columns.
+     * DX-5c 12-arg constructor (lifecycle columns, no scopes). Preserved for existing call sites and
+     * test fixtures; {@code scopes} defaults to {@code null} (UNRESTRICTED). Set scopes via the fuller
+     * constructor or {@link #setScopes(String)}.
      */
     public ApiKeyEntity(String id, String keyHash, String keyPrefix, String name,
                          String role, String tenantId, boolean live,
                          Instant createdAt, Instant revokedAt,
                          Instant expiresAt, Instant lastUsedAt, String replacedBy) {
+        this(id, keyHash, keyPrefix, name, role, tenantId, live, createdAt, revokedAt,
+                expiresAt, lastUsedAt, replacedBy, null);
+    }
+
+    /**
+     * Full DX-5c-ii constructor including the {@code scopes} column. {@code scopes} is a comma-delimited
+     * subset of the ApiScope vocabulary, or {@code null}/empty for an UNRESTRICTED (role-based) key.
+     */
+    public ApiKeyEntity(String id, String keyHash, String keyPrefix, String name,
+                        String role, String tenantId, boolean live,
+                        Instant createdAt, Instant revokedAt,
+                        Instant expiresAt, Instant lastUsedAt, String replacedBy,
+                        String scopes) {
         this.id = id;
         this.keyHash = keyHash;
         this.keyPrefix = keyPrefix;
@@ -83,6 +106,7 @@ public class ApiKeyEntity {
         this.expiresAt = expiresAt;
         this.lastUsedAt = lastUsedAt;
         this.replacedBy = replacedBy;
+        this.scopes = scopes;
     }
 
     public String getId() { return id; }
@@ -97,9 +121,11 @@ public class ApiKeyEntity {
     public Instant getExpiresAt() { return expiresAt; }
     public Instant getLastUsedAt() { return lastUsedAt; }
     public String getReplacedBy() { return replacedBy; }
+    public String getScopes() { return scopes; }
 
     public void setRevokedAt(Instant revokedAt) { this.revokedAt = revokedAt; }
     public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
     public void setLastUsedAt(Instant lastUsedAt) { this.lastUsedAt = lastUsedAt; }
     public void setReplacedBy(String replacedBy) { this.replacedBy = replacedBy; }
+    public void setScopes(String scopes) { this.scopes = scopes; }
 }

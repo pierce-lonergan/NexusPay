@@ -43,7 +43,7 @@ public class WebhookEndpointController {
     }
 
     @PostMapping("/v1/webhook-endpoints")
-    @PreAuthorize("hasRole('admin')")
+    @PreAuthorize("hasRole('admin') and @scopeAuth.has('webhooks:write')")
     @Operation(summary = "Register a webhook endpoint")
     public ResponseEntity<WebhookEndpointResponse> create(
             @Valid @RequestBody CreateWebhookEndpointRequest request,
@@ -60,7 +60,7 @@ public class WebhookEndpointController {
     }
 
     @GetMapping("/v1/webhook-endpoints")
-    @PreAuthorize("hasAnyRole('admin', 'operator')")
+    @PreAuthorize("hasAnyRole('admin', 'operator') and @scopeAuth.has('webhooks:read')")
     @Operation(summary = "List registered webhook endpoints")
     public ResponseEntity<List<WebhookEndpointResponse>> list(
             @AuthenticationPrincipal NexusPayPrincipal principal) {
@@ -72,7 +72,7 @@ public class WebhookEndpointController {
     }
 
     @DeleteMapping("/v1/webhook-endpoints/{id}")
-    @PreAuthorize("hasRole('admin')")
+    @PreAuthorize("hasRole('admin') and @scopeAuth.has('webhooks:write')")
     @Operation(summary = "Delete a webhook endpoint")
     public ResponseEntity<Void> delete(@PathVariable String id,
                                        @AuthenticationPrincipal NexusPayPrincipal principal) {
@@ -93,7 +93,7 @@ public class WebhookEndpointController {
      * {@code getSecret()} live per attempt. Tenant-scoped (foreign/absent id -> 404, no existence oracle).
      */
     @PostMapping("/v1/webhook-endpoints/{id}/rotate-secret")
-    @PreAuthorize("hasRole('admin')")
+    @PreAuthorize("hasRole('admin') and @scopeAuth.has('webhooks:write')")
     @Operation(summary = "Rotate a webhook endpoint's signing secret")
     public ResponseEntity<WebhookEndpointResponse> rotateSecret(
             @PathVariable String id,
@@ -110,7 +110,7 @@ public class WebhookEndpointController {
      * Tenant-scoped (never another tenant's rows). The DTO carries no secret/body — leak-impossible.
      */
     @GetMapping("/v1/webhook-deliveries")
-    @PreAuthorize("hasAnyRole('admin', 'operator')")
+    @PreAuthorize("hasAnyRole('admin', 'operator') and @scopeAuth.has('webhooks:read')")
     @Operation(summary = "List outbound webhook delivery attempts")
     public ResponseEntity<Page<WebhookDeliveryResponse>> listDeliveries(
             @RequestParam(required = false) String endpointId,
@@ -138,7 +138,7 @@ public class WebhookEndpointController {
      * replay differs from a duplicate). Tenant-scoped (foreign/absent id -> 404, no existence oracle).
      */
     @PostMapping("/v1/webhook-deliveries/{id}/replay")
-    @PreAuthorize("hasRole('admin')")
+    @PreAuthorize("hasRole('admin') and @scopeAuth.has('webhooks:write')")
     @Operation(summary = "Replay a webhook delivery")
     public ResponseEntity<WebhookDeliveryResponse> replay(
             @PathVariable String id,

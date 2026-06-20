@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -54,6 +55,7 @@ public class DisputeController {
      * Lists disputes for the current tenant, optionally filtered by status.
      */
     @GetMapping
+    @PreAuthorize("isAuthenticated() and @scopeAuth.has('disputes:read')")
     public ResponseEntity<List<DisputeResponse>> listDisputes(
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "20") int limit,
@@ -69,6 +71,7 @@ public class DisputeController {
      * Gets details of a specific dispute.
      */
     @GetMapping("/{id}")
+    @PreAuthorize("isAuthenticated() and @scopeAuth.has('disputes:read')")
     public ResponseEntity<DisputeResponse> getDispute(@PathVariable String id) {
         // SEC-27: by-id read scoped to the caller's tenant — a foreign-tenant id 404s (no oracle).
         return lifecycleService.findById(id, CallerTenant.require())
@@ -80,6 +83,7 @@ public class DisputeController {
      * Uploads an evidence file for a dispute.
      */
     @PostMapping("/{id}/evidence")
+    @PreAuthorize("isAuthenticated() and @scopeAuth.has('disputes:write')")
     public ResponseEntity<EvidenceResponse> uploadEvidence(
             @PathVariable String id,
             @RequestParam("file") MultipartFile file,
@@ -107,6 +111,7 @@ public class DisputeController {
      * Submits collected evidence to the card network.
      */
     @PostMapping("/{id}/submit")
+    @PreAuthorize("isAuthenticated() and @scopeAuth.has('disputes:write')")
     public ResponseEntity<DisputeResponse> submitEvidence(
             @PathVariable String id,
             @RequestBody(required = false) Map<String, String> body) {
@@ -122,6 +127,7 @@ public class DisputeController {
      * Returns the event timeline for a dispute.
      */
     @GetMapping("/{id}/events")
+    @PreAuthorize("isAuthenticated() and @scopeAuth.has('disputes:read')")
     public ResponseEntity<List<EventResponse>> getEvents(@PathVariable String id) {
         // SEC-27: event timeline scoped to the caller's tenant — a foreign-tenant id yields an empty
         // timeline (no oracle). Tenant from the authenticated principal, never a client header.
