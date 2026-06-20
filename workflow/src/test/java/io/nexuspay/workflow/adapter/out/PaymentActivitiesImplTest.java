@@ -48,7 +48,7 @@ class PaymentActivitiesImplTest {
         when(gateway.createPayment(any(), any())).thenReturn(ok());
 
         activities.createPayment(new PaymentWorkflowRequest(
-                "pay_1", 5000, "USD", "card", "tenant-T", "idem-1"));
+                "pay_1", 5000, "USD", "card", "tenant-T", "idem-1", false));
 
         ArgumentCaptor<CallContext> ctx = ArgumentCaptor.forClass(CallContext.class);
         ArgumentCaptor<PaymentRequest> req = ArgumentCaptor.forClass(PaymentRequest.class);
@@ -56,9 +56,37 @@ class PaymentActivitiesImplTest {
 
         assertThat(ctx.getValue().mode()).isEqualTo(ScreeningMode.SERVER_OTHER);
         assertThat(ctx.getValue().tenantId()).isEqualTo("tenant-T"); // threaded from the workflow request
+        // DX-5a-ii: the durable test/live mode is threaded into the CallContext (here a TEST charge), so
+        // GatedPaymentGateway routes it to the in-process mock — not the real PSP — on the worker thread.
+        assertThat(ctx.getValue().live()).isFalse();
 
         // The "workflow" authority marker is no longer carried in metadata (the gate owns the rail).
         assertThat(req.getValue().metadata()).doesNotContainKey("workflow");
         assertThat(req.getValue().metadata()).containsEntry("nexuspay_payment_id", "pay_1");
+    }
+
+    @Test
+    void createPayment_threadsLiveModeIntoCallContext() {
+        when(gateway.createPayment(any(), any())).thenReturn(ok());
+
+        // A LIVE-mode workflow charge must carry live=true into the CallContext (routes to the real PSP).
+        activities.createPayment(new PaymentWorkflowRequest(
+                "pay_2", 5000, "USD", "card", "tenant-T", "idem-2", true));
+        ArgumentCaptor<CallContext> live = ArgumentCaptor.forClass(CallContext.class);
+        verify(gateway).createPayment(any(), live.capture());
+        assertThat(live.getValue().live()).isTrue();
+    }
+
+    @Test
+    void createPayment_nullMode_leavesCallContextModeUndeclared() {
+        when(gateway.createPayment(any(), any())).thenReturn(ok());
+
+        // A null mode (not declared) must leave CallContext.live null so GatedPaymentGateway falls back to
+        // its existing heuristic — the unchanged latent behaviour, never a forced real-PSP route.
+        activities.createPayment(new PaymentWorkflowRequest(
+                "pay_3", 5000, "USD", "card", "tenant-T", "idem-3", null));
+        ArgumentCaptor<CallContext> ctx = ArgumentCaptor.forClass(CallContext.class);
+        verify(gateway).createPayment(any(), ctx.capture());
+        assertThat(ctx.getValue().live()).isNull();
     }
 }

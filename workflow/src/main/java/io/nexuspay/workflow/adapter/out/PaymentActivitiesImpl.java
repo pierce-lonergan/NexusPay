@@ -70,8 +70,12 @@ public class PaymentActivitiesImpl implements PaymentActivities {
         // from a client-shaped "workflow" metadata marker. The tenant is threaded from the workflow
         // request (it already flows tenantId into publishPaymentEvent) so the gate has a real tenant
         // and the geography resolver no longer fails closed on every workflow charge.
+        // DX-5a-ii: thread the DURABLE test/live mode too. This activity runs on a Temporal worker thread
+        // where the request-scoped PaymentMode ThreadLocal is UNSET, so without this a TEST-mode charge
+        // would route to the REAL PSP (the L-064 hole DX-5a closed for renewal/dunning/manual-pay).
+        // request.live() TRUE->real, FALSE->mock, null->the unchanged GatedPaymentGateway heuristic.
         PaymentResponse response = paymentGateway.createPayment(
-                gatewayRequest, CallContext.serverOther(request.tenantId()));
+                gatewayRequest, CallContext.serverOther(request.tenantId(), request.live()));
 
         log.info("Activity: Payment created in HyperSwitch: paymentId={}, externalId={}, status={}",
                 request.paymentId(), response.gatewayPaymentId(), response.status());
