@@ -1112,3 +1112,22 @@ had a runtime 403 test -> added gateway-api + vault @WebMvcTest scope-enforcemen
 GatewayTestApplication anchor). All 13 vocabulary scopes now have at least one enforcement site (locked by
 ScopeVocabularyGuardTest). dispute/build.gradle.kts gained spring-boot-starter-security (needed for
 @PreAuthorize compile; mirrors marketplace/vault). CI is the oracle. L-067. ADR-050.
+
+## ADR-051 | 2026-06-17 | DX-6: published Docker app image (Snap critique 2.4 tooling) (T3)
+Snap critique 2.4 asked for a "just run it" path. Chose the published Docker image (the bigger DX win and
+self-contained) over the nexuspay-listen CLI (more surface; NexusPay has no websocket relay, so a real
+listen would be a poll-over-the-INT-4 delivery-list tool — left as a future option). DX-4 already made the
+JDK+Gradle bootRun path low-friction; the image removes the JDK/Gradle requirement entirely. Deliverables:
+(1) a multi-stage Dockerfile (eclipse-temurin:21-jdk builds :app:bootJar -x test, copying the EXECUTABLE
+bootJar excluding the -plain.jar; eclipse-temurin:21-jre runtime as a NON-ROOT system user on 8090,
+JAVA_OPTS-tunable). (2) .dockerignore (drops build/, .git, .gradle, node_modules, the checkout-sdk npm
+workspace, docs/.perpetua — none are inputs to the Java build). (3) docs/LOCAL_DEV.md 3b "Option B: run the
+app as a container" — docker run joined to the lite-stack compose network using IN-network hostnames
+(kafka:9092 / nexuspay-pg:5432 / keycloak:8080), not the host-mapped ports. (4)
+.github/workflows/docker-image.yml: pull_request (paths-filtered to Dockerfile/app/gradle) does a BUILD-ONLY
+validation so the Dockerfile cannot rot; an app-v* tag or workflow_dispatch builds + PUSHES to
+ghcr.io/<owner>/nexuspay-app (:latest, :sha, :semver) via the built-in GITHUB_TOKEN (packages: write) — NO
+owner secret, mirroring the SDK release flow. Uses the runner's preinstalled Docker CLI + only the SHA-pinned
+actions/checkout (avoids pinning unverified docker/* action SHAs; B-012). GHCR image name lowercased
+(github.repository has uppercase N). Test-mode safety unchanged in a container (same code, sk_test_ -> mock).
+CI build-validates the Dockerfile on this PR. ADR-051.

@@ -1,0 +1,70 @@
+# DX-6 / Snap §2.4: build (and, on a tag/dispatch, publish) the NexusPay app image.
+#
+# - pull_request touching the Dockerfile / app build inputs: BUILD ONLY (no push) —
+#   proves the Dockerfile still builds without slowing unrelated PRs (paths-filtered).
+# - push of an `app-v*` tag OR a manual workflow_dispatch: BUILD + PUSH to GHCR
+#   (ghcr.io/<owner>/nexuspay-app). Auth uses the built-in GITHUB_TOKEN (packages:
+#   write) — no owner-provided secret required, like the SDK release flow.
+#
+# Uses the runner's preinstalled Docker CLI rather than third-party docker/* actions,
+# so the only external action is the SHA-pinned actions/checkout (B-012 convention).
+name: docker-image
+
+on:
+  push:
+    tags: ['app-v*']
+  pull_request:
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - '.github/workflows/docker-image.yml'
+      - 'app/**'
+      - '**/build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle/**'
+      - 'gradlew'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: docker-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Compute image name (GHCR requires lowercase)
+        id: img
+        run: echo "name=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')-app" >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        run: docker build -t "${{ steps.img.outputs.name }}:${{ github.sha }}" .
+
+      # Everything below is publish — skipped entirely on pull_request (build-only validation).
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Tag + push
+        if: github.event_name != 'pull_request'
+        run: |
+          set -euo pipefail
+          IMAGE="${{ steps.img.outputs.name }}"
+          docker tag "$IMAGE:${{ github.sha }}" "$IMAGE:latest"
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
+          # On an app-v* tag, also publish the bare semver (app-v0.1.0 -> 0.1.0).
+          REF="${{ github.ref }}"
+          case "$REF" in
+            refs/tags/app-v*)
+              VERSION="${REF#refs/tags/app-v}"
+              docker tag "$IMAGE:${{ github.sha }}" "$IMAGE:$VERSION"
+              docker push "$IMAGE:$VERSION"
+              ;;
+          esac
