@@ -1131,3 +1131,22 @@ owner secret, mirroring the SDK release flow. Uses the runner's preinstalled Doc
 actions/checkout (avoids pinning unverified docker/* action SHAs; B-012). GHCR image name lowercased
 (github.repository has uppercase N). Test-mode safety unchanged in a container (same code, sk_test_ -> mock).
 CI build-validates the Dockerfile on this PR. ADR-051.
+
+## ADR-052 | 2026-06-17 | DX-5a-ii: durable test/live mode on the Temporal payment activity (closes the last L-064 path) (T3)
+Snap critique 3.1 residual, deferred from DX-5a (ADR-046). PaymentActivitiesImpl.createPayment runs on a
+Temporal WORKER thread where the request-scoped PaymentMode ThreadLocal is UNSET; it called
+paymentGateway.createPayment(req, CallContext.serverOther(tenantId)) with live=null, so a TEST-mode charge
+routed through Temporal would fall to the GatedPaymentGateway heuristic and could reach the REAL PSP — the
+4th instance of the L-064 off-request-path class (after renewal/dunning/manual-pay). Fix is small + LATENT
+(Temporal is disabled by default; the payment workflow is a Sprint-2.2 scaffold with NO production trigger —
+the only PaymentWorkflowRequest construction site is its unit test): (1) added a nullable Boolean live to
+PaymentWorkflowRequest (the Temporal-serialized DTO), Javadoc'd that any FUTURE trigger MUST stamp it from
+the server-derived PaymentMode (never client input), TRUE=live/FALSE=test/null=heuristic; (2)
+PaymentActivitiesImpl now passes request.live() into the ALREADY-EXISTING CallContext.serverOther(tenantId,
+live) overload (DX-5a built + reviewed serverOther(.,live) and routeToMock(ctxLive) consuming it — this only
+feeds the value through); (3) tests assert the activity threads live=false (mock), live=true (real), and
+null (unchanged heuristic) into the CallContext. No production behaviour change today (null on the only
+caller until a trigger is wired); the path is now correct-by-construction so enabling Temporal later cannot
+silently move a test charge through the real PSP. Done directly (not a workflow) — the money-routing logic
+was already adversarially reviewed in DX-5a; this is a latent value-threading change with full true/false/null
+test coverage. CI is the oracle. L-064 (closes its last instance). ADR-052.
