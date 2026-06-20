@@ -90,7 +90,7 @@ public class PaymentController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('admin', 'operator')")
+    @PreAuthorize("hasAnyRole('admin', 'operator') and @scopeAuth.has('payments:write')")
     @Operation(summary = "Create a payment intent")
     public ResponseEntity<PaymentApiResponse> createPayment(
             @Valid @RequestBody CreatePaymentRequest request,
@@ -148,7 +148,7 @@ public class PaymentController {
     }
 
     @PostMapping("/{id}/confirm")
-    @PreAuthorize("hasAnyRole('admin', 'operator')")
+    @PreAuthorize("hasAnyRole('admin', 'operator') and @scopeAuth.has('payments:write')")
     @Operation(summary = "Confirm a payment intent")
     public ResponseEntity<PaymentApiResponse> confirmPayment(
             @PathVariable String id,
@@ -169,7 +169,7 @@ public class PaymentController {
     }
 
     @PostMapping("/{id}/capture")
-    @PreAuthorize("hasAnyRole('admin', 'operator')")
+    @PreAuthorize("hasAnyRole('admin', 'operator') and @scopeAuth.has('payments:write')")
     @Operation(summary = "Capture an authorized payment")
     public ResponseEntity<PaymentApiResponse> capturePayment(
             @PathVariable String id,
@@ -188,7 +188,7 @@ public class PaymentController {
     }
 
     @PostMapping("/{id}/cancel")
-    @PreAuthorize("hasAnyRole('admin', 'operator')")
+    @PreAuthorize("hasAnyRole('admin', 'operator') and @scopeAuth.has('payments:write')")
     @Operation(summary = "Void a payment authorization")
     public ResponseEntity<PaymentApiResponse> cancelPayment(
             @PathVariable String id,
@@ -206,7 +206,7 @@ public class PaymentController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
+    @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer') and @scopeAuth.has('payments:read')")
     @Operation(summary = "Retrieve a payment")
     public ResponseEntity<PaymentApiResponse> getPayment(
             @PathVariable String id,
@@ -218,7 +218,12 @@ public class PaymentController {
     }
 
     @PostMapping("/{id}/refunds")
-    @PreAuthorize("hasAnyRole('admin', 'operator')")
+    // DX-5c-ii: refund CREATION is governed by refunds:write (not payments:write) so the refunds:read /
+    // refunds:write vocabulary pair is meaningful and a key can be scoped to issue refunds without also
+    // granting general payment writes. The sibling refund-settlement path (ApprovalController.approve) uses
+    // the SAME scope, so the two money paths cannot be narrowed independently. Scopes NARROW, never widen:
+    // an UNRESTRICTED (null/empty) key still passes via the back-compat hasScope==true path.
+    @PreAuthorize("hasAnyRole('admin', 'operator') and @scopeAuth.has('refunds:write')")
     @Operation(summary = "Create a refund. Returns 202 if amount exceeds approval threshold.")
     public ResponseEntity<?> createRefund(
             @PathVariable String id,

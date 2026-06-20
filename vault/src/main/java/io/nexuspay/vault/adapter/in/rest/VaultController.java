@@ -38,7 +38,7 @@ public class VaultController {
     }
 
     @PostMapping("/cards")
-    @PreAuthorize("hasAnyRole('admin', 'operator')")
+    @PreAuthorize("hasAnyRole('admin', 'operator') and @scopeAuth.has('vault:write')")
     public ResponseEntity<VaultCardResponse> vaultCard(
             @Valid @RequestBody VaultCardRequest request) {
 
@@ -52,7 +52,10 @@ public class VaultController {
     }
 
     @GetMapping("/cards/{token}")
-    @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
+    // DX-5c-ii: a READ is gated by vault:read (mirroring every other resource's read/write pair) so a
+    // read-only vault key need not be over-granted vault:write. UNRESTRICTED (null/empty) keys still pass
+    // via the back-compat hasScope==true path.
+    @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer') and @scopeAuth.has('vault:read')")
     public ResponseEntity<VaultedCardInfoResponse> getCard(
             @PathVariable String token) {
 
@@ -65,7 +68,7 @@ public class VaultController {
     }
 
     @DeleteMapping("/cards/{token}")
-    @PreAuthorize("hasRole('admin')")
+    @PreAuthorize("hasRole('admin') and @scopeAuth.has('vault:write')")
     public ResponseEntity<Void> deleteCard(
             @PathVariable String token) {
 
@@ -74,7 +77,7 @@ public class VaultController {
     }
 
     @PostMapping("/cards/{token}/network-tokens")
-    @PreAuthorize("hasAnyRole('admin', 'operator')")
+    @PreAuthorize("hasAnyRole('admin', 'operator') and @scopeAuth.has('vault:write')")
     public ResponseEntity<NetworkTokenResponse> provisionNetworkToken(
             @PathVariable String token,
             @Valid @RequestBody NetworkTokenRequest request) {
@@ -88,7 +91,7 @@ public class VaultController {
     }
 
     @PostMapping("/cards/{token}/cryptogram")
-    @PreAuthorize("hasAnyRole('admin', 'operator')")
+    @PreAuthorize("hasAnyRole('admin', 'operator') and @scopeAuth.has('vault:write')")
     public ResponseEntity<CryptogramResponse> generateCryptogram(
             @PathVariable String token,
             @Valid @RequestBody CryptogramRequestDto request) {
@@ -103,7 +106,7 @@ public class VaultController {
     }
 
     @PostMapping("/migrations")
-    @PreAuthorize("hasRole('admin')")
+    @PreAuthorize("hasRole('admin') and @scopeAuth.has('vault:write')")
     public ResponseEntity<MigrationResponse> startMigration(
             @Valid @RequestBody MigrationRequest request) {
 
@@ -117,7 +120,8 @@ public class VaultController {
     }
 
     @GetMapping("/migrations/{id}")
-    @PreAuthorize("hasAnyRole('admin', 'operator')")
+    // DX-5c-ii: READ gated by vault:read (see getCard). UNRESTRICTED keys still pass (back-compat).
+    @PreAuthorize("hasAnyRole('admin', 'operator') and @scopeAuth.has('vault:read')")
     public ResponseEntity<MigrationResponse> getMigrationStatus(
             @PathVariable String id) {
 

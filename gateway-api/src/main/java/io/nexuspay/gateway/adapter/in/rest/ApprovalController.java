@@ -40,7 +40,14 @@ public class ApprovalController {
     }
 
     @PostMapping("/{id}/approve")
-    @PreAuthorize("hasRole('admin')")
+    // DX-5c-ii: approving a pending request EXECUTES the underlying money action — today the only action
+    // type ever created is "refund" (RefundOrchestrationService), so this endpoint SETTLES a refund. Gate
+    // it with the same scope the refund-money action requires (refunds:write), AND-composed with the admin
+    // role. Without this, an admin-role key explicitly scoped AWAY from refunds (e.g. payments:read only)
+    // is correctly 403'd on the refund-CREATE path (POST /v1/payments/{id}/refunds) yet could still settle
+    // a refund here — defeating the very narrowing the scope exists to enforce. Scopes NARROW, never widen:
+    // an UNRESTRICTED (null/empty) key still passes via the back-compat hasScope==true path.
+    @PreAuthorize("hasRole('admin') and @scopeAuth.has('refunds:write')")
     @Operation(summary = "Approve a pending request and execute the action")
     public ResponseEntity<?> approve(
             @PathVariable String id,

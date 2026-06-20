@@ -1,5 +1,6 @@
 package io.nexuspay.iam.application;
 
+import io.nexuspay.common.api.ApiScope;
 import io.nexuspay.common.exception.AuthorizationException;
 import io.nexuspay.common.exception.ConflictException;
 import io.nexuspay.common.exception.InvalidRequestException;
@@ -18,7 +19,9 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Manages API key lifecycle: creation, authentication, expiry, rotation, revocation.
@@ -45,23 +48,39 @@ public class ApiKeyService {
     }
 
     /**
-     * Back-compat 4-arg overload: creates a never-expiring API key (expiresAt = null).
+     * Back-compat 4-arg overload: creates a never-expiring, UNRESTRICTED API key
+     * (expiresAt = null, scopes = null).
      */
     @Transactional
     public CreateApiKeyResult createApiKey(String name, String role, String tenantId, boolean live) {
-        return createApiKey(name, role, tenantId, live, null);
+        return createApiKey(name, role, tenantId, live, null, null);
     }
 
     /**
-     * Creates a new API key with an OPTIONAL absolute expiry. Returns the full key (shown once).
-     *
-     * <p>DX-5c fail-closed guard: if {@code expiresAt} is non-null it MUST be in the future
-     * (strictly after now); creating an already-expired key is rejected with
-     * {@link IllegalArgumentException}. A {@code null} {@code expiresAt} means the key never expires.
+     * Back-compat 5-arg overload: creates an UNRESTRICTED key with an optional expiry (scopes = null).
      */
     @Transactional
     public CreateApiKeyResult createApiKey(String name, String role, String tenantId, boolean live,
                                            Instant expiresAt) {
+        return createApiKey(name, role, tenantId, live, expiresAt, null);
+    }
+
+    /**
+     * Creates a new API key with an OPTIONAL absolute expiry and OPTIONAL scopes. Returns the full key
+     * (shown once).
+     *
+     * <p>DX-5c fail-closed guard: if {@code expiresAt} is non-null it MUST be in the future
+     * (strictly after now); creating an already-expired key is rejected. A {@code null} {@code expiresAt}
+     * means the key never expires.
+     *
+     * <p>DX-5c-ii: {@code scopes} is validated against the {@link ApiScope} vocabulary and persisted as a
+     * canonical csv; an UNKNOWN scope is rejected fail-closed ({@link InvalidRequestException}, 400) so a
+     * bad scope is never persisted. A {@code null}/empty set yields an UNRESTRICTED (role-based) key —
+     * back-compat. Scopes NARROW the role, never widen it.
+     */
+    @Transactional
+    public CreateApiKeyResult createApiKey(String name, String role, String tenantId, boolean live,
+                                           Instant expiresAt, Set<String> scopes) {
         Instant now = Instant.now();
         if (expiresAt != null && !expiresAt.isAfter(now)) {
             // Reject minting a key whose expiry is at-or-before now — a key that is born expired.
@@ -69,16 +88,18 @@ public class ApiKeyService {
             // codebase reserves for internal invariants and maps to 500).
             throw new InvalidRequestException("API key expiresAt must be in the future");
         }
+        // DX-5c-ii: validate + canonicalize scopes (fail-closed on unknown). null csv == unrestricted.
+        String scopesCsv = ApiScope.toCanonicalCsv(scopes);
 
         GeneratedKey generated = generateKey(live);
         var entity = new ApiKeyEntity(generated.id(), generated.keyHash(), generated.keyPrefix(),
-                name, role, tenantId, live, now, null, expiresAt, null, null);
+                name, role, tenantId, live, now, null, expiresAt, null, null, scopesCsv);
         apiKeyRepository.save(entity);
 
-        log.info("Created API key: id={}, prefix={}, role={}, tenant={}, expiresAt={}",
-                generated.id(), generated.keyPrefix(), role, tenantId, expiresAt);
+        log.info("Created API key: id={}, prefix={}, role={}, tenant={}, expiresAt={}, scopes={}",
+                generated.id(), generated.keyPrefix(), role, tenantId, expiresAt, scopesCsv);
         return new CreateApiKeyResult(generated.id(), generated.fullKey(), generated.keyPrefix(),
-                name, role, tenantId, live, expiresAt);
+                name, role, tenantId, live, expiresAt, parsePersistedScopes(scopesCsv));
     }
 
     /**
@@ -130,6 +151,14 @@ public class ApiKeyService {
                 // null or older than the throttle window. Delegated to a separate bean so the
                 // @Transactional proxy applies (a self-invoked method would bypass it).
                 touchIfStale(candidate, now);
+                // DX-5c-ii: parse the matched key's persisted scopes csv into the principal's scope set.
+                // A NULL/empty scopes column yields an UNRESTRICTED (role-based) principal — back-compat,
+                // identical to every pre-DX-5c-ii key. A non-empty value RESTRICTS the principal to those
+                // scopes (NARROWS the role, never widens). parseCsv is fail-closed on unknown tokens at
+                // creation; here we tolerate an already-persisted value defensively (a manual DB edit or a
+                // legacy row) by filtering to the KNOWN vocabulary rather than throwing on authenticate —
+                // an authentication path must not 400. An empty result after filtering means unrestricted.
+                Set<String> scopes = parsePersistedScopes(candidate.getScopes());
                 // INT-3: the mode is SERVER-DERIVED from the matched entity's is_live column — never
                 // inferred from the raw key string. A sk_test_ key (is_live=false) yields a TEST
                 // principal whose payment ops route to the mock gateway; a sk_live_ key yields a LIVE
@@ -140,7 +169,8 @@ public class ApiKeyService {
                         candidate.getRole(),
                         NexusPayPrincipal.AuthMethod.API_KEY,
                         null,
-                        candidate.isLive()
+                        candidate.isLive(),
+                        scopes
                 );
             }
         }
@@ -200,12 +230,15 @@ public class ApiKeyService {
         }
 
         Instant inheritedExpiry = old.getExpiresAt(); // new key inherits the ORIGINAL expiry (or null)
+        // DX-5c-ii: the successor INHERITS the rotated key's scopes VERBATIM — a rotation must NEVER widen
+        // (or change) scope. The persisted csv is copied straight across; no re-validation widens it.
+        String inheritedScopes = old.getScopes();
 
-        // Mint the NEW key: same role/tenant/live as the old; inherits the old key's original expiry.
+        // Mint the NEW key: same role/tenant/live/scopes as the old; inherits the old key's original expiry.
         GeneratedKey generated = generateKey(old.isLive());
         var newEntity = new ApiKeyEntity(generated.id(), generated.keyHash(), generated.keyPrefix(),
                 old.getName(), old.getRole(), old.getTenantId(), old.isLive(), now, null,
-                inheritedExpiry, null, null);
+                inheritedExpiry, null, null, inheritedScopes);
         apiKeyRepository.save(newEntity);
 
         // Shorten the OLD key: expires_at = EARLIER of (original expiry, now+overlap). Never extend.
@@ -218,10 +251,11 @@ public class ApiKeyService {
         old.setReplacedBy(generated.id());
         apiKeyRepository.save(old);
 
-        log.info("Rotated API key: oldId={}, newId={}, tenant={}, oldExpiresAt={}, overlap={}",
-                keyId, generated.id(), tenantId, newOldExpiry, overlap);
+        log.info("Rotated API key: oldId={}, newId={}, tenant={}, oldExpiresAt={}, overlap={}, scopes={}",
+                keyId, generated.id(), tenantId, newOldExpiry, overlap, inheritedScopes);
         return new CreateApiKeyResult(generated.id(), generated.fullKey(), generated.keyPrefix(),
-                old.getName(), old.getRole(), old.getTenantId(), old.isLive(), inheritedExpiry);
+                old.getName(), old.getRole(), old.getTenantId(), old.isLive(), inheritedExpiry,
+                parsePersistedScopes(inheritedScopes));
     }
 
     @Transactional(readOnly = true)
@@ -247,6 +281,30 @@ public class ApiKeyService {
             // Observability only — never deny a valid key because the stamp failed.
             log.debug("last_used_at touch failed for id={}: {}", candidate.getId(), e.getMessage());
         }
+    }
+
+    /**
+     * DX-5c-ii: parse a PERSISTED scopes csv into the principal's scope set, DEFENSIVELY (no throw).
+     *
+     * <p>{@link ApiScope#parseCsv(String)} fail-closes on unknown tokens at CREATION; on the AUTHENTICATE
+     * path we must never 400 a request because a stored value drifted (manual DB edit, legacy row), so we
+     * filter to the KNOWN vocabulary and silently drop any unknown token. A null/blank csv, or one whose
+     * tokens are all unknown, yields {@code null} == UNRESTRICTED (fail SAFE here: an unparseable scope
+     * column never accidentally LOCKS OUT a valid key, and never GRANTS an unknown capability either — an
+     * unknown token simply isn't added). Returns {@code null} for unrestricted, else an immutable set.</p>
+     */
+    private static Set<String> parsePersistedScopes(String csv) {
+        if (csv == null || csv.isBlank()) {
+            return null; // UNRESTRICTED
+        }
+        Set<String> parsed = new LinkedHashSet<>();
+        for (String raw : csv.split(",")) {
+            String token = raw.trim();
+            if (!token.isEmpty() && ApiScope.isValid(token)) {
+                parsed.add(token);
+            }
+        }
+        return parsed.isEmpty() ? null : Set.copyOf(parsed);
     }
 
     private record GeneratedKey(String id, String fullKey, String keyHash, String keyPrefix) {}
@@ -310,6 +368,9 @@ public class ApiKeyService {
 
     public record CreateApiKeyResult(
             String id, String fullKey, String keyPrefix, String name,
-            String role, String tenantId, boolean live, Instant expiresAt
+            String role, String tenantId, boolean live, Instant expiresAt,
+            // DX-5c-ii: the key's scopes (null/empty == UNRESTRICTED). Surfaced so the controller can echo
+            // them in the create/rotate response.
+            Set<String> scopes
     ) {}
 }

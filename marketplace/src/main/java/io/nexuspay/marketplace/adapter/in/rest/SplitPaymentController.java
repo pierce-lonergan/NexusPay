@@ -28,7 +28,7 @@ public class SplitPaymentController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('admin', 'operator')")
+    @PreAuthorize("hasAnyRole('admin', 'operator') and @scopeAuth.has('payments:write')")
     public ResponseEntity<SplitPaymentResponse> createSplitPayment(
             @Valid @RequestBody CreateSplitPaymentRequest request) {
 
@@ -47,7 +47,7 @@ public class SplitPaymentController {
     }
 
     @GetMapping("/{splitPaymentId}")
-    @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer')")
+    @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer') and @scopeAuth.has('payments:read')")
     public ResponseEntity<SplitPaymentResponse> getSplitPayment(
             @PathVariable String splitPaymentId) {
 
