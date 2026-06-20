@@ -10,6 +10,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.FilterType;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -51,7 +53,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * (no-scopes) key is allowed on ALL (back-compat); and the scope check is AND-composed with the role
  * (right scope + wrong role → still 403).</p>
  */
-@WebMvcTest(PaymentController.class)
+// Exclude the gateway-api servlet filters (io.nexuspay.gateway.adapter.in.filter.*): they are @Components
+// that @WebMvcTest would instantiate, and three (IdempotencyFilter / RateLimitFilter /
+// InternalWebhookRateLimitFilter) require a StringRedisTemplate bean absent from a web slice -> the context
+// fails to load with NoSuchBeanDefinitionException. This test exercises @PreAuthorize METHOD security on
+// PaymentController, which is independent of those servlet filters; method-security denials still surface as
+// 403 via GlobalExceptionHandler's @ExceptionHandler(AccessDeniedException). (gateway-api's first @WebMvcTest.)
+@WebMvcTest(controllers = PaymentController.class,
+        excludeFilters = @ComponentScan.Filter(
+                type = FilterType.REGEX,
+                pattern = "io\\.nexuspay\\.gateway\\.adapter\\.in\\.filter\\..*"))
 class PaymentControllerScopeEnforcementTest {
 
     @Autowired private MockMvc mockMvc;
