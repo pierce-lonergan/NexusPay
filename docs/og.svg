@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" font-family="'Segoe UI', Inter, system-ui, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630">
+      <stop stop-color="#070811"/><stop offset="1" stop-color="#0b0d1a"/>
+    </linearGradient>
+    <linearGradient id="grad" x1="0" y1="0" x2="1200" y2="0">
+      <stop stop-color="#818cf8"/><stop offset=".5" stop-color="#c084fc"/><stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+    <radialGradient id="blob1" cx="50%" cy="50%" r="50%">
+      <stop stop-color="#6366f1" stop-opacity=".55"/><stop offset="100%" stop-color="#6366f1" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="blob2" cx="50%" cy="50%" r="50%">
+      <stop stop-color="#22d3ee" stop-opacity=".45"/><stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <circle cx="160" cy="120" r="320" fill="url(#blob1)"/>
+  <circle cx="1080" cy="160" r="300" fill="url(#blob2)"/>
+
+  <!-- subtle grid -->
+  <g stroke="#ffffff" stroke-opacity="0.05" stroke-width="1">
+    <line x1="0" y1="157" x2="1200" y2="157"/><line x1="0" y1="315" x2="1200" y2="315"/><line x1="0" y1="472" x2="1200" y2="472"/>
+    <line x1="300" y1="0" x2="300" y2="630"/><line x1="600" y1="0" x2="600" y2="630"/><line x1="900" y1="0" x2="900" y2="630"/>
+  </g>
+
+  <!-- logo + wordmark -->
+  <g transform="translate(80,76)">
+    <rect x="0" y="0" width="64" height="64" rx="18" fill="none" stroke="url(#grad)" stroke-width="2.5"/>
+    <path d="M19 44V21l26 22V21" fill="none" stroke="url(#grad)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="84" y="44" fill="#eef1fb" font-size="34" font-weight="800" letter-spacing="-1">NexusPay</text>
+  </g>
+
+  <!-- headline -->
+  <text x="80" y="300" fill="#eef1fb" font-size="74" font-weight="800" letter-spacing="-2">Payment orchestration</text>
+  <text x="80" y="386" fill="url(#grad)" font-size="74" font-weight="800" letter-spacing="-2">that is CFO-ready by design.</text>
+
+  <!-- subhead -->
+  <text x="82" y="450" fill="#9aa6c0" font-size="28" font-weight="400">Lifecycle · double-entry ledger · signed webhooks · scoped keys · a test</text>
+  <text x="82" y="488" fill="#9aa6c0" font-size="28" font-weight="400">mode that never moves real money.</text>
+
+  <!-- pills -->
+  <g font-size="20" font-weight="600">
+    <g transform="translate(80,540)">
+      <rect x="0" y="0" width="250" height="46" rx="23" fill="#ffffff" fill-opacity="0.05" stroke="#ffffff" stroke-opacity="0.1"/>
+      <circle cx="26" cy="23" r="5" fill="#34d399"/><text x="44" y="30" fill="#9aa6c0">Source-available</text>
+    </g>
+    <g transform="translate(350,540)">
+      <rect x="0" y="0" width="232" height="46" rx="23" fill="#ffffff" fill-opacity="0.05" stroke="#ffffff" stroke-opacity="0.1"/>
+      <circle cx="26" cy="23" r="5" fill="#22d3ee"/><text x="44" y="30" fill="#9aa6c0">SDKs on npm</text>
+    </g>
+    <g transform="translate(602,540)">
+      <rect x="0" y="0" width="260" height="46" rx="23" fill="#ffffff" fill-opacity="0.05" stroke="#ffffff" stroke-opacity="0.1"/>
+      <circle cx="26" cy="23" r="5" fill="#fbbf24"/><text x="44" y="30" fill="#9aa6c0">Built on HyperSwitch</text>
+    </g>
+  </g>
+
+  <text x="1120" y="600" text-anchor="end" fill="#6b7591" font-size="20" font-family="'JetBrains Mono', monospace">pierce-lonergan.github.io/NexusPay</text>
+</svg>
