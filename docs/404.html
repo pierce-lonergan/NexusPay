@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>404 — NexusPay</title>
+<meta name="theme-color" content="#070811" />
+<meta name="color-scheme" content="dark" />
+<link rel="icon" href="favicon.svg" type="image/svg+xml" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
+<style>
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: #070811; color: #eef1fb; font-family: "Inter", system-ui, sans-serif;
+    display: grid; place-items: center; text-align: center; padding: 24px; overflow: hidden;
+  }
+  .blob { position: fixed; border-radius: 50%; filter: blur(90px); pointer-events: none; z-index: 0; }
+  .b1 { width: 480px; height: 480px; background: radial-gradient(circle, #6366f1, transparent 70%); opacity: .4; top: -140px; left: -120px; }
+  .b2 { width: 420px; height: 420px; background: radial-gradient(circle, #22d3ee, transparent 70%); opacity: .3; bottom: -160px; right: -120px; }
+  .card { position: relative; z-index: 1; max-width: 520px; }
+  .code {
+    font-family: "JetBrains Mono", monospace; font-size: 92px; font-weight: 800; letter-spacing: -2px;
+    background: linear-gradient(110deg, #818cf8, #c084fc, #22d3ee);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    line-height: 1; margin: 0;
+  }
+  h1 { font-size: 26px; font-weight: 800; margin: 18px 0 0; }
+  p { color: #9aa6c0; font-size: 16px; margin: 14px 0 0; line-height: 1.6; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 9px; margin-top: 28px; padding: 13px 22px; border-radius: 12px;
+    background: linear-gradient(110deg, #6366f1, #a855f7, #22d3ee); color: #fff; font-weight: 600; font-size: 15px;
+    text-decoration: none; box-shadow: 0 14px 34px -12px rgba(124, 92, 246, .8);
+  }
+  .links { margin-top: 22px; font-size: 14px; }
+  .links a { color: #22d3ee; text-decoration: none; margin: 0 10px; }
+  @media (prefers-reduced-motion: reduce) { .blob { display: none; } }
+</style>
+</head>
+<body>
+  <div class="blob b1"></div><div class="blob b2"></div>
+  <div class="card">
+    <p class="code">404</p>
+    <h1>This page took a route we don't recognize.</h1>
+    <p>The link may be outdated or mistyped. The payment still settled, though — let's get you back on a known path.</p>
+    <a class="btn" href="/NexusPay/">← Back to NexusPay</a>
+    <div class="links">
+      <a href="https://github.com/pierce-lonergan/NexusPay">GitHub</a>·
+      <a href="https://github.com/pierce-lonergan/NexusPay/blob/main/docs/INTEGRATION.md">Integration guide</a>·
+      <a href="/NexusPay/#contact">Contact</a>
+    </div>
+  </div>
+</body>
+</html>

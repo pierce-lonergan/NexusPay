@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://pierce-lonergan.github.io/NexusPay/sitemap.xml

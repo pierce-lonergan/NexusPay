@@ -5,9 +5,35 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>NexusPay — CFO-ready payment orchestration, test-mode first</title>
 <meta name="description" content="NexusPay is a source-available, enterprise payment orchestration platform built on HyperSwitch: full payment lifecycle, double-entry ledger, signed/retried webhooks, scoped API keys, and a test mode that never moves real money." />
+<link rel="canonical" href="https://pierce-lonergan.github.io/NexusPay/" />
+<meta name="theme-color" content="#070811" />
+<meta name="color-scheme" content="dark" />
+<link rel="icon" href="favicon.svg" type="image/svg+xml" />
 <meta property="og:title" content="NexusPay — payment orchestration, CFO-ready" />
 <meta property="og:description" content="Tenant-isolated, PCI-aware payment orchestration with a real test sandbox, scoped API keys, and signed webhooks. Source-available (PolyForm-NC)." />
 <meta property="og:type" content="website" />
+<meta property="og:url" content="https://pierce-lonergan.github.io/NexusPay/" />
+<meta property="og:image" content="https://pierce-lonergan.github.io/NexusPay/og.svg" />
+<meta property="og:image:alt" content="NexusPay — CFO-ready payment orchestration, test-mode first" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="NexusPay — payment orchestration, CFO-ready" />
+<meta name="twitter:description" content="Tenant-isolated, PCI-aware payment orchestration with a real test sandbox, scoped API keys, and signed webhooks. Source-available (PolyForm-NC)." />
+<meta name="twitter:image" content="https://pierce-lonergan.github.io/NexusPay/og.svg" />
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "NexusPay",
+  "applicationCategory": "FinanceApplication",
+  "operatingSystem": "Linux, Docker, JVM",
+  "description": "Source-available, enterprise payment orchestration platform built on HyperSwitch: full payment lifecycle, double-entry ledger, signed and retried webhooks, scoped API keys, tenant isolation, and a test mode that never moves real money.",
+  "url": "https://pierce-lonergan.github.io/NexusPay/",
+  "codeRepository": "https://github.com/pierce-lonergan/NexusPay",
+  "license": "https://polyformproject.org/licenses/noncommercial/1.0.0/",
+  "author": { "@type": "Person", "name": "Pierce Lonergan", "url": "https://github.com/pierce-lonergan" },
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -248,6 +274,37 @@
   .reveal { opacity: 0; transform: translateY(24px); transition: opacity .7s ease, transform .7s ease; }
   .reveal.in { opacity: 1; transform: none; }
 
+  /* a11y: skip link + focus rings */
+  .skip { position: absolute; left: -9999px; top: 8px; z-index: 100; background: var(--panel-2); color: var(--text); border: 1px solid var(--line-strong); padding: 10px 16px; border-radius: 10px; font-size: 14px; }
+  .skip:focus { left: 16px; }
+  a:focus-visible, button:focus-visible, .tab:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid var(--cyan); outline-offset: 3px; border-radius: 6px;
+  }
+
+  /* scroll progress */
+  .progress { position: fixed; top: 0; left: 0; height: 3px; width: 0; z-index: 60; background: var(--grad); box-shadow: 0 0 12px rgba(99,102,241,.6); transition: width .08s linear; }
+
+  /* interactive architecture diagram */
+  .arch-frame svg .node { cursor: pointer; transition: opacity .2s; }
+  .arch-frame svg .node rect { transition: stroke .2s, filter .2s; }
+  .arch-frame.dimmed svg .node:not(.active) { opacity: .4; }
+  .arch-frame svg .node.active rect { stroke: var(--cyan); filter: drop-shadow(0 0 10px rgba(34,211,238,.5)); }
+  .arch-caption {
+    margin-top: 18px; min-height: 46px; display: flex; align-items: center; gap: 12px; padding: 14px 18px;
+    background: rgba(255,255,255,.03); border: 1px solid var(--line); border-radius: 12px; transition: border-color .2s;
+  }
+  .arch-caption .ck { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
+  .arch-caption b { color: var(--text); font-weight: 600; }
+  .arch-caption span { color: var(--muted); font-size: 14.5px; }
+  .arch-caption .hint { color: var(--faint); font-size: 13.5px; font-style: italic; }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after { animation: none !important; transition-duration: .001ms !important; }
+    .reveal { opacity: 1; transform: none; }
+    .blob { animation: none; }
+  }
+
   @media (max-width: 940px) {
     .hero-inner { grid-template-columns: 1fr; gap: 40px; }
     .feat-grid, .sdk-grid, .contact-grid { grid-template-columns: 1fr 1fr; }
@@ -266,6 +323,8 @@
 </style>
 </head>
 <body>
+<a class="skip" href="#maincontent">Skip to content</a>
+<div class="progress" id="progress" aria-hidden="true"></div>
 
 <!-- ================= NAV ================= -->
 <header class="nav">
@@ -297,7 +356,7 @@
 
 <a id="top"></a>
 <!-- ================= HERO ================= -->
-<section class="hero">
+<section class="hero" id="maincontent" tabindex="-1">
   <div class="hero-bg" aria-hidden="true">
     <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
   </div>
@@ -318,10 +377,10 @@
         <a class="btn btn-ghost" href="https://github.com/pierce-lonergan/NexusPay" target="_blank" rel="noopener">View on GitHub</a>
       </div>
       <div class="metrics">
-        <div class="metric"><div class="n grad-text">16</div><div class="l">Modulith modules</div></div>
-        <div class="metric"><div class="n grad-text">0</div><div class="l">Cross-tenant trust</div></div>
-        <div class="metric"><div class="n grad-text">3</div><div class="l">Published SDKs</div></div>
-        <div class="metric"><div class="n grad-text">100%</div><div class="l">Test-mode isolated</div></div>
+        <div class="metric"><div class="n grad-text" data-count="16">16</div><div class="l">Modulith modules</div></div>
+        <div class="metric"><div class="n grad-text" data-count="0">0</div><div class="l">Cross-tenant trust</div></div>
+        <div class="metric"><div class="n grad-text" data-count="3">3</div><div class="l">Published SDKs</div></div>
+        <div class="metric"><div class="n grad-text" data-count="100" data-suffix="%">100%</div><div class="l">Test-mode isolated</div></div>
       </div>
     </div>
 
@@ -381,7 +440,7 @@
       <h2>One request in. <span class="grad-text">A signed, reconciled event out.</span></h2>
       <p style="margin-left:auto;margin-right:auto">Your app talks to one API. NexusPay derives the mode from the key, routes test traffic to an in-process mock, posts to the ledger, and delivers a signed webhook you can verify offline.</p>
     </div>
-    <div class="arch-frame reveal">
+    <div class="arch-frame reveal" id="archFrame">
       <svg viewBox="0 0 1180 470" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="NexusPay payment flow architecture">
         <defs>
           <linearGradient id="ag" x1="0" y1="0" x2="1180" y2="0"><stop stop-color="#6366f1"/><stop offset=".5" stop-color="#a855f7"/><stop offset="1" stop-color="#22d3ee"/></linearGradient>
@@ -398,42 +457,63 @@
         </defs>
 
         <!-- merchant -->
-        <rect x="20" y="180" width="170" height="92" rx="14" fill="#12152b" stroke="rgba(255,255,255,.14)" stroke-width="1.5"/>
-        <text x="105" y="218" text-anchor="middle" class="nt">Your app</text>
-        <text x="105" y="240" text-anchor="middle" class="ns">+ @nexus-pay SDK</text>
+        <g class="node" tabindex="0" role="button" aria-label="Your app and SDK"
+           data-title="Your app + SDK" data-desc="Your server calls one API with @nexus-pay/node — camelCase in, snake_case on the wire, with idempotency keys and typed errors.">
+          <rect x="20" y="180" width="170" height="92" rx="14" fill="#12152b" stroke="rgba(255,255,255,.14)" stroke-width="1.5"/>
+          <text x="105" y="218" text-anchor="middle" class="nt">Your app</text>
+          <text x="105" y="240" text-anchor="middle" class="ns">+ @nexus-pay SDK</text>
+        </g>
 
         <!-- API -->
-        <rect x="270" y="170" width="190" height="112" rx="14" fill="#12152b" stroke="url(#ag)" stroke-width="2"/>
-        <text x="365" y="206" text-anchor="middle" class="nt">NexusPay API</text>
-        <text x="365" y="228" text-anchor="middle" class="ns">scoped key · tenant</text>
-        <text x="365" y="246" text-anchor="middle" class="ns">derived from principal</text>
+        <g class="node" tabindex="0" role="button" aria-label="NexusPay API"
+           data-title="NexusPay API" data-desc="The scoped API key authenticates; the tenant and test/live mode are derived from the principal — never trusted from a client header.">
+          <rect x="270" y="170" width="190" height="112" rx="14" fill="#12152b" stroke="url(#ag)" stroke-width="2"/>
+          <text x="365" y="206" text-anchor="middle" class="nt">NexusPay API</text>
+          <text x="365" y="228" text-anchor="middle" class="ns">scoped key · tenant</text>
+          <text x="365" y="246" text-anchor="middle" class="ns">derived from principal</text>
+        </g>
 
         <!-- gate -->
-        <rect x="545" y="170" width="180" height="112" rx="14" fill="#12152b" stroke="rgba(255,255,255,.14)" stroke-width="1.5"/>
-        <text x="635" y="206" text-anchor="middle" class="nt">Gated gateway</text>
-        <text x="635" y="228" text-anchor="middle" class="ns">server-derived</text>
-        <text x="635" y="246" text-anchor="middle" class="ns">test / live mode</text>
+        <g class="node" tabindex="0" role="button" aria-label="Gated gateway"
+           data-title="Gated gateway" data-desc="The server-derived mode decides the route. A test key can never reach a real processor — enforced by an architecture test.">
+          <rect x="545" y="170" width="180" height="112" rx="14" fill="#12152b" stroke="rgba(255,255,255,.14)" stroke-width="1.5"/>
+          <text x="635" y="206" text-anchor="middle" class="nt">Gated gateway</text>
+          <text x="635" y="228" text-anchor="middle" class="ns">server-derived</text>
+          <text x="635" y="246" text-anchor="middle" class="ns">test / live mode</text>
+        </g>
 
         <!-- mock -->
-        <rect x="810" y="92" width="170" height="80" rx="14" fill="#0e1f1a" stroke="rgba(52,211,153,.45)" stroke-width="1.5"/>
-        <text x="895" y="126" text-anchor="middle" class="nt" style="fill:#34d399">Mock gateway</text>
-        <text x="895" y="148" text-anchor="middle" class="ns">test · zero network I/O</text>
+        <g class="node" tabindex="0" role="button" aria-label="Mock gateway, test mode"
+           data-title="Mock gateway · test" data-desc="sk_test_ payments run fully in-process with zero network I/O and produce pay_test_ ids. No real money moves — ever.">
+          <rect x="810" y="92" width="170" height="80" rx="14" fill="#0e1f1a" stroke="rgba(52,211,153,.45)" stroke-width="1.5"/>
+          <text x="895" y="126" text-anchor="middle" class="nt" style="fill:#34d399">Mock gateway</text>
+          <text x="895" y="148" text-anchor="middle" class="ns">test · zero network I/O</text>
+        </g>
 
         <!-- hyperswitch -->
-        <rect x="810" y="280" width="170" height="80" rx="14" fill="#211a0e" stroke="rgba(251,191,36,.45)" stroke-width="1.5"/>
-        <text x="895" y="314" text-anchor="middle" class="nt" style="fill:#fbbf24">HyperSwitch</text>
-        <text x="895" y="336" text-anchor="middle" class="ns">live · real PSP</text>
+        <g class="node" tabindex="0" role="button" aria-label="HyperSwitch, live mode"
+           data-title="HyperSwitch · live" data-desc="sk_live_ payments are orchestrated through HyperSwitch to the real payment processor.">
+          <rect x="810" y="280" width="170" height="80" rx="14" fill="#211a0e" stroke="rgba(251,191,36,.45)" stroke-width="1.5"/>
+          <text x="895" y="314" text-anchor="middle" class="nt" style="fill:#fbbf24">HyperSwitch</text>
+          <text x="895" y="336" text-anchor="middle" class="ns">live · real PSP</text>
+        </g>
 
         <!-- ledger + outbox -->
-        <rect x="545" y="330" width="180" height="64" rx="12" fill="#12152b" stroke="rgba(255,255,255,.14)" stroke-width="1.5"/>
-        <text x="635" y="358" text-anchor="middle" class="nt" style="font-size:14px">Double-entry ledger</text>
-        <text x="635" y="377" text-anchor="middle" class="ns">balanced journal posts</text>
+        <g class="node" tabindex="0" role="button" aria-label="Double-entry ledger"
+           data-title="Double-entry ledger" data-desc="Every money movement posts balanced journal entries — queryable accounts and entries, reconciliation built in.">
+          <rect x="545" y="330" width="180" height="64" rx="12" fill="#12152b" stroke="rgba(255,255,255,.14)" stroke-width="1.5"/>
+          <text x="635" y="358" text-anchor="middle" class="nt" style="font-size:14px">Double-entry ledger</text>
+          <text x="635" y="377" text-anchor="middle" class="ns">balanced journal posts</text>
+        </g>
 
         <!-- webhooks -->
-        <rect x="1000" y="180" width="160" height="92" rx="14" fill="#12152b" stroke="url(#ag2)" stroke-width="2"/>
-        <text x="1080" y="212" text-anchor="middle" class="nt" style="font-size:15px">Signed webhook</text>
-        <text x="1080" y="233" text-anchor="middle" class="ns">HMAC · retried</text>
-        <text x="1080" y="251" text-anchor="middle" class="ns">DLQ · replay</text>
+        <g class="node" tabindex="0" role="button" aria-label="Signed webhook"
+           data-title="Signed webhook" data-desc="A canonical, versioned event is HMAC-signed, retried with backoff, dead-lettered and replayable — verify it offline and credit the user.">
+          <rect x="1000" y="180" width="160" height="92" rx="14" fill="#12152b" stroke="url(#ag2)" stroke-width="2"/>
+          <text x="1080" y="212" text-anchor="middle" class="nt" style="font-size:15px">Signed webhook</text>
+          <text x="1080" y="233" text-anchor="middle" class="ns">HMAC · retried</text>
+          <text x="1080" y="251" text-anchor="middle" class="ns">DLQ · replay</text>
+        </g>
 
         <!-- flows -->
         <path class="fl" d="M192 226 H266"/>
@@ -450,6 +530,10 @@
         <path class="fld" d="M1000 256 C 700 440, 360 440, 105 276"/>
         <text x="540" y="432" text-anchor="middle" class="tag" fill="#22d3ee">verify offline → credit the user</text>
       </svg>
+      <div class="arch-caption" id="archCaption" aria-live="polite">
+        <span class="ck"></span>
+        <span class="hint">Hover or focus any node to see what it does.</span>
+      </div>
       <div class="arch-legend">
         <span><i style="background:#6366f1"></i>Request path</span>
         <span><i style="background:#34d399"></i>Test (mock, no real money)</span>
@@ -726,6 +810,71 @@ docker run --rm \
     entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
   }, { threshold: 0.12 });
   document.querySelectorAll('.reveal').forEach(function (el) { io.observe(el); });
+
+  var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // scroll progress bar
+  var bar = document.getElementById('progress');
+  function setProgress() {
+    var h = document.documentElement;
+    var max = h.scrollHeight - h.clientHeight;
+    bar.style.width = (max > 0 ? (h.scrollTop / max) * 100 : 0) + '%';
+  }
+  window.addEventListener('scroll', setProgress, { passive: true });
+  window.addEventListener('resize', setProgress, { passive: true });
+  setProgress();
+
+  // count-up metrics (respects reduced motion)
+  function countUp(el) {
+    var target = parseInt(el.getAttribute('data-count'), 10);
+    var suffix = el.getAttribute('data-suffix') || '';
+    if (reduceMotion || isNaN(target)) { el.textContent = target + suffix; return; }
+    var start = null, dur = 1100;
+    function frame(ts) {
+      if (start === null) start = ts;
+      var p = Math.min((ts - start) / dur, 1);
+      var eased = 1 - Math.pow(1 - p, 3); // ease-out cubic
+      el.textContent = Math.round(target * eased) + suffix;
+      if (p < 1) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+  var counted = false;
+  var metricsIo = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (e.isIntersecting && !counted) {
+        counted = true;
+        document.querySelectorAll('[data-count]').forEach(countUp);
+        metricsIo.disconnect();
+      }
+    });
+  }, { threshold: 0.4 });
+  var metricsEl = document.querySelector('.metrics');
+  if (metricsEl) metricsIo.observe(metricsEl);
+
+  // interactive architecture diagram
+  var frame = document.getElementById('archFrame');
+  var caption = document.getElementById('archCaption');
+  if (frame && caption) {
+    var nodes = frame.querySelectorAll('.node');
+    function activate(node) {
+      nodes.forEach(function (n) { n.classList.remove('active'); });
+      node.classList.add('active');
+      frame.classList.add('dimmed');
+      caption.innerHTML = '<span class="ck"></span><span><b>' + node.dataset.title + '</b> — ' + node.dataset.desc + '</span>';
+    }
+    function reset() {
+      nodes.forEach(function (n) { n.classList.remove('active'); });
+      frame.classList.remove('dimmed');
+      caption.innerHTML = '<span class="ck"></span><span class="hint">Hover or focus any node to see what it does.</span>';
+    }
+    nodes.forEach(function (node) {
+      node.addEventListener('mouseenter', function () { activate(node); });
+      node.addEventListener('focus', function () { activate(node); });
+      node.addEventListener('keydown', function (ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); activate(node); } });
+    });
+    frame.addEventListener('mouseleave', reset);
+  }
 </script>
 </body>
 </html>
