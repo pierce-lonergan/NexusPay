@@ -1150,3 +1150,18 @@ caller until a trigger is wired); the path is now correct-by-construction so ena
 silently move a test charge through the real PSP. Done directly (not a workflow) — the money-routing logic
 was already adversarially reviewed in DX-5a; this is a latent value-threading change with full true/false/null
 test coverage. CI is the oracle. L-064 (closes its last instance). ADR-052.
+
+## ADR-053 | 2026-06-17 | GitHub Pages landing site (docs/index.html) (T3)
+Added a self-contained, dependency-free marketing/onboarding landing page at docs/index.html (+ empty
+docs/.nojekyll so Pages serves it verbatim, no Jekyll build). Single file: inline CSS/JS + a hand-authored
+inline SVG architecture diagram (request -> API -> gated gateway -> mock(test)/HyperSwitch(live) -> ledger
+-> signed webhook -> verify). Sections: hero, features (9), architecture, get-started (tabbed, copyable
+quickstart drawn VERBATIM from docs/INTEGRATION.md so the code is real), security pillars, SDK cards (link
+npm), contribute (CI gates), contact (GitHub issues / profile / email for commercial-license inquiries),
+footer. Deep docs link to GitHub blob views (rendered MD); API reference links the existing
+docs/api/openapi.html (served by Pages). Only the SDK npm package names/versions, license (PolyForm-NC; SDKs
+MIT), repo, and ghcr image are asserted — all verified against the repo. Verified rendering via the preview
+tool: correct dark theme + gradient-clip text, all sections/cards/tabs/arch-SVG present, tab-switch + nav
+anchors functional, zero console errors (the screenshot capturer timed out on the hero blur filters — an
+environment limitation, not a page defect; confirmed via computed-style + DOM inspection instead). OWNER
+ACTION to go live: repo Settings -> Pages -> Deploy from a branch -> main -> /docs. ADR-053.
