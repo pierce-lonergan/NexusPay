@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>NexusPay — CFO-ready payment orchestration, test-mode first</title>
+<meta name="description" content="NexusPay is a source-available, enterprise payment orchestration platform built on HyperSwitch: full payment lifecycle, double-entry ledger, signed/retried webhooks, scoped API keys, and a test mode that never moves real money." />
+<meta property="og:title" content="NexusPay — payment orchestration, CFO-ready" />
+<meta property="og:description" content="Tenant-isolated, PCI-aware payment orchestration with a real test sandbox, scoped API keys, and signed webhooks. Source-available (PolyForm-NC)." />
+<meta property="og:type" content="website" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #070811;
+    --bg-2: #0b0d1a;
+    --panel: #0e1124;
+    --panel-2: #12152b;
+    --line: rgba(255, 255, 255, 0.08);
+    --line-strong: rgba(255, 255, 255, 0.16);
+    --text: #eef1fb;
+    --muted: #9aa6c0;
+    --faint: #6b7591;
+    --indigo: #6366f1;
+    --purple: #a855f7;
+    --cyan: #22d3ee;
+    --emerald: #34d399;
+    --amber: #fbbf24;
+    --rose: #fb7185;
+    --grad: linear-gradient(110deg, #6366f1 0%, #a855f7 45%, #22d3ee 100%);
+    --grad-soft: linear-gradient(110deg, rgba(99,102,241,.16), rgba(168,85,247,.14), rgba(34,211,238,.16));
+    --radius: 18px;
+    --maxw: 1180px;
+    --shadow: 0 24px 60px -20px rgba(0, 0, 0, .65);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 84px; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  a { color: inherit; text-decoration: none; }
+  h1, h2, h3 { line-height: 1.1; letter-spacing: -0.02em; margin: 0; }
+  p { margin: 0; }
+  code, pre, .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+  .grad-text {
+    background: var(--grad);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+  }
+  .eyebrow {
+    font-size: 12.5px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--cyan); display: inline-flex; align-items: center; gap: 8px;
+  }
+  .eyebrow::before { content: ""; width: 22px; height: 1.5px; background: var(--cyan); display: inline-block; opacity: .7; }
+
+  /* ---------- nav ---------- */
+  header.nav {
+    position: sticky; top: 0; z-index: 50;
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    background: rgba(7, 8, 17, 0.72);
+    border-bottom: 1px solid var(--line);
+  }
+  .nav-inner { display: flex; align-items: center; justify-content: space-between; height: 66px; }
+  .brand { display: flex; align-items: center; gap: 11px; font-weight: 800; font-size: 18px; letter-spacing: -.02em; }
+  .logo { width: 30px; height: 30px; flex: none; }
+  .nav-links { display: flex; align-items: center; gap: 30px; }
+  .nav-links a { color: var(--muted); font-size: 14.5px; font-weight: 500; transition: color .2s; }
+  .nav-links a:hover { color: var(--text); }
+  .nav-cta {
+    display: inline-flex; align-items: center; gap: 8px; padding: 9px 16px; border-radius: 10px;
+    background: var(--grad); color: #fff; font-weight: 600; font-size: 14px;
+    box-shadow: 0 8px 24px -8px rgba(99, 102, 241, .7);
+  }
+  .nav-toggle { display: none; background: none; border: 0; color: var(--text); cursor: pointer; }
+
+  /* ---------- buttons ---------- */
+  .btn {
+    display: inline-flex; align-items: center; gap: 9px; padding: 13px 22px; border-radius: 12px;
+    font-weight: 600; font-size: 15px; cursor: pointer; border: 1px solid transparent; transition: transform .15s, box-shadow .2s, background .2s;
+  }
+  .btn:hover { transform: translateY(-2px); }
+  .btn-primary { background: var(--grad); color: #fff; box-shadow: 0 14px 34px -12px rgba(124, 92, 246, .8); }
+  .btn-ghost { background: rgba(255,255,255,.04); border-color: var(--line-strong); color: var(--text); }
+  .btn-ghost:hover { background: rgba(255,255,255,.08); }
+
+  /* ---------- hero ---------- */
+  .hero { position: relative; padding: 86px 0 64px; overflow: hidden; }
+  .hero-bg { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+  .blob { position: absolute; border-radius: 50%; filter: blur(90px); opacity: .55; animation: float 16s ease-in-out infinite; }
+  .blob.b1 { width: 520px; height: 520px; background: radial-gradient(circle, #6366f1, transparent 70%); top: -160px; left: -120px; }
+  .blob.b2 { width: 460px; height: 460px; background: radial-gradient(circle, #a855f7, transparent 70%); top: -80px; right: -120px; animation-delay: -4s; }
+  .blob.b3 { width: 420px; height: 420px; background: radial-gradient(circle, #22d3ee, transparent 70%); bottom: -200px; left: 38%; opacity: .35; animation-delay: -8s; }
+  @keyframes float { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(24px,-24px) scale(1.06); } }
+  .hero-grid-overlay {
+    position: absolute; inset: 0; z-index: 0; opacity: .35;
+    background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 54px 54px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, #000 30%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, #000 30%, transparent 75%);
+  }
+  .hero-inner { position: relative; z-index: 1; display: grid; grid-template-columns: 1.08fr .92fr; gap: 54px; align-items: center; }
+  .badge-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 24px; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 7px; padding: 6px 13px; border-radius: 999px;
+    background: rgba(255,255,255,.04); border: 1px solid var(--line); font-size: 12.5px; font-weight: 600; color: var(--muted);
+  }
+  .pill .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .hero h1 { font-size: clamp(38px, 5.4vw, 64px); font-weight: 900; }
+  .hero .sub { margin-top: 22px; font-size: 19px; color: var(--muted); max-width: 560px; }
+  .hero .cta-row { margin-top: 34px; display: flex; flex-wrap: wrap; gap: 14px; }
+  .hero .metrics { margin-top: 40px; display: flex; gap: 34px; flex-wrap: wrap; }
+  .metric .n { font-size: 26px; font-weight: 800; }
+  .metric .l { font-size: 12.5px; color: var(--faint); text-transform: uppercase; letter-spacing: .08em; }
+
+  /* terminal card */
+  .terminal {
+    background: linear-gradient(180deg, var(--panel-2), var(--panel));
+    border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden;
+    position: relative;
+  }
+  .terminal::before { content: ""; position: absolute; inset: 0; border-radius: var(--radius); padding: 1px; background: var(--grad-soft); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none; }
+  .term-bar { display: flex; align-items: center; gap: 8px; padding: 13px 16px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.02); }
+  .term-dot { width: 11px; height: 11px; border-radius: 50%; }
+  .term-title { margin-left: 10px; font-size: 12.5px; color: var(--faint); }
+  .term-body { padding: 20px 20px 22px; font-size: 13.5px; line-height: 1.85; overflow-x: auto; }
+  .term-body .c-com { color: var(--faint); }
+  .term-body .c-key { color: var(--purple); }
+  .term-body .c-fn { color: var(--cyan); }
+  .term-body .c-str { color: var(--emerald); }
+  .term-body .c-num { color: var(--amber); }
+  .term-body .prompt { color: var(--indigo); }
+
+  /* ---------- sections ---------- */
+  section { position: relative; padding: 92px 0; }
+  .sec-head { max-width: 720px; margin-bottom: 52px; }
+  .sec-head h2 { font-size: clamp(28px, 3.6vw, 42px); font-weight: 800; margin-top: 16px; }
+  .sec-head p { margin-top: 16px; font-size: 17px; color: var(--muted); }
+  .divider { height: 1px; background: linear-gradient(90deg, transparent, var(--line-strong), transparent); }
+
+  /* feature grid */
+  .feat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .card {
+    background: linear-gradient(180deg, rgba(255,255,255,.025), rgba(255,255,255,.01));
+    border: 1px solid var(--line); border-radius: var(--radius); padding: 26px; transition: transform .2s, border-color .2s, background .2s;
+  }
+  .card:hover { transform: translateY(-4px); border-color: var(--line-strong); background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.015)); }
+  .ic { width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; margin-bottom: 18px; background: var(--grad-soft); border: 1px solid var(--line); }
+  .ic svg { width: 23px; height: 23px; }
+  .card h3 { font-size: 17.5px; font-weight: 700; }
+  .card p { margin-top: 9px; font-size: 14.5px; color: var(--muted); }
+
+  /* architecture */
+  .arch-frame {
+    background: radial-gradient(120% 140% at 50% 0%, rgba(99,102,241,.10), transparent 60%), var(--panel);
+    border: 1px solid var(--line); border-radius: 22px; padding: 30px; box-shadow: var(--shadow);
+  }
+  .arch-frame svg { width: 100%; height: auto; display: block; }
+  .arch-legend { display: flex; flex-wrap: wrap; gap: 18px 28px; margin-top: 24px; justify-content: center; }
+  .arch-legend span { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+  .arch-legend i { width: 13px; height: 13px; border-radius: 4px; display: inline-block; }
+
+  /* quickstart tabs */
+  .qs { display: grid; grid-template-columns: 270px 1fr; gap: 26px; align-items: start; }
+  .tablist { display: flex; flex-direction: column; gap: 8px; }
+  .tab {
+    text-align: left; background: transparent; border: 1px solid transparent; color: var(--muted);
+    padding: 15px 16px; border-radius: 12px; cursor: pointer; font: inherit; font-size: 14.5px; transition: all .18s; display: flex; gap: 13px; align-items: flex-start;
+  }
+  .tab .step { width: 24px; height: 24px; flex: none; border-radius: 7px; background: rgba(255,255,255,.05); display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--faint); }
+  .tab b { color: var(--text); font-weight: 600; display: block; }
+  .tab small { color: var(--faint); font-size: 12.5px; }
+  .tab:hover { background: rgba(255,255,255,.03); }
+  .tab.active { background: var(--grad-soft); border-color: var(--line-strong); }
+  .tab.active .step { background: var(--grad); color: #fff; }
+  .tab.active small { color: var(--muted); }
+
+  .code {
+    position: relative; background: var(--panel-2); border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); min-height: 320px;
+  }
+  .code-bar { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.02); }
+  .code-bar .fname { font-size: 12.5px; color: var(--faint); font-family: "JetBrains Mono", monospace; }
+  .copy { display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,.05); border: 1px solid var(--line); color: var(--muted); border-radius: 8px; padding: 6px 11px; font-size: 12px; cursor: pointer; transition: all .15s; }
+  .copy:hover { color: var(--text); border-color: var(--line-strong); }
+  .code pre { margin: 0; padding: 20px; font-size: 13px; line-height: 1.8; overflow-x: auto; }
+  .panel-hidden { display: none; }
+  .c-com { color: var(--faint); } .c-key { color: var(--purple); } .c-fn { color: var(--cyan); } .c-str { color: var(--emerald); } .c-num { color: var(--amber); } .c-var { color: var(--text); }
+
+  /* security pillars */
+  .sec-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+  .sec-card { display: flex; gap: 18px; padding: 24px; background: linear-gradient(180deg, rgba(52,211,153,.05), rgba(255,255,255,.01)); border: 1px solid var(--line); border-radius: var(--radius); }
+  .sec-card .shield { width: 42px; height: 42px; flex: none; border-radius: 11px; display: grid; place-items: center; background: rgba(52,211,153,.12); border: 1px solid rgba(52,211,153,.25); }
+  .sec-card .shield svg { width: 21px; height: 21px; stroke: var(--emerald); }
+  .sec-card h3 { font-size: 16px; }
+  .sec-card p { margin-top: 7px; font-size: 14px; color: var(--muted); }
+
+  /* sdk cards */
+  .sdk-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .sdk { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; transition: border-color .2s, transform .2s; }
+  .sdk:hover { border-color: var(--line-strong); transform: translateY(-3px); }
+  .sdk .pkg { font-family: "JetBrains Mono", monospace; font-size: 15px; font-weight: 600; }
+  .sdk .ver { font-size: 12px; color: var(--emerald); margin-left: 8px; background: rgba(52,211,153,.1); padding: 2px 8px; border-radius: 999px; }
+  .sdk p { font-size: 13.5px; color: var(--muted); margin-top: 10px; }
+  .sdk .inst { margin-top: 16px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; padding: 11px 13px; font-family: "JetBrains Mono", monospace; font-size: 12.5px; color: var(--cyan); display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+
+  /* contribute steps */
+  .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+  .stepc { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; position: relative; }
+  .stepc .num { font-size: 13px; font-weight: 800; color: var(--indigo); font-family: "JetBrains Mono", monospace; }
+  .stepc h3 { font-size: 16px; margin-top: 10px; }
+  .stepc p { font-size: 13.5px; color: var(--muted); margin-top: 8px; }
+  .gates { margin-top: 26px; display: flex; flex-wrap: wrap; gap: 10px; }
+  .gate { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 10px; background: rgba(255,255,255,.03); border: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+  .gate .ck { color: var(--emerald); }
+
+  /* contact */
+  .contact-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .contact { display: block; background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01)); border: 1px solid var(--line); border-radius: var(--radius); padding: 28px; transition: transform .2s, border-color .2s; }
+  .contact:hover { transform: translateY(-4px); border-color: var(--line-strong); }
+  .contact .ic { margin-bottom: 16px; }
+  .contact h3 { font-size: 17px; }
+  .contact p { font-size: 14px; color: var(--muted); margin-top: 7px; }
+  .contact .go { margin-top: 14px; font-size: 13.5px; font-weight: 600; color: var(--cyan); display: inline-flex; gap: 6px; align-items: center; }
+
+  .cta-band { text-align: center; background: var(--grad-soft); border: 1px solid var(--line-strong); border-radius: 24px; padding: 56px 28px; position: relative; overflow: hidden; }
+  .cta-band h2 { font-size: clamp(28px, 4vw, 40px); font-weight: 800; }
+  .cta-band p { margin-top: 14px; color: var(--muted); font-size: 17px; }
+  .cta-band .cta-row { margin-top: 30px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+
+  /* footer */
+  footer { border-top: 1px solid var(--line); padding: 54px 0 40px; }
+  .foot-grid { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 30px; }
+  .foot-grid h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: var(--faint); margin-bottom: 16px; }
+  .foot-grid a { display: block; color: var(--muted); font-size: 14px; padding: 5px 0; transition: color .15s; }
+  .foot-grid a:hover { color: var(--text); }
+  .foot-bottom { margin-top: 44px; padding-top: 24px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; font-size: 13px; color: var(--faint); }
+
+  /* reveal */
+  .reveal { opacity: 0; transform: translateY(24px); transition: opacity .7s ease, transform .7s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+
+  @media (max-width: 940px) {
+    .hero-inner { grid-template-columns: 1fr; gap: 40px; }
+    .feat-grid, .sdk-grid, .contact-grid { grid-template-columns: 1fr 1fr; }
+    .sec-grid { grid-template-columns: 1fr; }
+    .qs { grid-template-columns: 1fr; }
+    .steps { grid-template-columns: 1fr 1fr; }
+    .foot-grid { grid-template-columns: 1fr 1fr; }
+    .nav-links { display: none; }
+    .nav-links.open { display: flex; position: absolute; top: 66px; left: 0; right: 0; flex-direction: column; background: var(--bg-2); border-bottom: 1px solid var(--line); padding: 18px 24px; gap: 18px; }
+    .nav-toggle { display: block; }
+  }
+  @media (max-width: 560px) {
+    .feat-grid, .sdk-grid, .contact-grid, .steps, .foot-grid { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 36px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ================= NAV ================= -->
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="#top">
+      <svg class="logo" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <defs><linearGradient id="lg" x1="0" y1="0" x2="40" y2="40"><stop stop-color="#6366f1"/><stop offset=".5" stop-color="#a855f7"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs>
+        <rect x="2" y="2" width="36" height="36" rx="11" fill="url(#lg)" opacity=".18"/>
+        <rect x="2.5" y="2.5" width="35" height="35" rx="10.5" stroke="url(#lg)" stroke-width="1.5"/>
+        <path d="M12 27V13l16 14V13" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      NexusPay
+    </a>
+    <nav class="nav-links" id="navlinks">
+      <a href="#features">Features</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#quickstart">Get started</a>
+      <a href="#security">Security</a>
+      <a href="#contribute">Contribute</a>
+      <a href="#contact">Contact</a>
+      <a class="nav-cta" href="https://github.com/pierce-lonergan/NexusPay" target="_blank" rel="noopener">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5A11.5 11.5 0 0 0 .5 12a11.5 11.5 0 0 0 7.86 10.92c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.34-1.3-1.7-1.3-1.7-1.06-.72.08-.71.08-.71 1.17.08 1.79 1.2 1.79 1.2 1.04 1.78 2.73 1.27 3.4.97.1-.75.4-1.27.74-1.56-2.56-.29-5.26-1.28-5.26-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.24 2.76.12 3.05.74.81 1.19 1.84 1.19 3.1 0 4.43-2.7 5.4-5.28 5.69.42.36.79 1.07.79 2.16v3.2c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12 11.5 11.5 0 0 0 12 .5Z"/></svg>
+        GitHub
+      </a>
+    </nav>
+    <button class="nav-toggle" id="navtoggle" aria-label="Menu"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+  </div>
+</header>
+
+<a id="top"></a>
+<!-- ================= HERO ================= -->
+<section class="hero">
+  <div class="hero-bg" aria-hidden="true">
+    <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+  </div>
+  <div class="hero-grid-overlay" aria-hidden="true"></div>
+  <div class="wrap hero-inner">
+    <div>
+      <div class="badge-row">
+        <span class="pill"><span class="dot" style="background:var(--emerald)"></span>Source-available · PolyForm-NC</span>
+        <span class="pill"><span class="dot" style="background:var(--cyan)"></span>SDKs live on npm 0.1.1</span>
+        <span class="pill"><span class="dot" style="background:var(--amber)"></span>Built on HyperSwitch</span>
+      </div>
+      <h1>Payment orchestration that is<br /><span class="grad-text">CFO-ready by design.</span></h1>
+      <p class="sub">NexusPay turns payment plumbing into a system you can trust: full lifecycle, a double-entry ledger, signed &amp; retried webhooks, scoped API keys, tenant isolation — and a <strong style="color:var(--text)">test mode that never moves real money.</strong></p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="#quickstart">Get started in 5 minutes
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+        <a class="btn btn-ghost" href="https://github.com/pierce-lonergan/NexusPay" target="_blank" rel="noopener">View on GitHub</a>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="n grad-text">16</div><div class="l">Modulith modules</div></div>
+        <div class="metric"><div class="n grad-text">0</div><div class="l">Cross-tenant trust</div></div>
+        <div class="metric"><div class="n grad-text">3</div><div class="l">Published SDKs</div></div>
+        <div class="metric"><div class="n grad-text">100%</div><div class="l">Test-mode isolated</div></div>
+      </div>
+    </div>
+
+    <div class="terminal" aria-hidden="false">
+      <div class="term-bar">
+        <span class="term-dot" style="background:#ff5f57"></span><span class="term-dot" style="background:#febc2e"></span><span class="term-dot" style="background:#28c840"></span>
+        <span class="term-title">~ first payment</span>
+      </div>
+      <div class="term-body mono">
+<span class="c-com"># 1 · mint a test key (never moves real money)</span><br/>
+<span class="prompt">$</span> curl -X POST <span class="c-str">.../v1/api-keys</span> \<br/>
+&nbsp;&nbsp;-d <span class="c-str">'{"role":"operator","live":false}'</span><br/>
+<span class="c-com">→ sk_test_… (shown once)</span><br/><br/>
+<span class="c-com"># 2 · charge with the Node SDK</span><br/>
+<span class="c-key">import</span> { <span class="c-fn">NexusPay</span> } <span class="c-key">from</span> <span class="c-str">'@nexus-pay/node'</span>;<br/>
+<span class="c-key">const</span> p = <span class="c-key">await</span> client.<span class="c-fn">createPayment</span>({<br/>
+&nbsp;&nbsp;amount: <span class="c-num">600</span>, currency: <span class="c-str">'USD'</span>, capture: <span class="c-num">true</span><br/>
+});<br/>
+<span class="c-com">// p.status, p.mode === 'test'</span><br/><br/>
+<span class="c-com"># 3 · receive a signed webhook</span><br/>
+<span class="c-fn">constructEvent</span>(raw, headers, whsec);<br/>
+<span class="c-com">// event.type === 'payment.succeeded'</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="wrap"><div class="divider"></div></div>
+
+<!-- ================= FEATURES ================= -->
+<section id="features">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow">Why NexusPay</span>
+      <h2>Everything a payments team needs — <span class="grad-text">hardened by default.</span></h2>
+      <p>Sixteen Spring-Modulith modules behind one clean API. Each capability is built money-safe first: idempotent, tenant-scoped, and observable.</p>
+    </div>
+    <div class="feat-grid">
+      <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="url(#lg)" stroke-width="2"><path d="M3 10h18M7 15h4M5 5h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"/></svg></div><h3>Full payment lifecycle</h3><p>Create, confirm, capture, cancel and retrieve payments with idempotent creates and a server-derived test/live mode.</p></div>
+      <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="url(#lg)" stroke-width="2"><path d="M9 7h6M9 12h6M9 17h6M5 5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2Z"/></svg></div><h3>Double-entry ledger</h3><p>Every money movement posts balanced journal entries. Queryable accounts and entries — reconciliation built in.</p></div>
+      <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="url(#lg)" stroke-width="2"><path d="M12 3l8 4v5c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V7l8-4Z"/><path d="M9 12l2 2 4-4"/></svg></div><h3>Test mode that is real</h3><p><code>sk_test_</code> keys route to an in-process mock with zero network I/O. A test key can never reach a real processor — enforced by an architecture test.</p></div>
+      <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="url(#lg)" stroke-width="2"><path d="M12 2a5 5 0 0 1 5 5v3h1a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h1V7a5 5 0 0 1 5-5Zm-3 8h6V7a3 3 0 0 0-6 0Z"/></svg></div><h3>Scoped, expiring API keys</h3><p>Per-key scopes (<code>payments:write</code>, <code>refunds:write</code>…) that narrow a role fail-closed, with expiry, last-used tracking and rotate-with-overlap.</p></div>
+      <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="url(#lg)" stroke-width="2"><path d="M4 7V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2M4 7h16M4 7v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7M9 12h6"/></svg></div><h3>Tenant isolation</h3><p>Zero controllers trust a client tenant header. Every by-id read and mutation resolves through the authenticated principal — no cross-tenant oracle.</p></div>
+      <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="url(#lg)" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div><h3>Signed, retried webhooks</h3><p>Canonical versioned events, HMAC-SHA256 signatures, exponential-backoff retries, a dead-letter queue, admin replay and secret rotation.</p></div>
+      <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="url(#lg)" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div><h3>Refunds &amp; maker-checker</h3><p>Within-threshold refunds are created directly; large refunds return a pending approval — execute-once and idempotent.</p></div>
+      <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="url(#lg)" stroke-width="2"><path d="M3 3v18h18M7 14l3-3 3 3 5-6"/></svg></div><h3>Fraud, sanctions &amp; disputes</h3><p>A fraud-rules engine + FRM, cross-border &amp; sanctions screening at the payment boundary, and a full dispute/chargeback lifecycle.</p></div>
+      <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="url(#lg)" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.2-8.6M21 4v5h-5"/></svg></div><h3>Subscription billing</h3><p>Multiple pricing models, smart-retry dunning, invoicing and proration — with durable test/live routing on every system thread.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= ARCHITECTURE ================= -->
+<section id="architecture" style="background:linear-gradient(180deg, transparent, rgba(99,102,241,.04), transparent)">
+  <div class="wrap">
+    <div class="sec-head reveal" style="margin-left:auto;margin-right:auto;text-align:center">
+      <span class="eyebrow" style="justify-content:center">How a payment flows</span>
+      <h2>One request in. <span class="grad-text">A signed, reconciled event out.</span></h2>
+      <p style="margin-left:auto;margin-right:auto">Your app talks to one API. NexusPay derives the mode from the key, routes test traffic to an in-process mock, posts to the ledger, and delivers a signed webhook you can verify offline.</p>
+    </div>
+    <div class="arch-frame reveal">
+      <svg viewBox="0 0 1180 470" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="NexusPay payment flow architecture">
+        <defs>
+          <linearGradient id="ag" x1="0" y1="0" x2="1180" y2="0"><stop stop-color="#6366f1"/><stop offset=".5" stop-color="#a855f7"/><stop offset="1" stop-color="#22d3ee"/></linearGradient>
+          <linearGradient id="ag2" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#a855f7"/><stop offset="1" stop-color="#22d3ee"/></linearGradient>
+          <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#7c8198"/></marker>
+          <style>
+            .nb{fill:#12152b;stroke:rgba(255,255,255,.14);stroke-width:1.5;rx:14}
+            .nt{fill:#eef1fb;font-family:Inter,sans-serif;font-weight:700;font-size:16px}
+            .ns{fill:#9aa6c0;font-family:Inter,sans-serif;font-size:12px}
+            .fl{stroke:#7c8198;stroke-width:2;fill:none;marker-end:url(#arr)}
+            .fld{stroke:#7c8198;stroke-width:2;fill:none;stroke-dasharray:5 5;marker-end:url(#arr)}
+            .tag{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600}
+          </style>
+        </defs>
+
+        <!-- merchant -->
+        <rect x="20" y="180" width="170" height="92" rx="14" fill="#12152b" stroke="rgba(255,255,255,.14)" stroke-width="1.5"/>
+        <text x="105" y="218" text-anchor="middle" class="nt">Your app</text>
+        <text x="105" y="240" text-anchor="middle" class="ns">+ @nexus-pay SDK</text>
+
+        <!-- API -->
+        <rect x="270" y="170" width="190" height="112" rx="14" fill="#12152b" stroke="url(#ag)" stroke-width="2"/>
+        <text x="365" y="206" text-anchor="middle" class="nt">NexusPay API</text>
+        <text x="365" y="228" text-anchor="middle" class="ns">scoped key · tenant</text>
+        <text x="365" y="246" text-anchor="middle" class="ns">derived from principal</text>
+
+        <!-- gate -->
+        <rect x="545" y="170" width="180" height="112" rx="14" fill="#12152b" stroke="rgba(255,255,255,.14)" stroke-width="1.5"/>
+        <text x="635" y="206" text-anchor="middle" class="nt">Gated gateway</text>
+        <text x="635" y="228" text-anchor="middle" class="ns">server-derived</text>
+        <text x="635" y="246" text-anchor="middle" class="ns">test / live mode</text>
+
+        <!-- mock -->
+        <rect x="810" y="92" width="170" height="80" rx="14" fill="#0e1f1a" stroke="rgba(52,211,153,.45)" stroke-width="1.5"/>
+        <text x="895" y="126" text-anchor="middle" class="nt" style="fill:#34d399">Mock gateway</text>
+        <text x="895" y="148" text-anchor="middle" class="ns">test · zero network I/O</text>
+
+        <!-- hyperswitch -->
+        <rect x="810" y="280" width="170" height="80" rx="14" fill="#211a0e" stroke="rgba(251,191,36,.45)" stroke-width="1.5"/>
+        <text x="895" y="314" text-anchor="middle" class="nt" style="fill:#fbbf24">HyperSwitch</text>
+        <text x="895" y="336" text-anchor="middle" class="ns">live · real PSP</text>
+
+        <!-- ledger + outbox -->
+        <rect x="545" y="330" width="180" height="64" rx="12" fill="#12152b" stroke="rgba(255,255,255,.14)" stroke-width="1.5"/>
+        <text x="635" y="358" text-anchor="middle" class="nt" style="font-size:14px">Double-entry ledger</text>
+        <text x="635" y="377" text-anchor="middle" class="ns">balanced journal posts</text>
+
+        <!-- webhooks -->
+        <rect x="1000" y="180" width="160" height="92" rx="14" fill="#12152b" stroke="url(#ag2)" stroke-width="2"/>
+        <text x="1080" y="212" text-anchor="middle" class="nt" style="font-size:15px">Signed webhook</text>
+        <text x="1080" y="233" text-anchor="middle" class="ns">HMAC · retried</text>
+        <text x="1080" y="251" text-anchor="middle" class="ns">DLQ · replay</text>
+
+        <!-- flows -->
+        <path class="fl" d="M192 226 H266"/>
+        <text x="228" y="216" text-anchor="middle" class="tag" fill="#9aa6c0">POST</text>
+        <path class="fl" d="M462 226 H541"/>
+        <path class="fl" d="M727 210 C 770 170, 775 150, 808 132"/>
+        <text x="772" y="150" text-anchor="middle" class="tag" fill="#34d399">test</text>
+        <path class="fl" d="M727 244 C 770 290, 775 300, 808 320"/>
+        <text x="772" y="312" text-anchor="middle" class="tag" fill="#fbbf24">live</text>
+        <path class="fld" d="M635 284 V 326"/>
+        <path class="fl" d="M982 132 C 1060 150, 1075 160, 1080 176"/>
+        <path class="fl" d="M982 320 C 1060 300, 1075 290, 1080 276"/>
+        <!-- webhook back to merchant -->
+        <path class="fld" d="M1000 256 C 700 440, 360 440, 105 276"/>
+        <text x="540" y="432" text-anchor="middle" class="tag" fill="#22d3ee">verify offline → credit the user</text>
+      </svg>
+      <div class="arch-legend">
+        <span><i style="background:#6366f1"></i>Request path</span>
+        <span><i style="background:#34d399"></i>Test (mock, no real money)</span>
+        <span><i style="background:#fbbf24"></i>Live (real PSP)</span>
+        <span><i style="background:#22d3ee"></i>Signed event back to you</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= QUICKSTART ================= -->
+<section id="quickstart">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow">Get started</span>
+      <h2>From zero to a verified payment, <span class="grad-text">test-safe.</span></h2>
+      <p>Spin up the lite stack, mint a test key, charge, and verify the webhook — none of it touches a real processor. Full guide in the <a href="https://github.com/pierce-lonergan/NexusPay/blob/main/docs/INTEGRATION.md" target="_blank" rel="noopener" style="color:var(--cyan)">Integration Guide</a>.</p>
+    </div>
+    <div class="qs">
+      <div class="tablist" role="tablist">
+        <button class="tab active" data-tab="0"><span class="step">1</span><span><b>Mint a test key</b><small>admin → /v1/api-keys</small></span></button>
+        <button class="tab" data-tab="1"><span class="step">2</span><span><b>Create a payment</b><small>@nexus-pay/node</small></span></button>
+        <button class="tab" data-tab="2"><span class="step">3</span><span><b>Verify a webhook</b><small>HMAC, raw body</small></span></button>
+        <button class="tab" data-tab="3"><span class="step">4</span><span><b>Run with Docker</b><small>no JDK/Gradle</small></span></button>
+      </div>
+
+      <div class="code">
+        <div class="code-bar"><span class="fname" id="fname">mint-key.sh</span><button class="copy" id="copybtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+
+        <pre class="panel" data-panel="0"><code><span class="c-com"># 1 · get an admin token from the dev realm</span>
+TOKEN=$(curl -s -X POST \
+  http://localhost:8180/realms/nexuspay/protocol/openid-connect/token \
+  -d grant_type=password -d client_id=nexuspay-api \
+  -d client_secret=nexuspay-api-secret \
+  -d username=admin@nexuspay.test -d password=test123 | jq -r .access_token)
+
+<span class="c-com"># 2 · mint a TEST (live:false) operator key — full key shown ONCE</span>
+curl -X POST http://localhost:8090/v1/api-keys \
+  -H <span class="c-str">"Authorization: Bearer $TOKEN"</span> \
+  -H <span class="c-str">"Content-Type: application/json"</span> \
+  -d <span class="c-str">'{"name":"my integration","role":"operator","live":false}'</span>
+<span class="c-com"># → response.key starts with sk_test_…  (store as NEXUSPAY_API_KEY)</span></code></pre>
+
+        <pre class="panel panel-hidden" data-panel="1"><code><span class="c-key">import</span> { <span class="c-fn">NexusPay</span> } <span class="c-key">from</span> <span class="c-str">'@nexus-pay/node'</span>;
+
+<span class="c-key">const</span> client = <span class="c-key">new</span> <span class="c-fn">NexusPay</span>({
+  apiKey: process.env.<span class="c-var">NEXUSPAY_API_KEY</span>, <span class="c-com">// sk_test_xxx</span>
+  baseUrl: <span class="c-str">'http://localhost:8090'</span>,
+});
+
+<span class="c-key">const</span> payment = <span class="c-key">await</span> client.<span class="c-fn">createPayment</span>(
+  {
+    amount: <span class="c-num">600</span>,
+    currency: <span class="c-str">'USD'</span>,
+    capture: <span class="c-num">true</span>,
+    metadata: { userId: <span class="c-str">'usr_xxx'</span>, packId: <span class="c-str">'starter'</span> },
+  },
+  { idempotencyKey: <span class="c-str">'order-1234'</span> },
+);
+<span class="c-com">// payment.id, payment.status, payment.mode === 'test'</span></code></pre>
+
+        <pre class="panel panel-hidden" data-panel="2"><code><span class="c-key">import</span> { <span class="c-fn">constructEvent</span> } <span class="c-key">from</span> <span class="c-str">'@nexus-pay/node'</span>;
+
+<span class="c-key">export async function</span> <span class="c-fn">POST</span>(req) {
+  <span class="c-key">const</span> rawBody = <span class="c-key">await</span> req.<span class="c-fn">text</span>(); <span class="c-com">// RAW — do not parse first</span>
+  <span class="c-key">let</span> event;
+  <span class="c-key">try</span> {
+    event = <span class="c-fn">constructEvent</span>(
+      rawBody,
+      req.headers,
+      process.env.<span class="c-var">NEXUSPAY_WEBHOOK_SECRET</span>, <span class="c-com">// whsec_xxx</span>
+      { createdToleranceSeconds: <span class="c-num">300</span> },
+    );
+  } <span class="c-key">catch</span> {
+    <span class="c-key">return new</span> <span class="c-fn">Response</span>(<span class="c-str">'invalid signature'</span>, { status: <span class="c-num">401</span> });
+  }
+  <span class="c-com">// event.type === 'payment.succeeded'</span>
+  <span class="c-com">// event.data.metadata === { userId, packId } — credit the right account</span>
+}</code></pre>
+
+        <pre class="panel panel-hidden" data-panel="3"><code><span class="c-com"># no local JDK or Gradle required — build + run the app image</span>
+docker build -t nexuspay-app .
+
+docker run --rm \
+  --network <span class="c-str">"$(basename "$PWD")_default"</span> \
+  -e SPRING_PROFILES_ACTIVE=local \
+  -e SPRING_CLOUD_VAULT_ENABLED=false \
+  -e KAFKA_BOOTSTRAP_SERVERS=kafka:9092 \
+  -e NEXUSPAY_DB_URL=jdbc:postgresql://nexuspay-pg:5432/nexuspay \
+  -p <span class="c-num">8090</span>:<span class="c-num">8090</span> \
+  nexuspay-app
+<span class="c-com"># a published image is pushed to ghcr.io/&lt;owner&gt;/nexuspay-app on an app-v* tag</span></code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= SECURITY ================= -->
+<section id="security" style="background:linear-gradient(180deg, transparent, rgba(52,211,153,.04), transparent)">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow" style="color:var(--emerald)">Security first</span>
+      <h2>Money-safe is the <span class="grad-text">default path</span>, not an option.</h2>
+      <p>Every control fails closed. The platform was hardened through repeated adversarial review — IDOR, PCI, SSRF, money-duplication and authorization-bypass classes were each chased to zero.</p>
+    </div>
+    <div class="sec-grid">
+      <div class="sec-card reveal"><div class="shield"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 3l8 4v5c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V7l8-4Z"/></svg></div><div><h3>Tenant isolation, no oracle</h3><p>Tenant comes from the authenticated principal — never a client header. By-id reads and mutations 404 on a wrong-tenant id, leaking no existence signal.</p></div></div>
+      <div class="sec-card reveal"><div class="shield"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 2a5 5 0 0 1 5 5v3h1a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h1V7a5 5 0 0 1 5-5Z"/></svg></div><div><h3>Fail-closed scoped keys</h3><p>Per-key scopes narrow a role with AND-composition; a missing scope is a hard 403. Keys expire, track last use, and rotate with an overlap window that never extends a key's life.</p></div></div>
+      <div class="sec-card reveal"><div class="shield"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div><div><h3>PCI-aware card handling</h3><p>Card data is encrypted at rest with AES-256-GCM behind a master key — never base64, never plaintext. Raw PAN never persists.</p></div></div>
+      <div class="sec-card reveal"><div class="shield"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M2 12h20M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg></div><div><h3>SSRF-pinned webhooks</h3><p>Outbound delivery resolves and pins the IP, refuses redirects and private ranges, and validates at registration and delivery. HMAC-SHA256 signed; verifiable offline.</p></div></div>
+      <div class="sec-card reveal"><div class="shield"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg></div><div><h3>Idempotent money moves</h3><p>Capture, void and refund take an idempotency key; webhooks dedupe before commit; the ledger never double-posts and payouts never double-pay.</p></div></div>
+      <div class="sec-card reveal"><div class="shield"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></svg></div><div><h3>Maker-checker on big refunds</h3><p>Refunds above a threshold require approval and execute exactly once — across every path, including the off-request settlement route.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= SDKs ================= -->
+<section id="sdks">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow">Client SDKs</span>
+      <h2>Typed SDKs, <span class="grad-text">live on npm.</span></h2>
+      <p>MIT-licensed, published from CI with Sigstore provenance. camelCase in, snake_case on the wire — automatically.</p>
+    </div>
+    <div class="sdk-grid">
+      <a class="sdk reveal" href="https://www.npmjs.com/package/@nexus-pay/node" target="_blank" rel="noopener"><div><span class="pkg grad-text">@nexus-pay/node</span><span class="ver">0.1.1</span></div><p>Server SDK: payments, refunds, sessions, typed errors, retries, and offline webhook verification.</p><div class="inst">npm i @nexus-pay/node <span style="color:var(--faint)">↗</span></div></a>
+      <a class="sdk reveal" href="https://www.npmjs.com/package/@nexus-pay/js" target="_blank" rel="noopener"><div><span class="pkg grad-text">@nexus-pay/js</span><span class="ver">0.1.1</span></div><p>Browser SDK: mount hosted checkout from a payment-session <code>client_secret</code>, themeable elements.</p><div class="inst">npm i @nexus-pay/js <span style="color:var(--faint)">↗</span></div></a>
+      <a class="sdk reveal" href="https://www.npmjs.com/package/@nexus-pay/react" target="_blank" rel="noopener"><div><span class="pkg grad-text">@nexus-pay/react</span><span class="ver">0.1.1</span></div><p>React bindings: hooks and components over the browser SDK for drop-in checkout.</p><div class="inst">npm i @nexus-pay/react <span style="color:var(--faint)">↗</span></div></a>
+    </div>
+  </div>
+</section>
+
+<!-- ================= CONTRIBUTE ================= -->
+<section id="contribute" style="background:linear-gradient(180deg, transparent, rgba(99,102,241,.05), transparent)">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow">Contribute</span>
+      <h2>Built in the open, <span class="grad-text">reviewed adversarially.</span></h2>
+      <p>Contributions are welcome. Every change ships through CI — and money-touching changes get an adversarial security review. Start with the <a href="https://github.com/pierce-lonergan/NexusPay/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener" style="color:var(--cyan)">contributing guide</a>.</p>
+    </div>
+    <div class="steps">
+      <div class="stepc reveal"><div class="num">01</div><h3>Fork &amp; branch</h3><p>Fork the repo and branch from <code>main</code>. Run the lite stack locally (no real money moves in test mode).</p></div>
+      <div class="stepc reveal"><div class="num">02</div><h3>Build with tests</h3><p>Add tests with your change — fail-closed first. The ratchet enforces a rising test floor and coverage.</p></div>
+      <div class="stepc reveal"><div class="num">03</div><h3>Open a PR</h3><p>CI runs build, tests, secret/dependency/SAST scans and a red-team simulation. Keep the diff focused.</p></div>
+      <div class="stepc reveal"><div class="num">04</div><h3>Pass the gates</h3><p>A green PR + (for money paths) an adversarial review gets merged. Decisions are recorded as ADRs.</p></div>
+    </div>
+    <div class="gates reveal">
+      <span class="gate"><span class="ck">✓</span> build &amp; test</span>
+      <span class="gate"><span class="ck">✓</span> coverage + test-count ratchet</span>
+      <span class="gate"><span class="ck">✓</span> secret scan</span>
+      <span class="gate"><span class="ck">✓</span> dependency scan</span>
+      <span class="gate"><span class="ck">✓</span> SAST (semgrep)</span>
+      <span class="gate"><span class="ck">✓</span> red-team simulation</span>
+    </div>
+  </div>
+</section>
+
+<!-- ================= CONTACT ================= -->
+<section id="contact">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow">Get in touch</span>
+      <h2>Questions, ideas, <span class="grad-text">or a commercial license?</span></h2>
+      <p>NexusPay is built and maintained by Pierce Lonergan. Reach out through any of these — issues and discussions are the fastest.</p>
+    </div>
+    <div class="contact-grid">
+      <a class="contact reveal" href="https://github.com/pierce-lonergan/NexusPay/issues" target="_blank" rel="noopener">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="url(#lg)" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg></div>
+        <h3>Open an issue</h3><p>Report a bug, request a feature, or ask an integration question on GitHub.</p>
+        <span class="go">github.com/pierce-lonergan/NexusPay/issues →</span>
+      </a>
+      <a class="contact reveal" href="https://github.com/pierce-lonergan" target="_blank" rel="noopener">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5A11.5 11.5 0 0 0 .5 12a11.5 11.5 0 0 0 7.86 10.92c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.34-1.3-1.7-1.3-1.7-1.06-.72.08-.71.08-.71 1.17.08 1.79 1.2 1.79 1.2 1.04 1.78 2.73 1.27 3.4.97.1-.75.4-1.27.74-1.56-2.56-.29-5.26-1.28-5.26-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.24 2.76.12 3.05.74.81 1.19 1.84 1.19 3.1 0 4.43-2.7 5.4-5.28 5.69.42.36.79 1.07.79 2.16v3.2c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12 11.5 11.5 0 0 0 12 .5Z"/></svg></div>
+        <h3>Follow the project</h3><p>Star and watch the repo, or follow @pierce-lonergan for releases and updates.</p>
+        <span class="go">@pierce-lonergan →</span>
+      </a>
+      <a class="contact reveal" href="mailto:lonerganpierce@gmail.com?subject=NexusPay">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="url(#lg)" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg></div>
+        <h3>Email</h3><p>For commercial-license inquiries (PolyForm-NC) or anything not suited to a public issue.</p>
+        <span class="go">lonerganpierce@gmail.com →</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ================= CTA BAND ================= -->
+<section style="padding-top:0">
+  <div class="wrap">
+    <div class="cta-band reveal">
+      <h2>Ship your first <span class="grad-text">test-safe payment</span> today.</h2>
+      <p>Clone the repo, run the lite stack, and charge in minutes — without touching a real processor.</p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="https://github.com/pierce-lonergan/NexusPay" target="_blank" rel="noopener">Clone NexusPay</a>
+        <a class="btn btn-ghost" href="https://github.com/pierce-lonergan/NexusPay/blob/main/docs/INTEGRATION.md" target="_blank" rel="noopener">Read the integration guide</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= FOOTER ================= -->
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div>
+        <a class="brand" href="#top" style="margin-bottom:14px">
+          <svg class="logo" viewBox="0 0 40 40" fill="none" aria-hidden="true"><rect x="2" y="2" width="36" height="36" rx="11" fill="url(#lg)" opacity=".18"/><rect x="2.5" y="2.5" width="35" height="35" rx="10.5" stroke="url(#lg)" stroke-width="1.5"/><path d="M12 27V13l16 14V13" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          NexusPay
+        </a>
+        <p style="color:var(--faint);font-size:14px;max-width:300px">CFO-ready payment orchestration on HyperSwitch. Source-available, test-mode first.</p>
+      </div>
+      <div>
+        <h4>Product</h4>
+        <a href="#features">Features</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#security">Security</a>
+        <a href="#sdks">SDKs</a>
+      </div>
+      <div>
+        <h4>Docs</h4>
+        <a href="https://github.com/pierce-lonergan/NexusPay/blob/main/docs/INTEGRATION.md" target="_blank" rel="noopener">Integration guide</a>
+        <a href="https://github.com/pierce-lonergan/NexusPay/blob/main/docs/WEBHOOKS.md" target="_blank" rel="noopener">Webhooks</a>
+        <a href="https://github.com/pierce-lonergan/NexusPay/blob/main/docs/LOCAL_DEV.md" target="_blank" rel="noopener">Local dev</a>
+        <a href="api/openapi.html">API reference</a>
+      </div>
+      <div>
+        <h4>Project</h4>
+        <a href="https://github.com/pierce-lonergan/NexusPay" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/pierce-lonergan/NexusPay/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a>
+        <a href="#contact">Contact</a>
+        <a href="https://github.com/sponsors/pierce-lonergan" target="_blank" rel="noopener">Sponsor</a>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>© 2026 Pierce Lonergan · Platform under PolyForm Noncommercial 1.0.0 · Client SDKs MIT</span>
+      <span>Built on <a href="https://github.com/juspay/hyperswitch" target="_blank" rel="noopener" style="color:var(--muted)">HyperSwitch</a></span>
+    </div>
+  </div>
+</footer>
+
+<!-- hidden defs so url(#lg) resolves for inline icons -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#6366f1"/><stop offset=".5" stop-color="#a855f7"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs></svg>
+
+<script>
+  // mobile nav
+  var t = document.getElementById('navtoggle'), nl = document.getElementById('navlinks');
+  t && t.addEventListener('click', function () { nl.classList.toggle('open'); });
+  nl && nl.querySelectorAll('a').forEach(function (a) { a.addEventListener('click', function () { nl.classList.remove('open'); }); });
+
+  // quickstart tabs
+  var fnames = ['mint-key.sh', 'create-payment.ts', 'verify-webhook.ts', 'run-docker.sh'];
+  var tabs = document.querySelectorAll('.tab'), panels = document.querySelectorAll('.panel');
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      var i = +tab.dataset.tab;
+      tabs.forEach(function (x) { x.classList.remove('active'); });
+      tab.classList.add('active');
+      panels.forEach(function (p) { p.classList.toggle('panel-hidden', +p.dataset.panel !== i); });
+      document.getElementById('fname').textContent = fnames[i];
+    });
+  });
+
+  // copy
+  document.getElementById('copybtn').addEventListener('click', function () {
+    var active = document.querySelector('.panel:not(.panel-hidden) code');
+    if (!active) return;
+    navigator.clipboard.writeText(active.innerText).then(function () {
+      var b = document.getElementById('copybtn'); var html = b.innerHTML;
+      b.innerHTML = '✓ Copied'; setTimeout(function () { b.innerHTML = html; }, 1400);
+    });
+  });
+
+  // scroll reveal
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+  }, { threshold: 0.12 });
+  document.querySelectorAll('.reveal').forEach(function (el) { io.observe(el); });
+</script>
+</body>
+</html>
