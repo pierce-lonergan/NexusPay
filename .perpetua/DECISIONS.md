@@ -1219,3 +1219,37 @@ dispute module has no :payment dependency and adding one to verify a test-only c
 forbidden Modulith boundary violation; the reviewer confirmed no actual tenant breach (dispute under caller
 tenant, events fan out to caller only, no oracle). L-070. (b) EVIDENCE_SUBMITTED was silent -> added
 dispute.evidence_submitted end-to-end. No migration (event_outbox exists). CI is the oracle. L-070. ADR-055.
+
+## ADR-056 | 2026-06-27 | TEST-3a: Customer resource anchor + shared MetadataSanitizer (critique v3 B1) (T3)
+STATUS: Accepted (T3 — new money-adjacent resource + migration; lands via PR). Critique v3 root cause B: whole
+capability classes (customer/saved-method/off-session/mandate) have no integrator-facing primitive. TEST-3a
+builds the CUSTOMER anchor of that cluster; 3b (saved method)/3c (off-session)/3d (mandate) build on it.
+PLACEMENT: the FULL vertical slice lives in payment-orchestration (io.nexuspay.payment), module-local
+controller exactly as dispute/billing host their own — so the whole B1-B5 cluster (off-session charge mutates
+HsPaymentCreateRequest here too) stays cohesive with ZERO new Spring-Modulith edges. billing already references
+a customerId as an opaque String; nothing imports a Customer type cross-module. A new `customer` module was
+rejected (heavier: billing->customer + payment->customer edges for a payments-core entity Stripe models as core).
+DECISION (Blueprint -> Implement -> 5 adversarial lenses -> Fix workflow):
+ - Resource: Customer entity (cus_ id via new PrefixedId.CUSTOMER) + JPA entity (metadata jsonb via
+   @JdbcTypeCode(SqlTypes.JSON)) + repo + CustomerService + CustomerController(/v1/customers) CRUD; migration
+   V4038 (global Flyway max was V4037; out-of-order disabled) with a DORMANT RLS policy mirroring V4030.
+ - SECURITY (the non-negotiables, all verified): tenant ALWAYS from CallerTenant.require() (never a header/body;
+   request DTOs carry no tenant field); every by-id read/mutate via findByIdAndTenantId -> 404 no-oracle
+   (retrieve .orElse(notFound); update/delete via TenantOwnership.require); NO unscoped finder exposed; each
+   route @PreAuthorize AND-composes role with @scopeAuth.has('customers:read'|'customers:write') (new ApiScope
+   constants; VALID auto-derives; fail-closed). livemode is SERVER-derived from CallerMode.isLive() (test key ->
+   false, live key -> true), never client-set, not mutable. Reads are tenant-scoped (not mode-isolated) to MATCH
+   the platform convention (dispute/RoutingConfig are tenant-only; livemode is a display/routing flag platform-
+   wide, not a read boundary) — full mode-isolation would be a separate cross-cutting decision, not a Customer-
+   only retrofit. DELETE is a SOFT delete (deleted_at), excluded from retrieve+list.
+ - REVIEW FIX (2 SHOULD_FIX): (a) a soft-delete invisibility test was name-pinned only -> added a behavioral
+   test proving the row disappears from retrieve AND list post-delete. (b) MONEY/PII: customer metadata was
+   persisted verbatim with no PAN/reserved-key strip -> extracted the WebhookMetadataService strip into a SHARED
+   io.nexuspay.common.metadata.MetadataSanitizer (OPEN common module, no new edge) and route customer create AND
+   update metadata through it; the shared rule is STRENGTHENED to drop ANY __-prefixed server-reserved key (was
+   exact-match __livemode/__test_outcome) so no future control key can be smuggled into either surface. The
+   refactor is behavior-preserving for the webhook path (record() still re-stamps __livemode after sanitize; its
+   tests untouched). L-071-class test traps (bare-ObjectMapper-on-Instant; hardcoded server-gen id) pre-empted in
+   the test prompts. SDK node `customers` resource + OpenAPI added (no SDK version bump — that is TEST-5).
+CONSEQUENCES: the saved-credential cluster has its anchor; 3b attaches pm_ payment methods to a cus_. CI is the
+oracle (Gradle can't run locally). ratchet 1200/40 unchanged (count well above). Flyway global max now V4038.

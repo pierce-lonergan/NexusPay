@@ -192,6 +192,50 @@ export interface SimulateDisputeParams {
   reason?: string;
 }
 
+// ---- customer (TEST-3a) ----
+
+/**
+ * A server-side Customer as returned by `POST /v1/customers`, `GET /v1/customers`,
+ * `GET /v1/customers/{id}`, and `POST /v1/customers/{id}`. The wire body uses these exact keys;
+ * `created` is epoch seconds. The tenant is NEVER present in the body.
+ */
+export interface Customer {
+  id: string;
+  object: 'customer';
+  livemode: boolean;
+  email?: string;
+  name?: string;
+  description?: string;
+  metadata?: Metadata;
+  created: number;
+}
+
+export interface CustomerCreateParams {
+  email?: string;
+  name?: string;
+  description?: string;
+  metadata?: Metadata;
+}
+
+export interface CustomerUpdateParams {
+  email?: string;
+  name?: string;
+  description?: string;
+  metadata?: Metadata;
+}
+
+export interface ListCustomersParams {
+  limit?: number;
+  offset?: number;
+}
+
+/** Body returned by `DELETE /v1/customers/{id}` (soft delete). */
+export interface DeletedCustomer {
+  id: string;
+  object: 'customer';
+  deleted: true;
+}
+
 // ---- per-call options ----
 export interface RequestOptions {
   idempotencyKey?: string;

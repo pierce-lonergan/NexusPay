@@ -37,7 +37,9 @@ public enum ApiScope {
     VAULT_READ("vault:read"),
     VAULT_WRITE("vault:write"),
     DISPUTES_READ("disputes:read"),
-    DISPUTES_WRITE("disputes:write");
+    DISPUTES_WRITE("disputes:write"),
+    CUSTOMERS_READ("customers:read"),
+    CUSTOMERS_WRITE("customers:write");
 
     private final String value;
 

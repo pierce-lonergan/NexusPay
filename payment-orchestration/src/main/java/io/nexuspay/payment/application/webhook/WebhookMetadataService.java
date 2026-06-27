@@ -3,6 +3,7 @@ package io.nexuspay.payment.application.webhook;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
+import io.nexuspay.common.metadata.MetadataSanitizer;
 import io.nexuspay.payment.adapter.out.persistence.PaymentWebhookMetadataEntity;
 import io.nexuspay.payment.adapter.out.persistence.PaymentWebhookMetadataRepository;
 import org.slf4j.Logger;
@@ -12,9 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * INT-1: records (at payment-create) and recalls (at webhook delivery) the server-owned merchant
@@ -32,8 +31,9 @@ import java.util.Set;
  *
  * <p>Guardrails (security invariants):
  * <ul>
- *   <li>PAN/card NEVER stored — {@link #sanitize(Map)} drops any {@link #FORBIDDEN} key at any depth.</li>
- *   <li>Size cap {@link #MAX_BYTES} (serialized) and key cap {@link #MAX_KEYS}; over-cap → store {@code {}}.</li>
+ *   <li>PAN/card NEVER stored — {@link MetadataSanitizer#sanitize(Map)} drops any forbidden key at any depth.</li>
+ *   <li>Size cap {@link #MAX_BYTES} (serialized) and key cap {@link MetadataSanitizer#MAX_KEYS};
+ *       over-cap → store {@code {}}.</li>
  *   <li>The metadata contents are NEVER logged.</li>
  *   <li>The tenant stored is the server-derived trusted tenant (the {@code CallContext}), never a client echo.</li>
  * </ul></p>
@@ -44,14 +44,12 @@ public class WebhookMetadataService implements WebhookMetadataPort {
     private static final Logger log = LoggerFactory.getLogger(WebhookMetadataService.class);
 
     /** Serialized size cap (bytes/chars) — over-cap maps are stored as {@code {}} + warn. */
-    static final int MAX_BYTES = 4096;
-    /** Top-level key cap — over-cap maps are stored as {@code {}} + warn. */
-    static final int MAX_KEYS = 50;
+    static final int MAX_BYTES = MetadataSanitizer.MAX_BYTES;
 
     /**
      * INT-3: reserved, SERVER-ONLY key holding the payment's key mode for the delivered webhook's
-     * top-level {@code livemode}. A client can never set it: {@link #sanitize(Map)} strips ANY
-     * client-supplied {@code __livemode} (the {@code __} prefix is server-reserved), and {@link
+     * top-level {@code livemode}. A client can never set it: {@link MetadataSanitizer#sanitize(Map)} strips
+     * ANY client-supplied {@code __}-prefixed key (the prefix is server-reserved), and {@link
      * #record(String, String, Map, boolean)} stamps the true, server-derived value back in AFTER
      * sanitize. {@code WebhookEnvelopeSerializer} lifts it to the top-level {@code livemode} and removes
      * it from the delivered {@code data.metadata}.
@@ -62,25 +60,11 @@ public class WebhookMetadataService implements WebhookMetadataPort {
      * TEST-1: the reserved, SERVER-CONTROL key an integrator sets on a TEST-mode create to force a
      * deterministic outcome (decline/insufficient_funds/expired_card). Like {@link #LIVEMODE_KEY} it is a
      * server-reserved control key ({@code __} prefix) and must NEVER reach the delivered
-     * {@code data.metadata}; {@link #sanitize(Map)} strips it. Unlike {@code __livemode} it is never
-     * re-stamped — it is purely a control input. Must match
+     * {@code data.metadata}; {@link MetadataSanitizer#sanitize(Map)} strips it via the {@code __} prefix
+     * rule. Unlike {@code __livemode} it is never re-stamped — it is purely a control input. Must match
      * {@code MockPaymentGatewayPort.TEST_OUTCOME_KEY}.
      */
     static final String TEST_OUTCOME_KEY = "__test_outcome";
-
-    /**
-     * Keys that must NEVER be persisted (PAN/card material) plus the authority markers the gate owns
-     * (so a client-echoed {@code source}/{@code workflow}/{@code tenant_id} is not stored as a
-     * correlation key). Matched case-insensitively at any nesting depth.
-     */
-    private static final Set<String> FORBIDDEN = Set.of(
-            "payment_method_data", "card", "number", "cvc", "cvv", "pan", "payment_method",
-            "source", "workflow", "tenant_id",
-            // INT-3: the reserved server-only mode key — a client-echoed __livemode must NEVER survive to
-            // the stored map; record(...) re-stamps the true server-derived value after sanitize().
-            LIVEMODE_KEY,
-            // TEST-1: the reserved test-outcome control key must never leak into the delivered metadata.
-            TEST_OUTCOME_KEY);
 
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
@@ -109,8 +93,9 @@ public class WebhookMetadataService implements WebhookMetadataPort {
      * stamped from {@code live}. A no-op when the id is blank or a row already exists (create retried
      * under idempotency). NEVER throws — a persist failure is swallowed (delivery sends {@code {}}).
      *
-     * <p>The {@code __livemode} value is server-set, not client-set: {@link #sanitize(Map)} strips any
-     * client-supplied {@code __livemode} (it is in {@link #FORBIDDEN}), then we re-stamp the true value
+     * <p>The {@code __livemode} value is server-set, not client-set: {@link MetadataSanitizer#sanitize(Map)}
+     * strips any client-supplied {@code __livemode} (the {@code __} prefix is server-reserved), then we
+     * re-stamp the true value
      * here. It is stamped even when the correlation map was dropped to {@code {}} for being over-cap, so
      * the delivered envelope's {@code livemode} is always server-sourced.</p>
      */
@@ -124,7 +109,7 @@ public class WebhookMetadataService implements WebhookMetadataPort {
             if (repository.existsById(gatewayPaymentId)) {
                 return; // create is retried (idempotency) — keep the original metadata
             }
-            Map<String, Object> safe = sanitize(merchantMetadata); // any client __livemode already dropped
+            Map<String, Object> safe = MetadataSanitizer.sanitize(merchantMetadata); // any client __livemode already dropped
             if (objectMapper.writeValueAsString(safe).length() > MAX_BYTES) {
                 // Over the serialized cap — drop the correlation map rather than store an oversized blob.
                 // Do NOT log the contents (only the id + the fact it was over-cap).
@@ -185,54 +170,6 @@ public class WebhookMetadataService implements WebhookMetadataPort {
         log.warn("Webhook metadata for {} is owned by a different tenant than the delivery tenant {} — "
                 + "omitting enrichment (sending empty metadata)", entity.getGatewayPaymentId(), tenant);
         return false;
-    }
-
-    /**
-     * Returns a copy of {@code metadata} with every {@link #FORBIDDEN} key removed (case-insensitive) at
-     * ANY nesting depth, and capped at {@link #MAX_KEYS} top-level keys. {@code null} → empty map. The
-     * recursion strips forbidden subtrees inside nested maps/lists too (belt-and-suspenders PAN guard).
-     */
-    @SuppressWarnings("unchecked")
-    static Map<String, Object> sanitize(Map<String, Object> metadata) {
-        if (metadata == null || metadata.isEmpty()) {
-            return Map.of();
-        }
-        if (metadata.size() > MAX_KEYS) {
-            // Too many keys — store nothing rather than a partial/truncated map.
-            return Map.of();
-        }
-        Map<String, Object> out = new LinkedHashMap<>();
-        for (Map.Entry<String, Object> e : metadata.entrySet()) {
-            String key = e.getKey();
-            if (key == null || FORBIDDEN.contains(key.toLowerCase(Locale.ROOT))) {
-                continue;
-            }
-            out.put(key, scrubValue(e.getValue()));
-        }
-        return out;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Object scrubValue(Object value) {
-        if (value instanceof Map<?, ?> nested) {
-            Map<String, Object> cleaned = new LinkedHashMap<>();
-            for (Map.Entry<?, ?> e : nested.entrySet()) {
-                Object k = e.getKey();
-                if (k != null && FORBIDDEN.contains(k.toString().toLowerCase(Locale.ROOT))) {
-                    continue;
-                }
-                cleaned.put(String.valueOf(k), scrubValue(e.getValue()));
-            }
-            return cleaned;
-        }
-        if (value instanceof Iterable<?> list) {
-            java.util.List<Object> cleaned = new java.util.ArrayList<>();
-            for (Object item : list) {
-                cleaned.add(scrubValue(item));
-            }
-            return cleaned;
-        }
-        return value;
     }
 
     private Map<String, Object> parse(String json) {

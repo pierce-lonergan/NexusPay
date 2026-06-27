@@ -20,8 +20,13 @@ import type {
   CreatePaymentSessionParams,
   CreateRefundParams,
   CreateRefundResult,
+  Customer,
+  CustomerCreateParams,
+  CustomerUpdateParams,
+  DeletedCustomer,
   Dispute,
   DisputeEvent,
+  ListCustomersParams,
   ListDisputesParams,
   Payment,
   PaymentSession,
@@ -298,6 +303,72 @@ export class NexusPay {
       reason: params.reason,
     });
     return this.request<Dispute>('POST', '/v1/test/disputes', body, opts);
+  }
+
+  // ---- customers (TEST-3a) ----
+
+  /**
+   * Creates a customer (`POST /v1/customers`). Requires the `customers:write` scope. `livemode` is
+   * server-derived from the key mode (test key -> false, live key -> true) — never client-supplied.
+   * The tenant is derived from the authenticated key server-side, never a client header.
+   */
+  createCustomer(params: CustomerCreateParams, opts?: RequestOptions): Promise<Customer> {
+    const body = compact({
+      email: params.email,
+      name: params.name,
+      description: params.description,
+      metadata: params.metadata,
+    });
+    return this.request<Customer>('POST', '/v1/customers', body, opts);
+  }
+
+  /** Retrieves one customer by id (`GET /v1/customers/{id}`). Requires `customers:read`. */
+  getCustomer(id: string, opts?: RequestOptions): Promise<Customer> {
+    return this.request<Customer>('GET', `/v1/customers/${encodeURIComponent(id)}`, undefined, opts);
+  }
+
+  /**
+   * Lists the caller tenant's customers (`GET /v1/customers`). Requires `customers:read`. Results are
+   * scoped to the authenticated key's tenant server-side — never a client header.
+   */
+  listCustomers(params?: ListCustomersParams, opts?: RequestOptions): Promise<Customer[]> {
+    const search = new URLSearchParams();
+    if (params?.limit !== undefined) search.set('limit', String(params.limit));
+    if (params?.offset !== undefined) search.set('offset', String(params.offset));
+    const qs = search.toString();
+    const path = qs ? `/v1/customers?${qs}` : '/v1/customers';
+    return this.request<Customer[]>('GET', path, undefined, opts);
+  }
+
+  /**
+   * Updates a customer's mutable fields (`POST /v1/customers/{id}`). Requires `customers:write`.
+   * `livemode` is immutable. A foreign-tenant id returns 404 (no existence oracle).
+   */
+  updateCustomer(
+    id: string,
+    params: CustomerUpdateParams,
+    opts?: RequestOptions,
+  ): Promise<Customer> {
+    const body = compact({
+      email: params.email,
+      name: params.name,
+      description: params.description,
+      metadata: params.metadata,
+    });
+    return this.request<Customer>('POST', `/v1/customers/${encodeURIComponent(id)}`, body, opts);
+  }
+
+  /**
+   * Soft-deletes a customer (`DELETE /v1/customers/{id}`). Requires `customers:write`. Returns
+   * `{ id, object: 'customer', deleted: true }`. A foreign-tenant id returns 404 (no oracle).
+   */
+  deleteCustomer(id: string, opts?: RequestOptions): Promise<DeletedCustomer> {
+    return this.request<DeletedCustomer>(
+      'DELETE',
+      `/v1/customers/${encodeURIComponent(id)}`,
+      undefined,
+      opts,
+    );
   }
 
   private async request<T>(
