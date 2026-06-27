@@ -1,6 +1,5 @@
 package io.nexuspay.payment.adapter.in.rest;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.nexuspay.common.exception.InvalidRequestException;
 import io.nexuspay.common.tenant.CallerMode;
@@ -36,12 +35,13 @@ import java.util.Set;
  *
  * <h3>PCI (SEC-BATCH-3) — the load-bearing constraint</h3>
  * <p>{@link AttachPaymentMethodRequest} declares NO {@code number}/{@code cvc}/{@code pan}/{@code card}
- * field AND is annotated {@code @JsonIgnoreProperties(ignoreUnknown = false)}, so ANY unrecognized
- * top-level JSON key (the realistic raw-card smuggle: {@code number}/{@code cvc}/{@code pan}/{@code card},
- * or a card number hidden under any innocuous key) fails at BINDING — a 400, not a silently dropped field
- * (Spring's default {@code FAIL_ON_UNKNOWN_PROPERTIES=false} would otherwise ignore it). The metadata-key
- * PAN guard ({@link #rejectIfPanLike}) is retained as belt-and-suspenders. The response body NEVER exposes
- * the tenant or the credential_ref.</p>
+ * field, so an undeclared top-level raw-card key is DROPPED by Jackson's tolerant binding — it never binds
+ * to a component, so it can never reach the service nor be persisted (the at-rest guarantee holds BY
+ * CONSTRUCTION; a card number can only persist if it lands in a declared field or in {@code metadata}).
+ * Those two reachable vectors are fail-closed with a 400: a card number in a DECLARED field
+ * ({@code credential_ref}/{@code brand}/{@code funding}/{@code last4}) is rejected by
+ * {@code PaymentMethodService.rejectPanShape}/last4 validation, and a PAN-like KEY in {@code metadata} by
+ * {@link #rejectIfPanLike}. The response body NEVER exposes the tenant or the credential_ref.</p>
  *
  * @since TEST-3b
  */
@@ -80,7 +80,8 @@ public class PaymentMethodController {
 
         // PCI: reject a raw-PAN-like metadata key BEFORE touching the service (belt-and-suspenders with the
         // MetadataSanitizer strip on the metadata map). An UNKNOWN top-level field (number/cvc/pan/card) is
-        // already rejected earlier at JSON binding by @JsonIgnoreProperties(ignoreUnknown = false).
+        // dropped by Jackson (tolerant binding) so it never binds, never reaches the service, and is never
+        // persisted; a PAN in a DECLARED field is rejected 400 by PaymentMethodService.rejectPanShape.
         rejectIfPanLike(body);
 
         // SEC-26: tenant from the authenticated principal, never a client header/body.
@@ -140,12 +141,12 @@ public class PaymentMethodController {
     // ---- PCI guard ----
 
     /**
-     * PCI (SEC-BATCH-3): belt-and-suspenders metadata-key guard. The realistic raw-card smuggle — an
-     * UNDECLARED top-level field ({@code number}/{@code cvc}/{@code pan}/{@code card}, or a card number under
-     * any innocuous key) — is already rejected at JSON BINDING by
-     * {@code @JsonIgnoreProperties(ignoreUnknown = false)} on {@link AttachPaymentMethodRequest} (a 400, not
-     * a silently dropped field). This method additionally rejects a PAN-LIKE KEY (number/cvc/…) nested in the
-     * typed {@code metadata} map. The metadata map is scanned by KEY only (a legitimate metadata VALUE may
+     * PCI (SEC-BATCH-3): metadata-key guard. An UNDECLARED top-level field ({@code number}/{@code cvc}/
+     * {@code pan}/{@code card}) is dropped by Jackson's tolerant binding — it never binds to a component, so
+     * it can never reach the service or be persisted (the at-rest guarantee holds by construction). This
+     * method rejects (400) a PAN-LIKE KEY (number/cvc/…) nested in the typed {@code metadata} map — the one
+     * undeclared-key vector that WOULD otherwise persist (metadata is stored). A card number in a DECLARED
+     * field is caught separately by {@code PaymentMethodService.rejectPanShape}/last4 validation. The metadata map is scanned by KEY only (a legitimate metadata VALUE may
      * legitimately be a long numeric string such as an order id; {@link io.nexuspay.common.metadata.MetadataSanitizer}
      * owns metadata value hygiene at the service layer).
      */
@@ -211,15 +212,17 @@ public class PaymentMethodController {
      * {@code exp_month}/{@code exp_year}. Without this the keys would deserialize to null and EVERY real
      * integrator request would 400 {@code missing_credential}.</p>
      *
-     * <p>PCI (SEC-BATCH-3): {@code @JsonIgnoreProperties(ignoreUnknown = false)} makes Jackson FAIL on any
-     * UNDECLARED top-level JSON key (e.g. a smuggled {@code number}/{@code cvc}/{@code pan}/{@code card}, or a
-     * card number under any innocuous key) at binding time — an {@code HttpMessageNotReadableException} the
-     * platform maps to 400 — instead of letting Spring's default {@code FAIL_ON_UNKNOWN_PROPERTIES=false}
-     * silently drop it. This closes the "a body smuggling one is rejected" contract: a top-level raw-card
-     * field is a 400, never an ignored field. The metadata-key PAN guard ({@link #rejectIfPanLike}) is kept
-     * as belt-and-suspenders.</p>
+     * <p>PCI (SEC-BATCH-3): the record declares ONLY token + display fields, so an UNDECLARED top-level JSON
+     * key (a smuggled {@code number}/{@code cvc}/{@code pan}/{@code card}) is dropped by Jackson under
+     * Spring's default {@code FAIL_ON_UNKNOWN_PROPERTIES=false} and is therefore NEVER bound, NEVER reaches
+     * the service, and NEVER persisted — the at-rest PCI guarantee holds by construction (a class-level
+     * {@code @JsonIgnoreProperties(ignoreUnknown=false)} does NOT change this: it controls the ignore-SET,
+     * not the fail decision, which the global feature owns — so it would not produce a 400 and is omitted).
+     * The smuggle vectors that COULD otherwise persist a PAN are fail-closed with a 400: a card number in a
+     * DECLARED field ({@code credential_ref}/{@code brand}/{@code funding}/{@code last4}) is rejected by
+     * {@code PaymentMethodService.rejectPanShape}/last4 validation, and a PAN-like KEY in {@code metadata} by
+     * {@link #rejectIfPanLike}.</p>
      */
-    @JsonIgnoreProperties(ignoreUnknown = false)
     record AttachPaymentMethodRequest(
             String type,
             @JsonProperty("credential_ref") String credentialRef,
