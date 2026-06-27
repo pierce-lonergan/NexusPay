@@ -54,7 +54,14 @@ class DisputeLifecycleServiceOutboxTest {
         ledger = mock(LedgerPort.class);
         outbox = mock(DisputeOutboxPort.class);
         svc = new DisputeLifecycleService(disputeRepo, evidence, ledger, outbox);
-        when(disputeRepo.save(any())).thenAnswer(i -> i.getArgument(0));
+        // openDispute creates a fresh Dispute (Dispute.open -> a RANDOM dp_ id) and then uses the SAVED
+        // instance for publish + ledger. Stamp a deterministic id on save so the open-path assertions can
+        // pin "dp_1" (a no-op for the findById-loaded transitions, whose dispute already carries "dp_1").
+        when(disputeRepo.save(any())).thenAnswer(i -> {
+            Dispute d = i.getArgument(0);
+            d.setId("dp_1");
+            return d;
+        });
     }
 
     private Dispute loaded(DisputeState state) {
