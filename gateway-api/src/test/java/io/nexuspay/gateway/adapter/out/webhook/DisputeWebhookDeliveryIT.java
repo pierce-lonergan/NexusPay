@@ -58,7 +58,13 @@ class DisputeWebhookDeliveryIT {
 
     private JpaWebhookEndpointRepository endpointRepository;
     private TenantWorkRunner tenantWork;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    // findAndRegisterModules() registers JavaTimeModule (jsr310, transitive via spring-boot-starter-web)
+    // so disputeOutboxPayload() can serialize the EventEnvelope's Instant timestamp exactly as the
+    // production Spring ObjectMapper does. A bare new ObjectMapper() throws on Instant, which would fail
+    // every test at the payload-build step (before any delivery assertion). The serializer's delivered
+    // envelope carries `created` as an epoch long (no Instant), so registering the module does not change
+    // the delivered bytes or the HMAC.
+    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
     private HttpServer server;
     private final CopyOnWriteArrayList<Capture> captures = new CopyOnWriteArrayList<>();
 
