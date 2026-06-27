@@ -22,7 +22,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
@@ -150,16 +149,19 @@ class PaymentMethodControllerScopeEnforcementTest {
                 .andExpect(status().isCreated());
     }
 
-    // --- PCI (FINDING 5): a top-level raw-card field is rejected at binding (400), service never called ---
+    // --- PCI (FINDING 5): a top-level raw-card field is DROPPED at binding — never bound, never persisted ---
 
     @Test
-    void attachWithTopLevelCardField_rejectedAtBinding_400_serviceNeverCalled() throws Exception {
+    void attachWithTopLevelCardField_isDroppedNeverReachesService() throws Exception {
         // A careless integrator POSTs a known credential_ref PLUS a stray top-level "number" carrying a
-        // PAN-shaped value. @JsonIgnoreProperties(ignoreUnknown = false) on AttachPaymentMethodRequest makes
-        // Jackson FAIL on the unrecognized "number" key at binding (HttpMessageNotReadableException -> 400 via
-        // the platform's default resolver) instead of silently dropping it — so the field is REJECTED, not
-        // ignored, and the service is never reached. The PAN-shaped value is built in Java; no literal card
-        // number ever appears in the source.
+        // PAN-shaped value. The request record declares ONLY token + display fields, so under Spring's
+        // default tolerant binding the undeclared "number" is DROPPED by Jackson — it never binds to a
+        // component, so it can never reach the service nor be persisted (the at-rest PCI guarantee holds by
+        // construction). We PROVE that by capturing the attach call: credential_ref bound to the REAL value
+        // ("pm_card_visa"), and the PAN-shaped value appears in NONE of the bound arguments. (A card number
+        // in a DECLARED field is fail-closed 400 by PaymentMethodService.rejectPanShape — see
+        // PaymentMethodServiceTest.) The PAN-shaped value is built in Java; no literal card number appears.
+        stubWrite();
         String panShaped = "9".repeat(16);
         String bodyWithTopLevelCard =
                 "{ \"type\": \"card\", \"credential_ref\": \"pm_card_visa\", \"number\": \"" + panShaped + "\" }";
@@ -167,11 +169,13 @@ class PaymentMethodControllerScopeEnforcementTest {
         mockMvc.perform(post("/v1/customers/" + CUS + "/payment_methods")
                         .with(authentication(auth("operator", Set.of("customers:write"))))
                         .contentType(MediaType.APPLICATION_JSON).content(bodyWithTopLevelCard))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isCreated());
 
-        // The binding failure short-circuits BEFORE the controller body — attach is never invoked.
-        verify(paymentMethodService, never()).attach(any(), any(), anyBoolean(), anyBoolean(),
-                any(), any(), any(), any(), any(), any(), any(), any());
+        // The undeclared top-level "number" was dropped: attach is called with the REAL credential_ref
+        // ("pm_card_visa"), never the PAN-shaped value — proving it neither bound to a field nor reached
+        // persistence. credential_ref is the 6th argument; the display fields after it are all null.
+        verify(paymentMethodService).attach(eq("tenant-1"), eq(CUS), anyBoolean(), anyBoolean(),
+                eq("card"), eq("pm_card_visa"), any(), any(), any(), any(), any(), any());
     }
 
     // --- AND-composition: right scope, wrong role -> still denied ---
