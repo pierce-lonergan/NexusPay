@@ -6,12 +6,14 @@ import io.nexuspay.iam.domain.NexusPayPrincipal;
 import io.nexuspay.payment.application.port.PaymentGatewayPort;
 import io.nexuspay.payment.application.screening.CallContext;
 import io.nexuspay.payment.application.screening.ScreeningOriginService;
+import io.nexuspay.payment.application.service.OffSessionChargeService;
 import io.nexuspay.payment.domain.*;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -31,13 +33,31 @@ public class PaymentController {
     private final PaymentGatewayPort paymentGateway;
     private final RefundOrchestrationService refundOrchestration;
     private final ScreeningOriginService screeningOrigins;
+    /** TEST-3c: off-session charge of a SAVED method (pm_). Resolves the pm_ then reuses the SAME gateway. */
+    private final OffSessionChargeService offSessionCharge;
 
+    @Autowired
     public PaymentController(PaymentGatewayPort paymentGateway,
                               RefundOrchestrationService refundOrchestration,
-                              ScreeningOriginService screeningOrigins) {
+                              ScreeningOriginService screeningOrigins,
+                              OffSessionChargeService offSessionCharge) {
         this.paymentGateway = paymentGateway;
         this.refundOrchestration = refundOrchestration;
         this.screeningOrigins = screeningOrigins;
+        this.offSessionCharge = offSessionCharge;
+    }
+
+    /**
+     * TEST-3c back-compat 3-arg constructor: pre-3c direct-construction unit tests (capture-alias,
+     * idempotency-derivation, refund-approval, ownership) build the controller without an
+     * {@link OffSessionChargeService}. Those tests never send a {@code payment_method}, so off-session
+     * delegation is never reached. Spring uses the 4-arg constructor for real wiring (single explicit
+     * autowire candidate); this overload exists purely for those tests.
+     */
+    public PaymentController(PaymentGatewayPort paymentGateway,
+                              RefundOrchestrationService refundOrchestration,
+                              ScreeningOriginService screeningOrigins) {
+        this(paymentGateway, refundOrchestration, screeningOrigins, null);
     }
 
     /**
@@ -121,6 +141,25 @@ public class PaymentController {
             metadata.put("tenant_id", principal.tenantId());
         }
 
+        String tenantId = principal != null ? principal.tenantId() : null;
+
+        // TEST-3c: when a SAVED payment method (pm_) is supplied, DELEGATE to the off-session orchestration
+        // (resolve the tenant-owned pm_ -> its opaque credentialRef + customer, then the SAME
+        // gateway.createPayment) instead of taking the inline-card path below. Tenant ALWAYS from the
+        // principal; isTest is SERVER-DERIVED from principal.live() exactly as modeOf() (a null principal
+        // is treated as live, never test). The off-session path reuses the same idempotency + screening +
+        // ledger + webhook side-effects (it IS the same gateway create). When payment_method is absent the
+        // inline path runs byte-identically.
+        if (request.payment_method() != null && !request.payment_method().isBlank()) {
+            boolean isTest = principal != null && !principal.live();
+            var offResp = offSessionCharge.charge(
+                    tenantId, request.payment_method(), request.amount(), request.currency(),
+                    request.off_session(), request.setup_future_usage(), request.mandate_id(),
+                    isTest, idempotencyKey, metadata);
+            return ResponseEntity.status(HttpStatus.CREATED)
+                    .body(ResponseMapper.toPaymentResponse(offResp, modeOf(principal)));
+        }
+
         // INT-2 Invariant 1: `capture` is a convenience alias for `capture_method`. `capture_method` is
         // authoritative when both are present; the boolean alias only fills a null/blank capture_method
         // (true→automatic, false→manual). Pure passthrough when the alias is absent (back-compat).
@@ -140,8 +179,7 @@ public class PaymentController {
 
         // B-029: derive the screening rail + tenant from the TRUSTED authenticated principal, not
         // from client metadata. The strip/stamp above stays as belt-and-suspenders; the gate no
-        // longer depends on it for authority.
-        String tenantId = principal != null ? principal.tenantId() : null;
+        // longer depends on it for authority. (tenantId resolved above from the principal.)
         var response = paymentGateway.createPayment(paymentRequest, CallContext.interactive(tenantId));
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ResponseMapper.toPaymentResponse(response, modeOf(principal)));

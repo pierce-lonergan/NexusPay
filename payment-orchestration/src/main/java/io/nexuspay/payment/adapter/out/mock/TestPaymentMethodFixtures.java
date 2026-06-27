@@ -88,6 +88,51 @@ public final class TestPaymentMethodFixtures {
     }
 
     /**
+     * TEST-3c: the fixture token whose synthetic credential_ref encodes a forced DECLINE for the
+     * off-session charge. Single source of truth for the token -> outcome decision (see
+     * {@link #forcedOutcomeFor(String)}). Mirrors {@code MockPaymentGatewayPort.ForcedOutcome.DECLINED}.
+     */
+    private static final String DECLINE_TOKEN = "pm_card_chargeDeclined";
+
+    /**
+     * TEST-3c: the mock forced-outcome value a declined fixture maps to — kept as a constant aligned with
+     * {@code MockPaymentGatewayPort.TEST_OUTCOME_KEY}'s {@code "declined"} token (mirrored, not imported,
+     * to avoid a decode dependency on the gateway; the service injects it under TEST_OUTCOME_KEY).
+     */
+    private static final String DECLINE_OUTCOME = "declined";
+
+    /**
+     * TEST-3c (single source of truth): is {@code ref} a SYNTHETIC fixture credential_ref minted by
+     * {@link #resolve(String)} (i.e. {@code pmref_test_*})? Only such a ref is decodable back to a fixture
+     * token + mock outcome. A live/opaque credential_ref returns {@code false}. {@code null}-safe.
+     */
+    public static boolean isSyntheticRef(String ref) {
+        return ref != null && ref.startsWith(SYNTHETIC_REF_PREFIX);
+    }
+
+    /**
+     * TEST-3c: recovers the originating fixture token from a synthetic credential_ref (strips
+     * {@link #SYNTHETIC_REF_PREFIX}); e.g. {@code pmref_test_pm_card_chargeDeclined ->
+     * pm_card_chargeDeclined}. Returns {@code null} when {@code ref} is not a synthetic ref. The prefix
+     * lives ONLY here, so the off-session service never hardcodes it.
+     */
+    public static String fixtureTokenFromRef(String ref) {
+        return isSyntheticRef(ref) ? ref.substring(SYNTHETIC_REF_PREFIX.length()) : null;
+    }
+
+    /**
+     * TEST-3c (single source of truth for the fixture -> mock-outcome decision): given a credential_ref,
+     * returns the {@code __test_outcome} value the off-session charge must inject so the mock honors the
+     * fixture's intent — {@code "declined"} for {@code pm_card_chargeDeclined}, and {@code null} (no
+     * injection -> success) for {@code pm_card_visa}/{@code mastercard}/{@code amex} or any non-synthetic
+     * ref. The off-session service references this helper rather than re-deriving the prefix or outcome.
+     */
+    public static String forcedOutcomeFor(String credentialRef) {
+        String token = fixtureTokenFromRef(credentialRef);
+        return DECLINE_TOKEN.equals(token) ? DECLINE_OUTCOME : null;
+    }
+
+    /**
      * Resolves a known fixture token to its canned display fields + a synthetic opaque
      * {@code credentialRef} ({@code pmref_test_<token>}). Returns {@link Optional#empty()} for an unknown
      * {@code pm_card_*} token (the service treats that as a 400 — never silently stores an unknown fixture).

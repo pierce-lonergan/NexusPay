@@ -6,7 +6,9 @@ import io.nexuspay.payment.application.port.PaymentGatewayPort;
 import io.nexuspay.payment.application.screening.ScreeningOriginService;
 import io.nexuspay.payment.domain.PaymentResponse;
 import io.nexuspay.payment.domain.RefundResponse;
+import io.nexuspay.payment.domain.PaymentRequest;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -24,8 +26,13 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -69,12 +76,19 @@ class PaymentControllerScopeEnforcementTest {
     @MockBean private PaymentGatewayPort paymentGateway;
     @MockBean private RefundOrchestrationService refundOrchestration;
     @MockBean private ScreeningOriginService screeningOrigins;
+    // TEST-3c: PaymentController now also depends on OffSessionChargeService — supply a mock so the
+    // @WebMvcTest context can construct the controller (the scope tests never send a payment_method).
+    @MockBean private io.nexuspay.payment.application.service.OffSessionChargeService offSessionCharge;
 
     private static Authentication auth(String role, Set<String> scopes) {
+        return auth(role, scopes, true);
+    }
+
+    private static Authentication auth(String role, Set<String> scopes, boolean live) {
         // NexusPayPrincipal is the production principal; scopes null/empty == UNRESTRICTED (back-compat),
-        // non-empty == restricted to exactly those scopes.
+        // non-empty == restricted to exactly those scopes. live==false models an sk_test_ key.
         var principal = new NexusPayPrincipal(
-                "user-1", "tenant-1", role, NexusPayPrincipal.AuthMethod.API_KEY, null, true, scopes);
+                "user-1", "tenant-1", role, NexusPayPrincipal.AuthMethod.API_KEY, null, live, scopes);
         return new UsernamePasswordAuthenticationToken(
                 principal, null, List.of(new SimpleGrantedAuthority("ROLE_" + role)));
     }
@@ -193,5 +207,83 @@ class PaymentControllerScopeEnforcementTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(CREATE_BODY))
                 .andExpect(status().isForbidden());
+    }
+
+    // --- TEST-3c: the off-session snake_case JSON contract is bound by Jackson through the REAL HTTP path ---
+    // (closes the TEST-3b snake_case-binding trap: the only other off-session controller tests build
+    // CreatePaymentRequest via its Java constructor, so a refactor to camelCase Java names + @JsonProperty,
+    // or a tri-state Boolean off_session binding subtlety, would break every real client while passing them.)
+
+    private PaymentResponse okSucceededPayment() {
+        return new PaymentResponse("pay_off_1", PaymentResponse.STATUS_SUCCEEDED, 5000L, "USD",
+                "automatic", "cus_1", "mock", "txn_1", null, null, Instant.now(), Map.of());
+    }
+
+    /**
+     * A real client POSTing a JSON body with the snake_case off-session keys
+     * ({@code payment_method}/{@code off_session}/{@code setup_future_usage}/{@code mandate_id}) must (a)
+     * have Jackson bind those keys onto {@link io.nexuspay.gateway.adapter.in.rest.dto.CreatePaymentRequest}
+     * and (b) trigger delegation to {@link io.nexuspay.payment.application.service.OffSessionChargeService}
+     * with EXACTLY those values — proving the public off-session HTTP entrypoint really fires. Uses an
+     * sk_test_ principal ({@code live==false}) so the server-derived {@code isTest} flows through as TRUE,
+     * never read from the body.
+     */
+    @Test
+    void offSessionSnakeCaseBody_boundByJackson_delegatesWithExactValues() throws Exception {
+        when(offSessionCharge.charge(anyString(), anyString(), anyLong(), anyString(),
+                any(), any(), any(), anyBoolean(), any(), any())).thenReturn(okSucceededPayment());
+
+        String offSessionBody = """
+                {
+                  "amount": 5000,
+                  "currency": "USD",
+                  "payment_method": "pm_123",
+                  "off_session": true,
+                  "setup_future_usage": "off_session",
+                  "mandate_id": "m_1"
+                }
+                """;
+
+        mockMvc.perform(post("/v1/payments")
+                        .header("Idempotency-Key", "idem-off-1")
+                        .with(authentication(auth("operator", Set.of("payments:write"), false)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(offSessionBody))
+                .andExpect(status().isCreated());
+
+        // Jackson actually bound the snake_case keys AND the controller derived isTest=TRUE from the
+        // sk_test_ principal (live==false), tenant from the principal — never from the body.
+        verify(offSessionCharge).charge(
+                eq("tenant-1"), eq("pm_123"), eq(5000L), eq("USD"),
+                eq(Boolean.TRUE), eq("off_session"), eq("m_1"),
+                eq(true), eq("idem-off-1"), any());
+        // The off-session path replaces the inline path — the gateway is NOT called directly here.
+        verifyNoInteractions(paymentGateway);
+    }
+
+    /**
+     * Back-compat through the SAME JSON binder: a create WITHOUT {@code payment_method} takes the inline
+     * path — the off-session service is never invoked — and the inline {@link PaymentRequest} carries all
+     * four off-session fields as null (byte-identical to pre-3c).
+     */
+    @Test
+    void createWithoutPaymentMethod_takesInlinePath_offSessionFieldsNull() throws Exception {
+        when(paymentGateway.createPayment(any(PaymentRequest.class), any())).thenReturn(okSucceededPayment());
+
+        mockMvc.perform(post("/v1/payments")
+                        .with(authentication(auth("operator", Set.of("payments:write"))))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(CREATE_BODY))
+                .andExpect(status().isCreated());
+
+        verify(offSessionCharge, never()).charge(anyString(), anyString(), anyLong(), anyString(),
+                any(), any(), any(), anyBoolean(), any(), any());
+        ArgumentCaptor<PaymentRequest> cap = ArgumentCaptor.forClass(PaymentRequest.class);
+        verify(paymentGateway).createPayment(cap.capture(), any());
+        PaymentRequest req = cap.getValue();
+        org.assertj.core.api.Assertions.assertThat(req.paymentMethod()).isNull();
+        org.assertj.core.api.Assertions.assertThat(req.offSession()).isNull();
+        org.assertj.core.api.Assertions.assertThat(req.setupFutureUsage()).isNull();
+        org.assertj.core.api.Assertions.assertThat(req.mandateId()).isNull();
     }
 }

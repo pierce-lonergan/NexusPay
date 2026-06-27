@@ -57,7 +57,10 @@ class PaymentControllerCaptureAliasTest {
 
     private CreatePaymentRequest request(String captureMethod, Boolean capture) {
         return new CreatePaymentRequest(5000L, "USD", "cust_1", "card", null, null, null,
-                captureMethod, capture, null);
+                captureMethod, capture, null,
+                // TEST-3c off-session fields (absent on the inline-card path): payment_method/off_session/
+                // setup_future_usage/mandate_id.
+                null, null, null, null);
     }
 
     @Test

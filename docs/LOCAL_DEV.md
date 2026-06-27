@@ -293,6 +293,41 @@ The response never exposes the tenant or the `credential_ref`:
 }
 ```
 
+#### Off-session charge of a saved method (TEST-3c)
+
+Once a method is attached you can charge it **off-session** (cardholder **not**
+present) by passing its `pm_…` id as `payment_method` on **`POST /v1/payments`** —
+the **same** endpoint as an inline create. No new endpoint, no real card data: the
+server resolves the **tenant-owned** saved method (its opaque credential +
+customer) and runs the **same** screening + idempotency + ledger + webhook path.
+
+* The `pm_` is resolved **tenant-scoped** — a foreign/missing/detached `pm_` is a
+  **404** (no existence oracle), so the charge never happens.
+* The `pm_`'s `livemode` **must match the caller key mode** — a TEST `pm_` under
+  an `sk_live_` key (or a LIVE `pm_` under `sk_test_`) is a **400**
+  (`livemode_mismatch`). A test method can never be charged on a live key.
+* `Idempotency-Key` is honored exactly as on any create (no double-charge on
+  retry). `off_session` / `setup_future_usage` / `mandate_id` are optional charge
+  hints (`mandate_id` is a 3d placeholder, threaded through but unused).
+
+TEST recipe (deterministic, via the 3b fixtures):
+
+| saved method | off-session charge result | webhook |
+| --- | --- | --- |
+| `pm_card_visa` (also mastercard/amex) | `succeeded` | `payment.captured` |
+| `pm_card_chargeDeclined` | `failed` (`card_declined`) | `payment.failed` |
+
+```bash
+# charge a saved pm_ off-session under a TEST key
+curl -X POST http://localhost:8090/v1/payments \
+  -H "Authorization: Bearer sk_test_..." \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"amount":5000,"currency":"USD","payment_method":"pm_...","off_session":true}'
+# pm_card_visa  -> {"status":"succeeded", ...}  + payment.captured
+# pm_card_chargeDeclined -> {"status":"failed","error_code":"card_declined"} + payment.failed
+```
+
 ---
 
 ## 6. SEC-4b caveat — webhooks CANNOT be delivered to `localhost`

@@ -57,4 +57,34 @@ class TestPaymentMethodFixturesTest {
         assertThat(TestPaymentMethodFixtures.FIXTURE_TOKENS).containsExactlyInAnyOrder(
                 "pm_card_visa", "pm_card_mastercard", "pm_card_amex", "pm_card_chargeDeclined");
     }
+
+    // -- TEST-3c single-source decode helpers (used by OffSessionChargeService) --
+
+    @Test
+    void isSyntheticRef_keysOffThePmrefTestPrefix() {
+        assertThat(TestPaymentMethodFixtures.isSyntheticRef("pmref_test_pm_card_visa")).isTrue();
+        assertThat(TestPaymentMethodFixtures.isSyntheticRef("ptok_live_abc123")).isFalse();
+        assertThat(TestPaymentMethodFixtures.isSyntheticRef(null)).isFalse();
+    }
+
+    @Test
+    void fixtureTokenFromRef_roundTripsTheOriginatingToken() {
+        // resolve() mints pmref_test_<token>; fixtureTokenFromRef recovers <token>.
+        String ref = TestPaymentMethodFixtures.resolve("pm_card_chargeDeclined").get().credentialRef();
+        assertThat(TestPaymentMethodFixtures.fixtureTokenFromRef(ref)).isEqualTo("pm_card_chargeDeclined");
+        assertThat(TestPaymentMethodFixtures.fixtureTokenFromRef("ptok_live_abc123")).isNull();
+        assertThat(TestPaymentMethodFixtures.fixtureTokenFromRef(null)).isNull();
+    }
+
+    @Test
+    void forcedOutcomeFor_isDeclinedOnlyForTheChargeDeclinedFixture() {
+        assertThat(TestPaymentMethodFixtures.forcedOutcomeFor("pmref_test_pm_card_chargeDeclined"))
+                .isEqualTo("declined");
+        assertThat(TestPaymentMethodFixtures.forcedOutcomeFor("pmref_test_pm_card_visa")).isNull();
+        assertThat(TestPaymentMethodFixtures.forcedOutcomeFor("pmref_test_pm_card_mastercard")).isNull();
+        assertThat(TestPaymentMethodFixtures.forcedOutcomeFor("pmref_test_pm_card_amex")).isNull();
+        // a live/opaque ref is never a forced outcome.
+        assertThat(TestPaymentMethodFixtures.forcedOutcomeFor("ptok_live_abc123")).isNull();
+        assertThat(TestPaymentMethodFixtures.forcedOutcomeFor(null)).isNull();
+    }
 }
