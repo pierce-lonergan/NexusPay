@@ -41,6 +41,8 @@ tags:
     description: Manage API keys
   - name: Disputes
     description: Read disputes (chargebacks) and their event timeline; simulate a dispute in test mode
+  - name: Customers
+    description: Manage customers (the anchor of the saved-credential cluster); tenant-scoped, soft-deletable
   - name: Test Helpers
     description: Test-mode-only control endpoints (reachable ONLY with an sk_test_ key)
 
@@ -515,6 +517,136 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '409':
           $ref: '#/components/responses/Conflict'
+
+  /v1/customers:
+    post:
+      tags: [Customers]
+      summary: Create a customer
+      description: >-
+        Scope: `customers:write`. Creates a customer under the AUTHENTICATED
+        tenant (derived from the key, never an `X-Tenant-Id` header or the
+        request body). `livemode` is server-derived from the key mode (a test
+        key creates `livemode:false`, a live key `livemode:true`) and is NOT
+        client-settable. The id is minted server-side (`cus_…`).
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCustomerRequest'
+      responses:
+        '201':
+          description: The created customer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+    get:
+      tags: [Customers]
+      summary: List customers for the current tenant
+      description: >-
+        Scope: `customers:read`. Lists the AUTHENTICATED tenant's customers
+        (never another tenant's). Soft-deleted customers are excluded.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: The caller tenant's customers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Customer'
+
+  /v1/customers/{id}:
+    get:
+      tags: [Customers]
+      summary: Retrieve a customer by id
+      description: >-
+        Scope: `customers:read`. Tenant-scoped — a foreign-tenant OR soft-deleted
+        id returns 404 with no existence oracle.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: The customer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Customers]
+      summary: Update a customer
+      description: >-
+        Scope: `customers:write`. Updates the mutable fields
+        (email/name/description/metadata). `livemode` is immutable. Tenant-scoped
+        — a foreign-tenant OR soft-deleted id returns 404 with no existence
+        oracle. POST-to-id (Stripe-style) mirrors the dispute submit idiom.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCustomerRequest'
+      responses:
+        '200':
+          description: The updated customer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Customers]
+      summary: Delete a customer (soft delete)
+      description: >-
+        Scope: `customers:write`. SOFT-deletes the customer (sets `deleted_at`).
+        After deletion the customer no longer appears in retrieve/list.
+        Tenant-scoped — a foreign-tenant OR already-deleted id returns 404 with no
+        existence oracle.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: The customer was soft-deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletedCustomer'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /v1/disputes:
     get:
@@ -1263,6 +1395,81 @@ components:
             request_id:
               type: string
               description: Correlation id (echoes X-Request-Id); always present.
+
+    Customer:
+      type: object
+      description: A customer — the anchor of the saved-credential cluster. Tenant-scoped; the tenant is never exposed in the body.
+      properties:
+        id:
+          type: string
+          description: Customer id (prefixed `cus_…`).
+          example: cus_3f2a9c1b
+        object:
+          type: string
+          enum: [customer]
+        livemode:
+          type: boolean
+          description: Server-derived from the key mode at create time (test key -> false). Immutable.
+        email:
+          type: string
+          nullable: true
+          example: jane@example.com
+        name:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+        created:
+          type: integer
+          format: int64
+          description: Creation time in epoch seconds.
+
+    CreateCustomerRequest:
+      type: object
+      description: Body for `POST /v1/customers`. Carries NO tenant or livemode field (both are server-derived).
+      properties:
+        email:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+
+    UpdateCustomerRequest:
+      type: object
+      description: Body for `POST /v1/customers/{id}`. Only the mutable fields; `livemode` is immutable and not accepted.
+      properties:
+        email:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+
+    DeletedCustomer:
+      type: object
+      description: Body returned by `DELETE /v1/customers/{id}` (soft delete).
+      properties:
+        id:
+          type: string
+          example: cus_3f2a9c1b
+        object:
+          type: string
+          enum: [customer]
+        deleted:
+          type: boolean
+          enum: [true]
 
     Dispute:
       type: object
