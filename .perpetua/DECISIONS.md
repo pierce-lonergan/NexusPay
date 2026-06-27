@@ -1190,3 +1190,32 @@ leak into the delivered data.metadata. Catalog documented in LOCAL_DEV.md + INTE
 absent from a delivered envelope whose metadata fixture never contained it) -> fixed by routing the merchant
 map (incl. __test_outcome) through the REAL WebhookMetadataService.record()/find() path so the strip is
 genuinely exercised. No migration. CI is the oracle. L-069. ADR-054.
+
+## ADR-055 | 2026-06-27 | TEST-2: outbound dispute.* webhook events + test-mode dispute simulator (critique v3 C1/C2/C3) (T3)
+Critique v3 C1 was a SILENT PRODUCTION over-grant: DisputeLifecycleService modeled disputes fully internally
+(events + chargeback reserve) but wrote NO outbound webhook and the taxonomy had no dispute.* entries, so a
+merchant subscribed to "*" received ZERO chargeback notifications and a credit integrator never clawed back.
+Fix emits 7 canonical dispute events through the EXISTING signed-delivery pipeline. (1) Added 7 internal
+DISPUTE_* types (EventTypes) + 7 INTERNAL_TO_DOTTED mappings (the existing 8 payment/refund untouched):
+dispute.created + dispute.funds_withdrawn (both at openDispute, the latter right after the chargeback
+reserve — the money-moving signal an integrator acts on), evidence_needed, evidence_submitted (added in the
+fix — the one transition that was silent), won, lost, closed. (2) The SDK WEBHOOK_EVENT_TYPES union got the
+same 7 (the DX-5d parity test asserts SDK==CANONICAL; now 15==15). (3) Cross-Modulith outbox WITHOUT a module
+edge: DisputeOutboxPort + DisputeOutboxAdapter mirror BillingOutboxAdapter EXACTLY — a native INSERT INTO
+event_outbox (CAST payload AS jsonb) so the dispute module never imports payment-orchestration's OutboxEvent
+JPA entity; DisputeLifecycleService publishes on each transition IN THE SAME @Transactional (transactional
+outbox), under the dispute's SEC-24 tenant (never default). (4) A NEW common test-gate primitive:
+LiveModePrincipal (a :common contract NexusPayPrincipal now implements, mirroring TenantPrincipal/CallerTenant)
++ CallerMode.isTest() — FAIL-CLOSED (a non-LiveModePrincipal/unauthenticated thread reads NOT-test) so a
+/v1/test/* endpoint stays closed; reused by future test-control endpoints (TEST-4/6). (5) POST /v1/test/disputes
+hard-gated CallerMode.isTest() (live key -> 404 no-oracle) + tenant-scoped CallerTenant.require + pay_test_*
+prefix, opens a dispute on the caller's tenant and delivers dispute.created. (6) WebhookEnvelopeSerializer
+serializes a Dispute aggregate (object:"dispute"); since a Dispute has no payment-metadata row, its livemode
+rides the OUTBOX-envelope metadata (__livemode) instead — the payment path stays byte-identical. (7) Dispute
+read API + Dispute schema published in openapi.yaml + WEBHOOKS.md + a disputes resource in @nexus-pay/node.
+REVIEW (4 lenses) 2 SHOULD_FIX: (a) the test endpoint's javadoc/OpenAPI CLAIMED payment-tenant ownership it
+did not enforce — fixed by ALIGNING THE DOC TO THE CODE (option 2), NOT by resolving the payment, because the
+dispute module has no :payment dependency and adding one to verify a test-only convenience would be a
+forbidden Modulith boundary violation; the reviewer confirmed no actual tenant breach (dispute under caller
+tenant, events fan out to caller only, no oracle). L-070. (b) EVIDENCE_SUBMITTED was silent -> added
+dispute.evidence_submitted end-to-end. No migration (event_outbox exists). CI is the oracle. L-070. ADR-055.

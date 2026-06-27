@@ -96,6 +96,19 @@ public final class EventTypes {
     public static final String PAYOUT_FAILED = "PayoutFailed";
     public static final String FEE_CONFIGURED = "FeeConfigured";
 
+    // Dispute / chargeback lifecycle (TEST-2). These are the internal, PascalCase outbound dispute
+    // event types translated to dotted canonical names by WebhookEventTaxonomy at webhook SEND time.
+    // The dispute domain emits them through the transactional outbox (DisputeOutboxAdapter) so a
+    // merchant subscribed to a dispute.* event (or "*") is notified on every chargeback transition —
+    // closing the silent over-grant where the money was pulled back but no event ever fired.
+    public static final String DISPUTE_CREATED = "DisputeCreated";
+    public static final String DISPUTE_FUNDS_WITHDRAWN = "DisputeFundsWithdrawn";
+    public static final String DISPUTE_EVIDENCE_NEEDED = "DisputeEvidenceNeeded";
+    public static final String DISPUTE_EVIDENCE_SUBMITTED = "DisputeEvidenceSubmitted";
+    public static final String DISPUTE_WON = "DisputeWon";
+    public static final String DISPUTE_LOST = "DisputeLost";
+    public static final String DISPUTE_CLOSED = "DisputeClosed";
+
     // Workflow builder lifecycle (Sprint 4.4)
     public static final String WORKFLOW_CREATED = "WorkflowCreated";
     public static final String WORKFLOW_PUBLISHED = "WorkflowPublished";
@@ -129,4 +142,10 @@ public final class EventTypes {
     public static final String AGGREGATE_WORKFLOW_DEFINITION = "WorkflowDefinition";
     public static final String AGGREGATE_WORKFLOW_EXECUTION = "WorkflowExecution";
     public static final String AGGREGATE_WEBHOOK_TRIGGER = "WebhookTrigger";
+
+    // TEST-2: dispute aggregate. The outbox relay has no explicit Topics mapping for "Dispute", so it
+    // falls through to the DEFAULT_TOPIC (Topics.PAYMENTS) — the SAME topic WebhookDeliveryService
+    // consumes — so a dispute outbox row reaches the canonical signed-delivery pipeline with no relay
+    // change. Matches the aggregate_type the DisputeOutboxAdapter native INSERT writes.
+    public static final String AGGREGATE_DISPUTE = "Dispute";
 }

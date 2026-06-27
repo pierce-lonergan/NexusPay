@@ -1,6 +1,7 @@
 package io.nexuspay.dispute.application.service;
 
 import io.nexuspay.common.exception.ResourceNotFoundException;
+import io.nexuspay.dispute.application.port.out.DisputeOutboxPort;
 import io.nexuspay.dispute.application.port.out.DisputeRepository;
 import io.nexuspay.dispute.application.port.out.EvidenceStoragePort;
 import io.nexuspay.dispute.application.port.out.LedgerPort;
@@ -47,6 +48,7 @@ class DisputeLifecycleServiceTenantScopingTest {
     private DisputeRepository disputeRepo;
     private EvidenceStoragePort evidenceStorage;
     private LedgerPort ledger;
+    private DisputeOutboxPort outbox;
     private DisputeLifecycleService svc;
 
     @BeforeEach
@@ -54,7 +56,8 @@ class DisputeLifecycleServiceTenantScopingTest {
         disputeRepo = mock(DisputeRepository.class);
         evidenceStorage = mock(EvidenceStoragePort.class);
         ledger = mock(LedgerPort.class);
-        svc = new DisputeLifecycleService(disputeRepo, evidenceStorage, ledger);
+        outbox = mock(DisputeOutboxPort.class);
+        svc = new DisputeLifecycleService(disputeRepo, evidenceStorage, ledger, outbox);
         when(disputeRepo.save(any())).thenAnswer(i -> i.getArgument(0));
         when(disputeRepo.saveEvidence(any())).thenAnswer(i -> i.getArgument(0));
     }

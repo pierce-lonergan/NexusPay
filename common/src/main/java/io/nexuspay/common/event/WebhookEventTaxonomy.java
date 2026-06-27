@@ -26,10 +26,14 @@ import java.util.Set;
  * It lives in {@code common} so both module uses share one definition (no drift between what is
  * deliverable and what is registerable).</p>
  *
- * <p>The map covers EXACTLY the 6 payment/refund internal types that {@code mapHyperSwitchEventType}
- * can emit plus the two domain-emitted {@code PaymentCreated}/{@code RefundCreated} types — the full
- * set of internal types that can reach a webhook. Any other internal type has no dotted mapping and is
- * NOT deliverable on the canonical contract ({@link #toDotted(String)} returns {@code null}).</p>
+ * <p>The map covers the payment/refund internal types that {@code mapHyperSwitchEventType} can emit
+ * plus the two domain-emitted {@code PaymentCreated}/{@code RefundCreated} types, AND (TEST-2) the seven
+ * dispute/chargeback internal types the dispute domain emits through its transactional outbox
+ * ({@code dispute.created}, {@code dispute.funds_withdrawn}, {@code dispute.evidence_needed},
+ * {@code dispute.evidence_submitted}, {@code dispute.won}, {@code dispute.lost}, {@code dispute.closed})
+ * — the full set of internal types
+ * that can reach a webhook. Any other internal type has no dotted mapping and is NOT deliverable on the
+ * canonical contract ({@link #toDotted(String)} returns {@code null}).</p>
  */
 public final class WebhookEventTaxonomy {
 
@@ -48,7 +52,25 @@ public final class WebhookEventTaxonomy {
             Map.entry(EventTypes.PAYMENT_VOIDED, "payment.canceled"),
             Map.entry(EventTypes.REFUND_CREATED, "payment.refund.created"),
             Map.entry(EventTypes.REFUND_COMPLETED, "payment.refunded"),
-            Map.entry(EventTypes.REFUND_FAILED, "payment.refund.failed"));
+            Map.entry(EventTypes.REFUND_FAILED, "payment.refund.failed"),
+            // TEST-2: dispute / chargeback lifecycle. The dispute domain emits these internal types
+            // through its transactional outbox; the serializer translates them to the dotted canonical
+            // names below at send time. The transition→event mapping (documented on
+            // DisputeLifecycleService) is:
+            //   openDispute      -> DisputeCreated           -> dispute.created
+            //   openDispute      -> DisputeFundsWithdrawn    -> dispute.funds_withdrawn (at the chargeback-reserve point)
+            //   requestEvidence  -> DisputeEvidenceNeeded    -> dispute.evidence_needed
+            //   submitEvidence   -> DisputeEvidenceSubmitted -> dispute.evidence_submitted
+            //   win              -> DisputeWon               -> dispute.won
+            //   lose             -> DisputeLost              -> dispute.lost
+            //   expire           -> DisputeClosed            -> dispute.closed (terminal close)
+            Map.entry(EventTypes.DISPUTE_CREATED, "dispute.created"),
+            Map.entry(EventTypes.DISPUTE_FUNDS_WITHDRAWN, "dispute.funds_withdrawn"),
+            Map.entry(EventTypes.DISPUTE_EVIDENCE_NEEDED, "dispute.evidence_needed"),
+            Map.entry(EventTypes.DISPUTE_EVIDENCE_SUBMITTED, "dispute.evidence_submitted"),
+            Map.entry(EventTypes.DISPUTE_WON, "dispute.won"),
+            Map.entry(EventTypes.DISPUTE_LOST, "dispute.lost"),
+            Map.entry(EventTypes.DISPUTE_CLOSED, "dispute.closed"));
 
     /**
      * The canonical dotted names a merchant may subscribe to (the map's values). {@code "*"} is also

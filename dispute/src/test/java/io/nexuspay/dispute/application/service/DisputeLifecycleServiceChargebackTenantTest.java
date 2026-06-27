@@ -1,5 +1,6 @@
 package io.nexuspay.dispute.application.service;
 
+import io.nexuspay.dispute.application.port.out.DisputeOutboxPort;
 import io.nexuspay.dispute.application.port.out.DisputeRepository;
 import io.nexuspay.dispute.application.port.out.EvidenceStoragePort;
 import io.nexuspay.dispute.application.port.out.LedgerPort;
@@ -36,6 +37,7 @@ class DisputeLifecycleServiceChargebackTenantTest {
     private DisputeRepository disputeRepo;
     private EvidenceStoragePort evidence;
     private LedgerPort ledger;
+    private DisputeOutboxPort outbox;
     private DisputeLifecycleService svc;
 
     @BeforeEach
@@ -43,7 +45,8 @@ class DisputeLifecycleServiceChargebackTenantTest {
         disputeRepo = mock(DisputeRepository.class);
         evidence = mock(EvidenceStoragePort.class);
         ledger = mock(LedgerPort.class);
-        svc = new DisputeLifecycleService(disputeRepo, evidence, ledger);
+        outbox = mock(DisputeOutboxPort.class);
+        svc = new DisputeLifecycleService(disputeRepo, evidence, ledger, outbox);
         when(disputeRepo.save(org.mockito.ArgumentMatchers.any()))
                 .thenAnswer(i -> i.getArgument(0));
     }

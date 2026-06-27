@@ -39,6 +39,10 @@ tags:
     description: Manage merchant webhook URLs and inspect deliveries
   - name: API Keys
     description: Manage API keys
+  - name: Disputes
+    description: Read disputes (chargebacks) and their event timeline; simulate a dispute in test mode
+  - name: Test Helpers
+    description: Test-mode-only control endpoints (reachable ONLY with an sk_test_ key)
 
 paths:
   /v1/payment-sessions:
@@ -511,6 +515,126 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '409':
           $ref: '#/components/responses/Conflict'
+
+  /v1/disputes:
+    get:
+      tags: [Disputes]
+      summary: List disputes for the current tenant
+      description: >-
+        Scope: `disputes:read`. Lists the AUTHENTICATED tenant's disputes
+        (chargebacks) — never another tenant's (the tenant is derived from the
+        key, never an `X-Tenant-Id` header). Optionally filter by `status`.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional dispute status filter (e.g. `OPENED`, `WON`, `LOST`).
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: The caller tenant's disputes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Dispute'
+
+  /v1/disputes/{id}:
+    get:
+      tags: [Disputes]
+      summary: Retrieve a dispute by id
+      description: >-
+        Scope: `disputes:read`. Tenant-scoped — a foreign-tenant id returns 404
+        with no existence oracle.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: The dispute
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dispute'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/disputes/{id}/events:
+    get:
+      tags: [Disputes]
+      summary: Get a dispute's event timeline
+      description: >-
+        Scope: `disputes:read`. Returns the dispute's immutable event timeline,
+        tenant-scoped (a foreign/absent id yields an empty list — no oracle).
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: The dispute event timeline
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DisputeEvent'
+
+  /v1/test/disputes:
+    post:
+      tags: [Test Helpers]
+      summary: Simulate a dispute (TEST MODE ONLY)
+      description: >-
+        TEST-MODE ONLY. Reachable ONLY with an `sk_test_` key — a LIVE key gets
+        404 (no oracle). Opens a dispute (chargeback) on a TEST payment
+        (`pay_test_*`) under the CALLER's tenant and emits a `dispute.created`
+        (and `dispute.funds_withdrawn`) webhook through the normal signed
+        delivery pipeline, stamped `livemode: false`, so an integrator can drive
+        their chargeback-handling locally. The `payment_id` MUST be a
+        `pay_test_*` id (anything else is rejected `400`); it is treated as an
+        opaque test reference and is NOT resolved against the payments service,
+        so a `pay_test_*` id need not correspond to a real payment. The dispute
+        is always opened under the caller's own tenant, so the emitted
+        `dispute.*` events fan out only to the caller's own webhook endpoints.
+      security:
+        - apiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SimulateDisputeRequest'
+      responses:
+        '201':
+          description: The simulated dispute was created (webhook emitted)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dispute'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          description: Endpoint not reachable with this key (live key in test-only surface)
 
 components:
   parameters:
@@ -1139,3 +1263,112 @@ components:
             request_id:
               type: string
               description: Correlation id (echoes X-Request-Id); always present.
+
+    Dispute:
+      type: object
+      description: A dispute (chargeback) raised by a card network against a payment.
+      properties:
+        id:
+          type: string
+          description: Dispute id (prefixed `dp_…`).
+          example: dp_3f2a9c1b
+        tenant_id:
+          type: string
+        payment_id:
+          type: string
+          description: The disputed payment's id.
+          example: pay_test_abc123
+        external_dispute_id:
+          type: string
+          description: The network/PSP dispute id (or a `test_dp_*` id for a simulated dispute).
+        reason_code:
+          type: string
+          example: '10.4'
+        reason_description:
+          type: string
+        amount:
+          type: integer
+          format: int64
+          description: Disputed amount in minor units.
+          example: 5000
+        currency:
+          type: string
+          example: USD
+        status:
+          type: string
+          description: Dispute state.
+          enum: [OPENED, EVIDENCE_NEEDED, EVIDENCE_SUBMITTED, WON, LOST, EXPIRED]
+        network:
+          type: string
+          example: visa
+        outcome:
+          type: string
+          nullable: true
+          enum: [WON, LOST, EXPIRED, null]
+        evidence_due_date:
+          type: string
+          format: date-time
+          nullable: true
+        evidence_submitted_at:
+          type: string
+          format: date-time
+          nullable: true
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    DisputeEvent:
+      type: object
+      description: One entry of a dispute's immutable event timeline.
+      properties:
+        id:
+          type: string
+        dispute_id:
+          type: string
+        event_type:
+          type: string
+          description: Internal event type (e.g. STATE_TRANSITION, EVIDENCE_UPLOADED).
+        old_status:
+          type: string
+          nullable: true
+        new_status:
+          type: string
+          nullable: true
+        actor:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+
+    SimulateDisputeRequest:
+      type: object
+      required: [payment_id]
+      description: Body for the test-mode dispute simulator (`POST /v1/test/disputes`).
+      properties:
+        payment_id:
+          type: string
+          description: A TEST payment id (`pay_test_*`) owned by the caller's tenant.
+          example: pay_test_abc123
+        amount:
+          type: integer
+          format: int64
+          description: Disputed amount in minor units (defaults to 1000).
+          example: 5000
+        currency:
+          type: string
+          description: ISO 4217 currency (defaults to USD).
+          example: USD
+        reason:
+          type: string
+          description: Dispute reason code (defaults to `fraudulent`).
+          example: fraudulent

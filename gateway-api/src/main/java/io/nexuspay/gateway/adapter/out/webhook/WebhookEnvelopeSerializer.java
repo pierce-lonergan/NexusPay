@@ -29,7 +29,7 @@ import java.util.Map;
  *                  (test=false / live=true), default true when absent. NEVER trusted from client/PSP.
  *   "created":     epoch SECONDS (UTC) derived from outbox "timestamp",
  *   "api_version": "2026-06-16",
- *   "data": { "object": normalized payment/refund object, "metadata": merchant correlation map ({} if none) }
+ *   "data": { "object": normalized payment/refund/dispute object, "metadata": merchant correlation map ({} if none) }
  * }
  * }</pre>
  */
@@ -81,7 +81,16 @@ public class WebhookEnvelopeSerializer {
         // with no stored mode) — this affects the displayed livemode only; routing already happened at
         // create. Because livemode is inside the bytes this method returns, the HMAC covers it for free.
         Map<String, Object> source = metadata != null ? metadata : Map.of();
-        boolean livemode = liftLivemode(source.get(LIVEMODE_KEY));
+        // INT-3 / TEST-2: the mode marker normally rides on the server-owned payment-metadata map. A
+        // Dispute aggregate has NO payment-webhook-metadata row, so its mode is carried on the OUTBOX
+        // ENVELOPE metadata instead (DisputeOutboxAdapter writes __livemode there). Prefer the
+        // delivery-supplied metadata; fall back to the envelope metadata's reserved key when absent. For
+        // payments the delivery metadata already carries the flag, so this fallback never fires (the
+        // payment path stays byte-identical).
+        Object modeFlag = source.containsKey(LIVEMODE_KEY)
+                ? source.get(LIVEMODE_KEY)
+                : envelopeLivemode(outbox);
+        boolean livemode = liftLivemode(modeFlag);
         Map<String, Object> merchantMetadata = stripLivemode(source);
 
         // LinkedHashMap preserves the fixed top-level key order required for deterministic bytes.
@@ -113,6 +122,24 @@ public class WebhookEnvelopeSerializer {
             return b;
         }
         return Boolean.parseBoolean(value.toString());
+    }
+
+    /**
+     * TEST-2: the reserved {@code __livemode} flag as carried on the OUTBOX ENVELOPE metadata
+     * ({@code metadata.__livemode}), used for aggregates (Dispute) that have no payment-webhook-metadata
+     * row to source the mode from. Returns {@code null} when absent so the caller's default-true logic
+     * ({@link #liftLivemode}) applies. The value is a String ({@code "true"}/{@code "false"}) as written
+     * by {@code DisputeOutboxAdapter}.
+     */
+    static Object envelopeLivemode(JsonNode outbox) {
+        JsonNode node = outbox.path("metadata").path(LIVEMODE_KEY);
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        if (node.isBoolean()) {
+            return node.booleanValue();
+        }
+        return node.asText();
     }
 
     /**
@@ -161,12 +188,15 @@ public class WebhookEnvelopeSerializer {
     /**
      * Normalizes the outbox {@code payload} (the PSP {@code content.object}) into {@code data.object}:
      * copy through non-destructively, overlay an {@code id}/{@code object} discriminator, and strip any
-     * card/PAN subtree. {@code object} is {@code "refund"} when {@code aggregate_type == "Refund"}, else
-     * {@code "payment"}; {@code id} is {@code refund_id} (refund) / {@code payment_id} (payment), falling
-     * back to the outbox {@code aggregate_id}.
+     * card/PAN subtree. {@code object} is {@code "refund"} when {@code aggregate_type == "Refund"},
+     * {@code "dispute"} when {@code aggregate_type == "Dispute"} (TEST-2), else {@code "payment"};
+     * {@code id} is {@code refund_id} (refund) / {@code dispute_id} (dispute) / {@code payment_id}
+     * (payment), falling back to the outbox {@code aggregate_id}.
      */
     ObjectNode normalizeObject(JsonNode outbox) {
-        boolean isRefund = "Refund".equals(text(outbox.path("aggregate_type")));
+        String aggregateType = text(outbox.path("aggregate_type"));
+        boolean isRefund = "Refund".equals(aggregateType);
+        boolean isDispute = "Dispute".equals(aggregateType);
         JsonNode payload = outbox.path("payload");
 
         ObjectNode object = objectMapper.createObjectNode();
@@ -180,11 +210,15 @@ public class WebhookEnvelopeSerializer {
         }
 
         // 2) overlay the stable discriminator.
-        object.put("object", isRefund ? "refund" : "payment");
+        object.put("object", isRefund ? "refund" : (isDispute ? "dispute" : "payment"));
 
         String id;
         if (isRefund) {
             id = firstNonBlank(text(payload.path("refund_id")), text(outbox.path("aggregate_id")));
+        } else if (isDispute) {
+            // TEST-2: a Dispute object's stable id is its dispute_id; fall back to aggregate_id. The
+            // dispute_id key passed through in step 1 and is kept alongside the chosen 'id'.
+            id = firstNonBlank(text(payload.path("dispute_id")), text(outbox.path("aggregate_id")));
         } else {
             id = firstNonBlank(text(payload.path("payment_id")), text(outbox.path("aggregate_id")));
         }

@@ -43,6 +43,13 @@ wildcard). These are the only deliverable types:
 | `payment.refund.created` | Refund initiated |
 | `payment.refunded` | Refund **completed** |
 | `payment.refund.failed` | Refund failed |
+| `dispute.created` | A dispute (chargeback) was opened against a payment |
+| `dispute.funds_withdrawn` | The disputed funds were reserved/withdrawn (chargeback reserve posted) |
+| `dispute.evidence_needed` | The network requested evidence (response deadline active) |
+| `dispute.evidence_submitted` | Your evidence was submitted/represented to the network (awaiting decision) |
+| `dispute.won` | The dispute was won — funds restored to the merchant |
+| `dispute.lost` | The dispute was lost — chargeback finalized as an expense |
+| `dispute.closed` | The dispute reached a terminal close (e.g. evidence deadline expired) |
 | `*` | Wildcard — subscribe to all of the above |
 
 Two names are worth calling out explicitly because they do not match the
@@ -52,6 +59,15 @@ internal verb:
   auto-capture payment the platform synthesizes it at capture time.
 - **`payment.refunded`** is emitted when a refund **completes** (not when it is
   created — that is `payment.refund.created`).
+
+The **dispute** events fire on each dispute-lifecycle transition (and are emitted
+through the same signed-delivery pipeline). On a chargeback you receive
+`dispute.created` **and** `dispute.funds_withdrawn` together: the latter is the
+event to act on if you maintain your own credit/entitlement ledger — the money is
+being pulled back, so reverse the credit you granted for that payment. Once you
+(or auto-representment) submit evidence, `dispute.evidence_submitted` fires so you
+know the response was represented to the network. The resolution events
+(`dispute.won` / `dispute.lost` / `dispute.closed`) tell you the final outcome.
 
 Any internal event type without a canonical dotted mapping is **not deliverable**
 on this contract.
@@ -90,13 +106,38 @@ Field notes:
   `data.metadata` and surfaced here.
 - **`created`** — **epoch SECONDS** (UTC), not milliseconds and not ISO-8601.
 - **`api_version`** — the constant string `"2026-06-16"`.
-- **`data.object`** — the normalized payment/refund object: PSP keys pass through
-  (minus any card subtree) plus an `object` discriminator (`"payment"` or
-  `"refund"`) and an `id`.
+- **`data.object`** — the normalized payment/refund/dispute object: PSP keys pass
+  through (minus any card subtree) plus an `object` discriminator (`"payment"`,
+  `"refund"`, or `"dispute"`) and an `id`. On a `dispute.*` event the object is a
+  **dispute** (see below).
 - **`data.metadata`** — the merchant correlation map **round-tripped from your
   create call** (`{}` if you sent none). This is NOT the PSP echo — it is exactly
   the `metadata` you supplied to `POST /v1/payments` (or the payment session).
-  Use it to correlate the event back to your own records.
+  Use it to correlate the event back to your own records. (Dispute events carry
+  `{}` unless merchant metadata is attached.)
+
+### Dispute `data.object`
+
+On a `dispute.*` event, `data.object` is a **dispute** object. Correlate it back
+to the original payment via `payment_id`:
+
+```json
+{
+  "id": "dp_3f2a9c1b",
+  "object": "dispute",
+  "dispute_id": "dp_3f2a9c1b",
+  "payment_id": "pay_test_abc123",
+  "amount": 5000,
+  "currency": "USD",
+  "status": "OPENED",
+  "reason": "10.4",
+  "evidence_due_by": "2026-07-10T00:00:00Z"
+}
+```
+
+`amount` is the disputed amount in minor units; `status` is the dispute state
+(`OPENED` → `EVIDENCE_NEEDED` → `EVIDENCE_SUBMITTED` → `WON` | `LOST` | `EXPIRED`).
+A test-simulated dispute (`POST /v1/test/disputes`) carries `livemode: false`.
 
 ---
 
@@ -279,3 +320,34 @@ this, **you cannot deliver to `localhost`** in local dev. To receive webhooks
 locally, either run a public HTTPS tunnel (e.g. `ngrok http 4000`) and register
 the tunnel URL, or verify signatures offline against events you construct
 yourself with the `whsec_…` secret. See `docs/LOCAL_DEV.md` §6.
+
+---
+
+## 9. Simulating dispute webhooks (test mode)
+
+To exercise your **chargeback handling** end-to-end without waiting for a real
+network dispute, use the test-mode simulator:
+
+```
+POST /v1/test/disputes
+Authorization: Bearer sk_test_…
+{ "payment_id": "pay_test_abc123", "amount": 5000, "currency": "USD", "reason": "10.4" }
+```
+
+It opens a dispute on the given **test** payment under your tenant and emits a
+`dispute.created` (and `dispute.funds_withdrawn`) webhook — `livemode: false` —
+through the exact signed delivery pipeline a real chargeback uses, so your
+verification, dedupe, and credit-reversal logic all run for real.
+
+Hard rules:
+
+- **Test keys only.** A `sk_live_` key gets `404` — the endpoint is unreachable
+  in live mode (no production oracle).
+- **Test payment only.** `payment_id` must be a `pay_test_*` id; anything else is
+  rejected `400`.
+- **Your tenant only.** The dispute is opened under the authenticated key's
+  tenant, so the events fan out to **your** subscribed endpoints only.
+
+With `@nexus-pay/node`: `client.simulateTestDispute({ paymentId: 'pay_test_abc123' })`.
+Read disputes back with `client.listDisputes()`, `client.getDispute(id)`, and
+`client.listDisputeEvents(id)`.

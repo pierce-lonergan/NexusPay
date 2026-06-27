@@ -1,5 +1,6 @@
 package io.nexuspay.iam.domain;
 
+import io.nexuspay.common.tenant.LiveModePrincipal;
 import io.nexuspay.common.tenant.ScopedPrincipal;
 import io.nexuspay.common.tenant.TenantPrincipal;
 
@@ -42,7 +43,7 @@ public record NexusPayPrincipal(
         String sessionId,
         boolean live,         // INT-3: server-derived from the API key's is_live (true for JWT/OIDC)
         Set<String> scopes    // DX-5c-ii: null/empty = UNRESTRICTED; non-empty = restricted to these
-) implements TenantPrincipal, ScopedPrincipal {
+) implements TenantPrincipal, ScopedPrincipal, LiveModePrincipal {
     /**
      * Constructor without sessionId (backward-compatible for JWT and API key auth).
      *
