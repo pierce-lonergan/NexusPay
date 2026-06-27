@@ -136,6 +136,62 @@ export interface RefundApproval {
 /** Discriminated union on `requires_approval` — the caller narrows. */
 export type CreateRefundResult = Refund | RefundApproval;
 
+// ---- dispute (TEST-2) ----
+
+/**
+ * A server-side Dispute as returned by `GET /v1/disputes`, `GET /v1/disputes/{id}`,
+ * and `POST /v1/test/disputes`. Field names mirror the gateway-api wire shape.
+ */
+export interface Dispute {
+  id: string;
+  tenant_id?: string;
+  payment_id: string;
+  external_dispute_id?: string;
+  reason_code?: string;
+  reason_description?: string;
+  amount: number;
+  currency: string;
+  status: string;
+  network?: string;
+  outcome?: string;
+  evidence_due_date?: string;
+  evidence_submitted_at?: string;
+  resolved_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One entry of a dispute's immutable event timeline (`GET /v1/disputes/{id}/events`). */
+export interface DisputeEvent {
+  id: string;
+  dispute_id: string;
+  event_type: string;
+  old_status?: string;
+  new_status?: string;
+  actor?: string;
+  details?: Metadata;
+  created_at: string;
+}
+
+export interface ListDisputesParams {
+  status?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * Params for the TEST-MODE-only dispute simulator (`POST /v1/test/disputes`). Only
+ * reachable with a TEST key (sk_test_); a live key is rejected. Opens a dispute
+ * (chargeback) on a test payment under the caller's tenant so an integrator can
+ * exercise dispute-webhook handling locally.
+ */
+export interface SimulateDisputeParams {
+  paymentId: string;
+  amount?: number;
+  currency?: string;
+  reason?: string;
+}
+
 // ---- per-call options ----
 export interface RequestOptions {
   idempotencyKey?: string;
@@ -167,14 +223,39 @@ export const WEBHOOK_EVENT_TYPES = [
   'payment.refund.created',
   'payment.refunded',
   'payment.refund.failed',
+  // TEST-2 dispute / chargeback lifecycle. MUST stay in sync with the platform
+  // WebhookEventTaxonomy.CANONICAL set — WebhookEventTaxonomyParityTest fails CI on drift.
+  'dispute.created',
+  'dispute.funds_withdrawn',
+  'dispute.evidence_needed',
+  'dispute.evidence_submitted',
+  'dispute.won',
+  'dispute.lost',
+  'dispute.closed',
 ] as const;
 
 export type WebhookEventType = (typeof WEBHOOK_EVENT_TYPES)[number];
 
 export interface WebhookEventObject {
   id: string;
-  object: 'payment' | 'refund';
+  object: 'payment' | 'refund' | 'dispute';
   [k: string]: unknown;
+}
+
+/**
+ * The `data.object` carried by a `dispute.*` webhook (TEST-2). Mirrors the
+ * gateway-api dispute payload: minor-unit `amount`, the originating `payment_id`,
+ * the dispute `status`, the network `reason`, and the evidence deadline.
+ */
+export interface DisputeWebhookObject extends WebhookEventObject {
+  object: 'dispute';
+  dispute_id: string;
+  payment_id?: string;
+  amount?: number;
+  currency?: string;
+  status?: string;
+  reason?: string;
+  evidence_due_by?: string;
 }
 
 export interface WebhookEvent<T extends WebhookEventObject = WebhookEventObject> {

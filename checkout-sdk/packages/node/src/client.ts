@@ -20,9 +20,13 @@ import type {
   CreatePaymentSessionParams,
   CreateRefundParams,
   CreateRefundResult,
+  Dispute,
+  DisputeEvent,
+  ListDisputesParams,
   Payment,
   PaymentSession,
   RequestOptions,
+  SimulateDisputeParams,
 } from './types';
 
 export interface NexusPayOptions {
@@ -240,6 +244,60 @@ export class NexusPay {
       });
     }
     return result;
+  }
+
+  // ---- disputes (TEST-2) ----
+
+  /**
+   * Lists the caller tenant's disputes (`GET /v1/disputes`), optionally filtered
+   * by status. Requires the `disputes:read` scope. Results are scoped to the
+   * authenticated key's tenant server-side — never a client header.
+   */
+  listDisputes(params?: ListDisputesParams, opts?: RequestOptions): Promise<Dispute[]> {
+    const search = new URLSearchParams();
+    if (params?.status !== undefined) search.set('status', params.status);
+    if (params?.limit !== undefined) search.set('limit', String(params.limit));
+    if (params?.offset !== undefined) search.set('offset', String(params.offset));
+    const qs = search.toString();
+    const path = qs ? `/v1/disputes?${qs}` : '/v1/disputes';
+    return this.request<Dispute[]>('GET', path, undefined, opts);
+  }
+
+  /** Retrieves one dispute by id (`GET /v1/disputes/{id}`). Requires `disputes:read`. */
+  getDispute(id: string, opts?: RequestOptions): Promise<Dispute> {
+    return this.request<Dispute>('GET', `/v1/disputes/${encodeURIComponent(id)}`, undefined, opts);
+  }
+
+  /**
+   * Retrieves a dispute's immutable event timeline
+   * (`GET /v1/disputes/{id}/events`). Requires `disputes:read`.
+   */
+  listDisputeEvents(id: string, opts?: RequestOptions): Promise<DisputeEvent[]> {
+    return this.request<DisputeEvent[]>(
+      'GET',
+      `/v1/disputes/${encodeURIComponent(id)}/events`,
+      undefined,
+      opts,
+    );
+  }
+
+  /**
+   * TEST-MODE simulator (`POST /v1/test/disputes`). Opens a dispute (chargeback)
+   * on a test payment under the caller's tenant so an integrator can drive their
+   * dispute-webhook handling locally — the open emits a `dispute.created` webhook
+   * through the same signed delivery pipeline a real chargeback would.
+   *
+   * Hard-gated to TEST keys: a LIVE key (`sk_live_`) is rejected with 404 (no
+   * oracle). Only callable with an `sk_test_` key.
+   */
+  simulateTestDispute(params: SimulateDisputeParams, opts?: RequestOptions): Promise<Dispute> {
+    const body = compact({
+      payment_id: params.paymentId,
+      amount: params.amount,
+      currency: params.currency,
+      reason: params.reason,
+    });
+    return this.request<Dispute>('POST', '/v1/test/disputes', body, opts);
   }
 
   private async request<T>(
