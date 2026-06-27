@@ -22,4 +22,9 @@ dependencies {
     runtimeOnly(rootProject.libs.postgresql)
 
     testImplementation(rootProject.libs.wiremock.standalone)
+    // TEST-3a: CustomerControllerScopeEnforcementTest is this module's first @WebMvcTest security slice; it
+    // uses SecurityMockMvcRequestPostProcessors.authentication (spring-security-test). The convention only
+    // injects spring-boot-starter-test (JUnit/Mockito/MockMvc), so the security-test artifact is explicit —
+    // same testImplementation already declared by billing + fraud for their scope-enforcement slices.
+    testImplementation("org.springframework.security:spring-security-test")
 }
