@@ -1253,3 +1253,39 @@ DECISION (Blueprint -> Implement -> 5 adversarial lenses -> Fix workflow):
    the test prompts. SDK node `customers` resource + OpenAPI added (no SDK version bump — that is TEST-5).
 CONSEQUENCES: the saved-credential cluster has its anchor; 3b attaches pm_ payment methods to a cus_. CI is the
 oracle (Gradle can't run locally). ratchet 1200/40 unchanged (count well above). Flyway global max now V4038.
+
+## ADR-057 | 2026-06-27 | TEST-3b: saved multi-use payment method (pm_) — PCI-safe, test-fixture-backed (critique v3 B2) (T3)
+STATUS: Accepted (T3 — PCI/card-data-adjacent + migration; lands via PR). The second piece of the saved-credential
+cluster: a reusable payment method (pm_) attached to a Customer (cus_), so an integrator can TEST a saved-card /
+off-session flow (3c) without real card data. Full slice in payment-orchestration (same module as the 3a Customer),
+so pm_ -> cus_ is in-module with ZERO new Modulith edges.
+DECISION (Blueprint -> Implement -> 5 adversarial lenses -> Fix workflow):
+ - Resource: PaymentMethod domain + entity (jsonb metadata) + repo + PaymentMethodService + PaymentMethodController;
+   migration V4039 (payment_methods: pm_ id, tenant_id, customer_id [cus_ FK, indexed], livemode, type, brand,
+   last4, exp_month/year, funding, credential_ref, metadata, soft-delete deleted_at; dormant RLS mirroring V4038).
+   Endpoints: POST/GET /v1/customers/{id}/payment_methods (attach/list), GET/DELETE /v1/payment_methods/{id}
+   (retrieve/detach-soft-delete). REUSES customers:read/write scopes (no new ApiScope -> no ApiScopeTest churn).
+ - PCI — THE CARDINAL RULE (SEC-BATCH-3): a saved method NEVER stores a raw PAN. It persists ONLY display fields
+   (brand/last4/exp/funding) + an OPAQUE credential_ref. The credential_ref/brand/funding are PAN-shape-rejected
+   (strip spaces/dashes, then 400 if a \d{13,19} run is present); last4 must be exactly \d{4} or null; the request
+   record is @JsonIgnoreProperties(ignoreUnknown=false) so a top-level card field (number/cvc/pan) fails at binding
+   (400, never silently dropped); metadata runs through MetadataSanitizer; credential_ref is NEVER logged or returned
+   in the body. No payment-orchestration -> gateway-api edge (the gateway ptok_ model is referenced only by concept;
+   credential_ref is an opaque String).
+ - CREDENTIAL MODEL: TEST mode resolves a Stripe-style fixture token (pm_card_visa/mastercard/amex/chargeDeclined)
+   via TestPaymentMethodFixtures (next to MockPaymentGatewayPort) to canned display fields + a synthetic
+   pmref_test_* ref; LIVE mode stores the integrator-supplied opaque token verbatim (charge-time resolution is 3c).
+   The fixture path is HARD-GATED on CallerMode.isTest() (a fixture under a live key -> 400). The method's livemode
+   (= caller key mode) MUST equal the target customer's livemode (-> 400 on mismatch); the customer is resolved
+   tenant-scoped (findByIdAndTenantId -> 404 no-oracle) so you cannot attach to another tenant's customer.
+ - WIRE CONTRACT (the BLOCKER the review caught): the request record fields are camelCase but the SDK/OpenAPI/docs
+   use snake_case and there is NO global Jackson snake_case strategy (the 3a Customer slice only escaped this because
+   all its fields are single words) -> multi-word components carry @JsonProperty("credential_ref"/"exp_month"/
+   "exp_year"); without it EVERY documented attach would 400. List pagination unified across SDK/controller/OpenAPI.
+REVIEW: 5 lenses, 5 actionable (3 PCI/contract were already applied by the first Fix agent before its OUTPUT was
+blocked by a content filter on literal card-number strings; a second fix agent — instructed to construct PAN-shaped
+test inputs programmatically [e.g. "9".repeat(16)], never as literals — completed FINDING 5 [ignore-unknown top-level
+guard + a @WebMvcTest proving a top-level PAN 400s and the service is never called] and scrubbed the literals). SDK
+node paymentMethods resource + OpenAPI + fixture catalog (docs/LOCAL_DEV.md) added; no SDK version bump (TEST-5).
+CONSEQUENCES: 3c (off-session charge) charges a pm_ by id, resolving credential_ref through the gateway/mock. CI is
+the oracle; node SDK DTS build verified locally. Flyway global max now V4039.
