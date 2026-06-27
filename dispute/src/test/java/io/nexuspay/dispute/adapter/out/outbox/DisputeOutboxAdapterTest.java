@@ -32,7 +32,11 @@ class DisputeOutboxAdapterTest {
 
     private EntityManager entityManager;
     private Query query;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    // findAndRegisterModules() picks up JavaTimeModule (jackson-datatype-jsr310, transitive via
+    // spring-boot-starter-web) so the EventEnvelope's Instant timestamp serializes exactly as it does
+    // under the Spring-configured ObjectMapper in production. A bare new ObjectMapper() cannot serialize
+    // Instant and would make the adapter's writeValueAsString throw before any row is written.
+    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
     private DisputeOutboxAdapter adapter;
 
     @BeforeEach
