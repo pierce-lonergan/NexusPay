@@ -24,7 +24,8 @@ class ApiScopeTest {
                 "webhooks:read", "webhooks:write",
                 "keys:write",
                 "vault:read", "vault:write",
-                "disputes:read", "disputes:write");
+                "disputes:read", "disputes:write",
+                "customers:read", "customers:write");
     }
 
     @Test
