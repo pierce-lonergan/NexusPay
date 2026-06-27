@@ -242,6 +242,57 @@ curl -X POST http://localhost:8090/v1/refunds \
   -d '{"payment_id":"pay_test_...","amount":1066,"currency":"USD"}'
 ```
 
+### Saved payment-method test fixtures (TEST-MODE ONLY) — TEST-3b
+
+A saved, multi-use payment method (`pm_…`) attaches a reusable credential to a
+customer (`cus_…`) so an integrator can exercise a saved-card / off-session flow
+**without any real card data**. **PCI: a raw PAN is never accepted or stored** —
+the endpoint takes only display fields + an opaque `credential_ref`; a body that
+smuggles a `number`/`cvc`/`cvv`/`pan`/`card` field is rejected **400** and never
+persisted.
+
+In **TEST mode** you supply a Stripe-style **fixture token** as `credential_ref`.
+It resolves server-side to canned display fields plus a synthetic opaque
+credential handle (which the later off-session charge resolves through the mock).
+Fixture tokens are accepted **ONLY under an `sk_test_` key** — a fixture token
+under a live key is rejected **400** (mode gate). A real opaque token under a test
+key is allowed (it just isn't fixture-resolvable; it is stored verbatim).
+
+| `credential_ref` fixture | brand | last4 | notes |
+| --- | --- | --- | --- |
+| `pm_card_visa` | visa | 4242 | exp 12/2034, funding credit |
+| `pm_card_mastercard` | mastercard | 4444 | exp 12/2034, funding credit |
+| `pm_card_amex` | amex | 0005 | exp 12/2034, funding credit |
+| `pm_card_chargeDeclined` | visa | 0002 | saveable; the synthetic ref encodes a decline a future off-session charge honors — the **attach itself still succeeds** |
+
+In **LIVE mode** you supply an already-tokenized opaque reference (e.g. a
+`ptok_`/PSP pm id) as `credential_ref`; it is stored verbatim and the display
+fields (`brand`/`last4`/…) come from the request body (the server never parses a
+PAN).
+
+```bash
+# attach pm_card_visa to a customer under a TEST key
+curl -X POST http://localhost:8090/v1/customers/cus_.../payment_methods \
+  -H "Authorization: Bearer sk_test_..." \
+  -H "Content-Type: application/json" \
+  -d '{"type":"card","credential_ref":"pm_card_visa"}'
+```
+
+The response never exposes the tenant or the `credential_ref`:
+
+```json
+{
+  "id": "pm_...",
+  "object": "payment_method",
+  "livemode": false,
+  "type": "card",
+  "customer": "cus_...",
+  "card": { "brand": "visa", "last4": "4242", "exp_month": 12, "exp_year": 2034, "funding": "credit" },
+  "metadata": null,
+  "created": 1750000000
+}
+```
+
 ---
 
 ## 6. SEC-4b caveat — webhooks CANNOT be delivered to `localhost`

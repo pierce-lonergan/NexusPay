@@ -20,15 +20,19 @@ import type {
   CreatePaymentSessionParams,
   CreateRefundParams,
   CreateRefundResult,
+  AttachPaymentMethodParams,
   Customer,
   CustomerCreateParams,
   CustomerUpdateParams,
   DeletedCustomer,
+  DeletedPaymentMethod,
   Dispute,
   DisputeEvent,
   ListCustomersParams,
   ListDisputesParams,
+  ListPaymentMethodsParams,
   Payment,
+  PaymentMethod,
   PaymentSession,
   RequestOptions,
   SimulateDisputeParams,
@@ -366,6 +370,81 @@ export class NexusPay {
     return this.request<DeletedCustomer>(
       'DELETE',
       `/v1/customers/${encodeURIComponent(id)}`,
+      undefined,
+      opts,
+    );
+  }
+
+  // ---- payment methods (TEST-3b) ----
+
+  /**
+   * Attaches a saved, multi-use payment method to a customer
+   * (`POST /v1/customers/{customerId}/payment_methods`). Requires the `customers:write` scope. `livemode`
+   * is server-derived from the key mode and must equal the customer's livemode. `credentialRef` is a
+   * TEST-mode fixture token (e.g. `pm_card_visa`) under a test key, or an opaque pre-tokenized reference
+   * under a live key — NEVER a raw card number. The tenant is derived from the key server-side.
+   */
+  attachPaymentMethod(
+    customerId: string,
+    params: AttachPaymentMethodParams,
+    opts?: RequestOptions,
+  ): Promise<PaymentMethod> {
+    const body = compact({
+      type: params.type,
+      credential_ref: params.credentialRef,
+      brand: params.brand,
+      last4: params.last4,
+      exp_month: params.expMonth,
+      exp_year: params.expYear,
+      funding: params.funding,
+      metadata: params.metadata,
+    });
+    return this.request<PaymentMethod>(
+      'POST',
+      `/v1/customers/${encodeURIComponent(customerId)}/payment_methods`,
+      body,
+      opts,
+    );
+  }
+
+  /**
+   * Lists a customer's live (non-detached) saved methods
+   * (`GET /v1/customers/{customerId}/payment_methods`). Requires `customers:read`. A foreign-tenant
+   * customer id returns 404 (no existence oracle).
+   */
+  listPaymentMethods(
+    customerId: string,
+    params?: ListPaymentMethodsParams,
+    opts?: RequestOptions,
+  ): Promise<PaymentMethod[]> {
+    const search = new URLSearchParams();
+    if (params?.limit !== undefined) search.set('limit', String(params.limit));
+    if (params?.offset !== undefined) search.set('offset', String(params.offset));
+    const qs = search.toString();
+    const base = `/v1/customers/${encodeURIComponent(customerId)}/payment_methods`;
+    const path = qs ? `${base}?${qs}` : base;
+    return this.request<PaymentMethod[]>('GET', path, undefined, opts);
+  }
+
+  /** Retrieves one saved method by id (`GET /v1/payment_methods/{id}`). Requires `customers:read`. */
+  getPaymentMethod(id: string, opts?: RequestOptions): Promise<PaymentMethod> {
+    return this.request<PaymentMethod>(
+      'GET',
+      `/v1/payment_methods/${encodeURIComponent(id)}`,
+      undefined,
+      opts,
+    );
+  }
+
+  /**
+   * Detaches (soft-deletes) a saved method (`DELETE /v1/payment_methods/{id}`). Requires
+   * `customers:write`. Returns `{ id, object: 'payment_method', deleted: true }`. A foreign-tenant id
+   * returns 404 (no oracle).
+   */
+  detachPaymentMethod(id: string, opts?: RequestOptions): Promise<DeletedPaymentMethod> {
+    return this.request<DeletedPaymentMethod>(
+      'DELETE',
+      `/v1/payment_methods/${encodeURIComponent(id)}`,
       undefined,
       opts,
     );

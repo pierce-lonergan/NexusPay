@@ -236,6 +236,66 @@ export interface DeletedCustomer {
   deleted: true;
 }
 
+// ---- payment methods (TEST-3b) ----
+
+/**
+ * The display surface of a saved payment method (snake_case wire shape). NEVER carries a raw PAN — only
+ * the brand/last4/expiry/funding a saved card legitimately exposes.
+ */
+export interface PaymentMethodCard {
+  brand?: string;
+  last4?: string;
+  exp_month?: number;
+  exp_year?: number;
+  funding?: string;
+}
+
+/**
+ * A saved, multi-use payment method attached to a customer, as returned by
+ * `POST /v1/customers/{customerId}/payment_methods`, `GET /v1/customers/{customerId}/payment_methods`,
+ * and `GET /v1/payment_methods/{id}`. `customer` is the `cus_` id; `created` is epoch seconds. The
+ * tenant and the opaque credential_ref are NEVER present in the body.
+ */
+export interface PaymentMethod {
+  id: string;
+  object: 'payment_method';
+  livemode: boolean;
+  type: string;
+  customer: string;
+  card?: PaymentMethodCard;
+  metadata?: Metadata;
+  created: number;
+}
+
+/**
+ * Params for `attachPaymentMethod`. `credentialRef` is a TEST-mode fixture token (e.g. `pm_card_visa`)
+ * under a test key, or an opaque pre-tokenized reference (e.g. a `ptok_`/PSP pm id) under a live key —
+ * NEVER a raw card number. Display fields are used only on the live/opaque path (the fixture is
+ * authoritative in test mode). There is deliberately NO number/cvc/pan field.
+ */
+export interface AttachPaymentMethodParams {
+  type?: string;
+  credentialRef: string;
+  brand?: string;
+  last4?: string;
+  expMonth?: number;
+  expYear?: number;
+  funding?: string;
+  metadata?: Metadata;
+}
+
+export interface ListPaymentMethodsParams {
+  limit?: number;
+  offset?: number;
+}
+
+/** Body returned by `DELETE /v1/payment_methods/{id}` (detach = soft delete). */
+export interface DeletedPaymentMethod {
+  id: string;
+  object: 'payment_method';
+  deleted: true;
+}
+
 // ---- per-call options ----
 export interface RequestOptions {
   idempotencyKey?: string;

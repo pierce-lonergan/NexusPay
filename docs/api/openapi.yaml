@@ -43,6 +43,10 @@ tags:
     description: Read disputes (chargebacks) and their event timeline; simulate a dispute in test mode
   - name: Customers
     description: Manage customers (the anchor of the saved-credential cluster); tenant-scoped, soft-deletable
+  - name: Payment Methods
+    description: >-
+      Manage saved, multi-use payment methods attached to a customer; tenant-scoped, soft-deletable
+      (detach). PCI-safe — never accepts or stores a raw PAN.
   - name: Test Helpers
     description: Test-mode-only control endpoints (reachable ONLY with an sk_test_ key)
 
@@ -645,6 +649,134 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DeletedCustomer'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/customers/{customerId}/payment_methods:
+    post:
+      tags: [Payment Methods]
+      summary: Attach a saved payment method to a customer
+      description: >-
+        Scope: `customers:write`. Attaches a saved, multi-use payment method to a
+        tenant-owned customer under the AUTHENTICATED tenant (derived from the key,
+        never an `X-Tenant-Id` header). `livemode` is server-derived from the key
+        mode and MUST equal the customer's livemode (400 on mismatch). The id is
+        minted server-side (`pm_…`). A foreign-tenant customer id returns 404 (no
+        existence oracle). PCI: NO raw PAN is ever accepted — see
+        `AttachPaymentMethodRequest`.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - name: customerId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The `cus_` id to attach the method to (must belong to the caller's tenant).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttachPaymentMethodRequest'
+      responses:
+        '201':
+          description: The attached payment method
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentMethod'
+        '400':
+          description: >-
+            A raw-PAN-like body field, a fixture token under a live key, a
+            livemode mismatch, or an unknown/missing credential.
+        '404':
+          $ref: '#/components/responses/NotFound'
+    get:
+      tags: [Payment Methods]
+      summary: List a customer's saved payment methods
+      description: >-
+        Scope: `customers:read`. Lists the customer's live (non-detached) saved
+        methods, newest first. The customer is resolved tenant-scoped first — a
+        foreign-tenant customer id returns 404 (no existence oracle), NOT an empty
+        list.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - name: customerId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Max methods to return (default 20, capped at 100 server-side).
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          description: Number of methods to skip for pagination (default 0).
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: The customer's saved payment methods
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PaymentMethod'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/payment_methods/{id}:
+    get:
+      tags: [Payment Methods]
+      summary: Retrieve a saved payment method by id
+      description: >-
+        Scope: `customers:read`. Tenant-scoped — a foreign-tenant OR detached id
+        returns 404 with no existence oracle.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: The payment method
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentMethod'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Payment Methods]
+      summary: Detach a saved payment method (soft delete)
+      description: >-
+        Scope: `customers:write`. DETACH = soft-deletes the method (sets
+        `deleted_at`). After detach the method no longer appears in retrieve or the
+        customer's list. Tenant-scoped — a foreign-tenant OR already-detached id
+        returns 404 with no existence oracle.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: The payment method was detached
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletedPaymentMethod'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -1467,6 +1599,125 @@ components:
         object:
           type: string
           enum: [customer]
+        deleted:
+          type: boolean
+          enum: [true]
+
+    PaymentMethodCard:
+      type: object
+      description: >-
+        The display surface of a saved payment method. NEVER carries a raw PAN —
+        only the brand/last4/expiry/funding a saved card legitimately exposes.
+      properties:
+        brand:
+          type: string
+          nullable: true
+          example: visa
+        last4:
+          type: string
+          nullable: true
+          example: '4242'
+        exp_month:
+          type: integer
+          nullable: true
+          example: 12
+        exp_year:
+          type: integer
+          nullable: true
+          example: 2034
+        funding:
+          type: string
+          nullable: true
+          example: credit
+
+    PaymentMethod:
+      type: object
+      description: >-
+        A saved, multi-use payment method attached to a customer. Tenant-scoped;
+        the tenant and the opaque credential_ref are NEVER exposed in the body.
+      properties:
+        id:
+          type: string
+          description: Payment method id (prefixed `pm_…`).
+          example: pm_8a1c4d2e
+        object:
+          type: string
+          enum: [payment_method]
+        livemode:
+          type: boolean
+          description: Server-derived from the key mode; equals the customer's livemode.
+        type:
+          type: string
+          example: card
+        customer:
+          type: string
+          description: The `cus_` id this method is attached to.
+          example: cus_3f2a9c1b
+        card:
+          $ref: '#/components/schemas/PaymentMethodCard'
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+        created:
+          type: integer
+          format: int64
+          description: Creation time in epoch seconds.
+
+    AttachPaymentMethodRequest:
+      type: object
+      description: >-
+        Body for `POST /v1/customers/{customerId}/payment_methods`. Carries NO
+        tenant or livemode field (both are server-derived). PCI: NO raw PAN is ever
+        accepted — there is deliberately no `number`/`cvc`/`pan`/`card` field, and a
+        body smuggling one is rejected 400. In TEST mode `credential_ref` is a
+        fixture token (e.g. `pm_card_visa`, `pm_card_mastercard`, `pm_card_amex`,
+        `pm_card_chargeDeclined`) accepted ONLY under a `sk_test_` key (a fixture
+        under a live key -> 400); in LIVE mode it is an opaque pre-tokenized
+        reference (e.g. a `ptok_`/PSP pm id) stored verbatim. Display fields
+        (brand/last4/exp_month/exp_year/funding) are used only on the live/opaque
+        path — in test mode the fixture is authoritative.
+
+
+        Unknown top-level fields are REJECTED (400): the server binds this body with
+        `FAIL_ON_UNKNOWN_PROPERTIES=true`, so a smuggled `number`/`cvc`/`pan`/`card`
+        (or a card number under any innocuous key) fails at binding rather than being
+        silently dropped.
+      additionalProperties: false
+      required:
+        - credential_ref
+      properties:
+        type:
+          type: string
+          example: card
+        credential_ref:
+          type: string
+          description: A test fixture token (test mode) or an opaque pre-tokenized reference (live mode).
+          example: pm_card_visa
+        brand:
+          type: string
+        last4:
+          type: string
+        exp_month:
+          type: integer
+        exp_year:
+          type: integer
+        funding:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+
+    DeletedPaymentMethod:
+      type: object
+      description: Body returned by `DELETE /v1/payment_methods/{id}` (detach = soft delete).
+      properties:
+        id:
+          type: string
+          example: pm_8a1c4d2e
+        object:
+          type: string
+          enum: [payment_method]
         deleted:
           type: boolean
           enum: [true]
