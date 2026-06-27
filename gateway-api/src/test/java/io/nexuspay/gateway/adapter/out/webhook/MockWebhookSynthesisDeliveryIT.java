@@ -11,8 +11,12 @@ import io.nexuspay.gateway.adapter.out.persistence.WebhookDeliveryEntity;
 import io.nexuspay.gateway.adapter.out.persistence.WebhookEndpointEntity;
 import io.nexuspay.payment.adapter.out.outbox.OutboxEvent;
 import io.nexuspay.payment.adapter.out.outbox.OutboxEventRepository;
+import io.nexuspay.payment.adapter.out.persistence.PaymentWebhookMetadataEntity;
+import io.nexuspay.payment.adapter.out.persistence.PaymentWebhookMetadataRepository;
 import io.nexuspay.payment.application.screening.ScreeningOriginService;
 import io.nexuspay.payment.application.webhook.MockWebhookSynthesizer;
+import io.nexuspay.payment.application.webhook.WebhookMetadataPort;
+import io.nexuspay.payment.application.webhook.WebhookMetadataService;
 import io.nexuspay.payment.domain.PaymentResponse;
 import io.nexuspay.payment.domain.RefundResponse;
 import io.nexuspay.payment.domain.event.PaymentEvent;
@@ -131,13 +135,47 @@ class MockWebhookSynthesisDeliveryIT {
 
     /** Delivery service whose INT-1 metadata port returns the stored correlation map + __livemode. */
     private WebhookDeliveryService deliveryWithMetadata(Map<String, Object> storedMeta) {
+        return deliveryWithMetadataPort((gatewayPaymentId, tenant) -> storedMeta);
+    }
+
+    /**
+     * Delivery service whose INT-1 metadata port is the supplied {@link WebhookMetadataPort}. Used by the
+     * forced-decline leak test to wire the REAL {@link WebhookMetadataService} (so the delivered
+     * {@code data.metadata} is exactly what {@code sanitize()} stored), rather than a fixed stub map.
+     */
+    private WebhookDeliveryService deliveryWithMetadataPort(WebhookMetadataPort metadataPort) {
         // INT-4: a mocked delivery repo whose saveAndFlush echoes the row so recordDelivery returns a PENDING
         // row and the synthesized event still drives a real loopback delivery.
         JpaWebhookDeliveryRepository deliveryRepository = mock(JpaWebhookDeliveryRepository.class);
         when(deliveryRepository.saveAndFlush(any(WebhookDeliveryEntity.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
         return new WebhookDeliveryService(endpointRepository, deliveryRepository, objectMapper, tenantWork,
-                (gatewayPaymentId, tenant) -> storedMeta, false, loopbackPermittingGuard());
+                metadataPort, false, loopbackPermittingGuard());
+    }
+
+    /**
+     * TEST-1: a REAL {@link WebhookMetadataService} backed by a mocked repository that echoes saved rows on
+     * read. The merchant {@code merchantMeta} (which may include the reserved {@code __test_outcome} control
+     * key) is pushed through the genuine {@code record() -> sanitize()} write path under {@code tenant}, then
+     * recalled via {@code find()} at delivery — so a delivered envelope's {@code data.metadata} is exactly
+     * what the production store would hold. This exercises the authoritative leak guard end-to-end (the same
+     * one unit-proven by {@code WebhookMetadataServiceTest.testOutcomeControlKey_isStripped}).
+     */
+    private WebhookMetadataService realMetadataServiceWith(String paymentId, String tenant,
+                                                           Map<String, Object> merchantMeta) {
+        PaymentWebhookMetadataRepository repo = mock(PaymentWebhookMetadataRepository.class);
+        when(repo.existsById(any())).thenReturn(false);
+        Map<String, PaymentWebhookMetadataEntity> stored = new ConcurrentHashMap<>();
+        when(repo.save(any(PaymentWebhookMetadataEntity.class))).thenAnswer(inv -> {
+            PaymentWebhookMetadataEntity e = inv.getArgument(0);
+            stored.put(e.getGatewayPaymentId(), e);
+            return e;
+        });
+        when(repo.findById(any())).thenAnswer(inv -> Optional.ofNullable(stored.get(inv.getArgument(0))));
+        WebhookMetadataService service = new WebhookMetadataService(repo, objectMapper);
+        // server-derived livemode=false (TEST payment); record() sanitizes, stripping __test_outcome.
+        service.record(paymentId, tenant, merchantMeta, false);
+        return service;
     }
 
     private ConsumerRecord<String, String> record(String internalType, String outboxPayload) {
@@ -156,6 +194,13 @@ class MockWebhookSynthesisDeliveryIT {
     private static PaymentResponse capturedPayment(String id) {
         return new PaymentResponse(id, PaymentResponse.STATUS_SUCCEEDED, 4999, "USD", "automatic",
                 "cust_1", "mock", "txn_test_1", null, null, Instant.EPOCH, Map.of());
+    }
+
+    /** TEST-1: a forced-decline mock payment response (status=failed + error fields). */
+    private static PaymentResponse failedPayment(String id) {
+        return new PaymentResponse(id, PaymentResponse.STATUS_FAILED, 4999, "USD", "automatic",
+                "cust_1", "mock", "txn_test_1", "card_declined", "Your card was declined.",
+                Instant.EPOCH, Map.of());
     }
 
     /** The INT-1 metadata the V4030 store returns for a TEST payment: correlation keys + __livemode=false. */
@@ -244,6 +289,124 @@ class MockWebhookSynthesisDeliveryIT {
         assertThat(env.path("livemode").asBoolean()).isFalse();
         assertThat(env.path("data").path("object").path("object").asText()).isEqualTo("refund");
         assertThat(env.path("data").path("metadata").path("userId").asText()).isEqualTo("u1");
+    }
+
+    // ---- TEST-1: a forced decline synthesizes PaymentFailed -> delivers a canonical payment.failed ----
+
+    @Test
+    void forcedDecline_synthesizesPaymentFailed_deliversCanonicalFailedWebhook() throws Exception {
+        when(origins.find("pay_test_x")).thenReturn(
+                Optional.of(new ScreeningOriginService.Origin(TENANT,
+                        io.nexuspay.payment.application.screening.ScreeningMode.INTERACTIVE)));
+        synthesizer.onTerminalFailure(failedPayment("pay_test_x"), TENANT, PaymentEvent.PAYMENT_FAILED);
+
+        ArgumentCaptor<OutboxEvent> rowCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxRepository).save(rowCaptor.capture());
+        OutboxEvent row = rowCaptor.getValue();
+        assertThat(row.getAggregateType()).isEqualTo("Payment");
+        assertThat(row.getEventType()).isEqualTo(PaymentEvent.PAYMENT_FAILED);
+        assertThat(row.getAggregateId()).isEqualTo("pay_test_x");
+        assertThat(row.getTenantId()).isEqualTo(TENANT);
+
+        String secret = "whsec_test";
+        when(endpointRepository.findAllByTenantIdAndEnabledTrue(TENANT))
+                .thenReturn(List.of(new WebhookEndpointEntity("we_1", urlFor("/fail"), "d", secret,
+                        List.of("payment.failed"), TENANT)));
+        // TEST-1 end-to-end leak guard: wire the REAL WebhookMetadataService and push the integrator's
+        // merchant map — INCLUDING the reserved __test_outcome control key they set to force this decline —
+        // through the genuine record()->sanitize() write path under the trusted tenant. The delivery then
+        // recalls it via find(), so the DELIVERED data.metadata is exactly what production would store. This
+        // assertion would FAIL if __test_outcome were dropped from WebhookMetadataService.FORBIDDEN (i.e. a
+        // real leak), unlike the previous stub which sourced metadata that never contained the key at all.
+        Map<String, Object> merchantMeta = new LinkedHashMap<>();
+        merchantMeta.put("userId", "u1");
+        merchantMeta.put("packId", "p1");
+        merchantMeta.put("__test_outcome", "decline"); // forced-outcome control input — must never be delivered
+        WebhookMetadataService metadataService = realMetadataServiceWith("pay_test_x", TENANT, merchantMeta);
+        WebhookDeliveryService delivery = deliveryWithMetadataPort(metadataService);
+
+        delivery.onPaymentEvent(record(PaymentEvent.PAYMENT_FAILED, row.getPayload()));
+
+        assertThat(captures).hasSize(1);
+        JsonNode env = objectMapper.readTree(captures.get(0).body());
+        assertThat(env.path("type").asText()).isEqualTo("payment.failed");
+        assertThat(env.path("livemode").asBoolean()).as("TEST webhook -> livemode=false").isFalse();
+        JsonNode object = env.path("data").path("object");
+        assertThat(object.path("status").asText()).isEqualTo("failed");
+        assertThat(object.path("error_code").asText()).isEqualTo("card_declined");
+        JsonNode meta = env.path("data").path("metadata");
+        // (a) the reserved control key was stripped on the way INTO the store, so it can never be delivered.
+        assertThat(meta.has("__test_outcome")).as("forced-outcome control key must NOT leak to the merchant")
+                .isFalse();
+        // (b) the merchant's real correlation keys survive the sanitize round-trip and ARE delivered.
+        assertThat(meta.path("userId").asText()).isEqualTo("u1");
+        assertThat(meta.path("packId").asText()).isEqualTo("p1");
+        // (c) the server-reserved __livemode is also stripped by the serializer (lifted to top-level livemode).
+        assertThat(meta.has("__livemode")).as("reserved mode key must not leak").isFalse();
+    }
+
+    // ---- TEST-1: a forced refund failure synthesizes RefundFailed -> delivers payment.refund.failed ----
+
+    @Test
+    void forcedRefundFailure_synthesizesRefundFailed_deliversPaymentRefundFailed() throws Exception {
+        when(origins.find("pay_test_x")).thenReturn(
+                Optional.of(new ScreeningOriginService.Origin(TENANT,
+                        io.nexuspay.payment.application.screening.ScreeningMode.INTERACTIVE)));
+        RefundResponse failed = new RefundResponse("re_test_1", "pay_test_x",
+                RefundResponse.STATUS_FAILED, 1066, "USD", "req", "mock", "txn_test_2",
+                "refund_failed", "The refund failed at the processor.", Instant.EPOCH);
+
+        synthesizer.onRefundFailed(failed, TENANT, PaymentEvent.REFUND_FAILED);
+
+        ArgumentCaptor<OutboxEvent> rowCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxRepository).save(rowCaptor.capture());
+        OutboxEvent row = rowCaptor.getValue();
+        assertThat(row.getAggregateType()).isEqualTo("Refund");
+        assertThat(row.getEventType()).isEqualTo(PaymentEvent.REFUND_FAILED);
+        assertThat(row.getAggregateId()).isEqualTo("pay_test_x");
+
+        String secret = "whsec_test";
+        when(endpointRepository.findAllByTenantIdAndEnabledTrue(TENANT))
+                .thenReturn(List.of(new WebhookEndpointEntity("we_1", urlFor("/reffail"), "d", secret,
+                        List.of("payment.refund.failed"), TENANT)));
+        WebhookDeliveryService delivery = deliveryWithMetadata(testStoreMetadata());
+
+        delivery.onPaymentEvent(record(PaymentEvent.REFUND_FAILED, row.getPayload()));
+
+        assertThat(captures).hasSize(1);
+        JsonNode env = objectMapper.readTree(captures.get(0).body());
+        assertThat(env.path("type").asText()).isEqualTo("payment.refund.failed");
+        assertThat(env.path("livemode").asBoolean()).isFalse();
+        JsonNode object = env.path("data").path("object");
+        assertThat(object.path("object").asText()).isEqualTo("refund");
+        assertThat(object.path("status").asText()).isEqualTo("failed");
+        assertThat(object.path("error_code").asText()).isEqualTo("refund_failed");
+    }
+
+    // ---- TEST-1 back-compat guard: a normal (success) terminal still delivers payment.succeeded ----
+
+    @Test
+    void unforcedSuccess_stillDeliversPaymentSucceeded() throws Exception {
+        when(origins.find("pay_test_ok")).thenReturn(
+                Optional.of(new ScreeningOriginService.Origin(TENANT,
+                        io.nexuspay.payment.application.screening.ScreeningMode.INTERACTIVE)));
+        synthesizer.onTerminal(capturedPayment("pay_test_ok"), TENANT, PaymentEvent.PAYMENT_CAPTURED);
+
+        ArgumentCaptor<OutboxEvent> rowCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxRepository).save(rowCaptor.capture());
+
+        String secret = "whsec_test";
+        when(endpointRepository.findAllByTenantIdAndEnabledTrue(TENANT))
+                .thenReturn(List.of(new WebhookEndpointEntity("we_1", urlFor("/ok"), "d", secret,
+                        List.of("payment.succeeded"), TENANT)));
+        WebhookDeliveryService delivery = deliveryWithMetadata(testStoreMetadata());
+
+        delivery.onPaymentEvent(record(PaymentEvent.PAYMENT_CAPTURED, rowCaptor.getValue().getPayload()));
+
+        assertThat(captures).hasSize(1);
+        JsonNode env = objectMapper.readTree(captures.get(0).body());
+        assertThat(env.path("type").asText()).isEqualTo("payment.succeeded");
+        assertThat(env.path("data").path("object").path("status").asText()).isEqualTo("succeeded");
     }
 
     // ---- guard: reverting synthesis (no outbox write) would mean no delivery at all ----

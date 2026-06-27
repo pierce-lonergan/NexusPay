@@ -32,6 +32,13 @@ class MockPaymentGatewayPortTest {
                 null, "desc", captureMethod, "idem-1", Map.of("userId", "u1", "packId", "p1"));
     }
 
+    /** A TEST-1 create request carrying the reserved {@code __test_outcome} control value. */
+    private static PaymentRequest reqWithOutcome(String outcome) {
+        return new PaymentRequest(5000, "USD", "cust_42", "card", "4111111111111111",
+                null, "desc", "automatic", "idem-1",
+                Map.of("userId", "u1", MockPaymentGatewayPort.TEST_OUTCOME_KEY, outcome));
+    }
+
     @Test
     void autoCaptureCreate_isSucceeded_withTestIdAndEchoes() {
         PaymentResponse r = mock.createPayment(req("automatic"));
@@ -107,6 +114,91 @@ class MockPaymentGatewayPortTest {
         assertThat(r.currency()).isEqualTo("USD");
         assertThat(r.reason()).isEqualTo("duplicate");
         assertThat(mock.getRefund(r.gatewayRefundId()).gatewayRefundId()).isEqualTo(r.gatewayRefundId());
+    }
+
+    // ---- TEST-1: forced-outcome convention (TEST-MODE ONLY) ----
+
+    @Test
+    void forcedDecline_failsWithCardDeclined_andIsStored() {
+        PaymentResponse r = mock.createPayment(reqWithOutcome("declined"));
+
+        assertThat(r.gatewayPaymentId()).startsWith("pay_test_");
+        assertThat(r.status()).isEqualTo(PaymentResponse.STATUS_FAILED);
+        assertThat(r.errorCode()).isEqualTo("card_declined");
+        assertThat(r.errorMessage()).isEqualTo("Your card was declined.");
+        // amount/currency/customer are still echoed on a failed create.
+        assertThat(r.amount()).isEqualTo(5000);
+        assertThat(r.currency()).isEqualTo("USD");
+        assertThat(r.customerId()).isEqualTo("cust_42");
+        // a failed intent is still stored so getPayment works.
+        assertThat(mock.getPayment(r.gatewayPaymentId()).status()).isEqualTo(PaymentResponse.STATUS_FAILED);
+    }
+
+    @Test
+    void forcedInsufficientFunds_failsWithMatchingErrorCode() {
+        PaymentResponse r = mock.createPayment(reqWithOutcome("insufficient_funds"));
+        assertThat(r.status()).isEqualTo(PaymentResponse.STATUS_FAILED);
+        assertThat(r.errorCode()).isEqualTo("insufficient_funds");
+        assertThat(r.errorMessage()).isEqualTo("Your card has insufficient funds.");
+    }
+
+    @Test
+    void forcedExpiredCard_failsWithMatchingErrorCode() {
+        PaymentResponse r = mock.createPayment(reqWithOutcome("expired_card"));
+        assertThat(r.status()).isEqualTo(PaymentResponse.STATUS_FAILED);
+        assertThat(r.errorCode()).isEqualTo("expired_card");
+        assertThat(r.errorMessage()).isEqualTo("Your card has expired.");
+    }
+
+    @Test
+    void forcedOutcome_isCaseInsensitive() {
+        assertThat(mock.createPayment(reqWithOutcome("DECLINED")).status())
+                .isEqualTo(PaymentResponse.STATUS_FAILED);
+        assertThat(mock.createPayment(reqWithOutcome("  Expired_Card  ")).errorCode())
+                .isEqualTo("expired_card");
+    }
+
+    @Test
+    void explicitSucceed_keepsSuccess_byteIdenticalToAbsent() {
+        PaymentResponse r = mock.createPayment(reqWithOutcome("succeed"));
+        assertThat(r.status()).isEqualTo(PaymentResponse.STATUS_SUCCEEDED);
+        assertThat(r.errorCode()).isNull();
+        assertThat(r.errorMessage()).isNull();
+    }
+
+    @Test
+    void unknownOutcome_doesNotFail_defaultsToSuccess() {
+        // A typo must NOT silently break a happy-path test — unknown -> normal success.
+        PaymentResponse r = mock.createPayment(reqWithOutcome("declyned"));
+        assertThat(r.status()).isEqualTo(PaymentResponse.STATUS_SUCCEEDED);
+        assertThat(r.errorCode()).isNull();
+    }
+
+    @Test
+    void absentOutcome_isUnchangedSuccess() {
+        PaymentResponse r = mock.createPayment(req("automatic"));
+        assertThat(r.status()).isEqualTo(PaymentResponse.STATUS_SUCCEEDED);
+        assertThat(r.errorCode()).isNull();
+    }
+
+    @Test
+    void forcedRefundFailure_viaMagicAmount_failsWithRefundFailedCode() {
+        // amount % 100 == 66 -> forced refund failure (the documented sentinel).
+        RefundResponse r = mock.createRefund(new RefundRequest("pay_test_1", 1066, "USD", "dup", "k"));
+
+        assertThat(r.gatewayRefundId()).startsWith("re_test_");
+        assertThat(r.status()).isEqualTo(RefundResponse.STATUS_FAILED);
+        assertThat(r.errorCode()).isEqualTo("refund_failed");
+        assertThat(r.errorMessage()).isNotBlank();
+        assertThat(mock.getRefund(r.gatewayRefundId()).status()).isEqualTo(RefundResponse.STATUS_FAILED);
+    }
+
+    @Test
+    void refundWithoutSentinelAmount_isUnchangedSuccess() {
+        // 4999 % 100 == 99 -> not the sentinel -> succeeds (existing behavior).
+        RefundResponse r = mock.createRefund(new RefundRequest("pay_test_1", 4999, "USD", "dup", "k"));
+        assertThat(r.status()).isEqualTo(RefundResponse.STATUS_SUCCEEDED);
+        assertThat(r.errorCode()).isNull();
     }
 
     @Test

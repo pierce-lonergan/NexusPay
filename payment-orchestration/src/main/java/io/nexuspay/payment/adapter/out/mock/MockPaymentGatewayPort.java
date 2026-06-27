@@ -14,7 +14,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -36,6 +38,22 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>Id scheme (Stripe-style test ids): payments {@code pay_test_*}, refunds {@code re_test_*},
  * connector {@code "mock"}, connector txn {@code txn_test_*}.</p>
+ *
+ * <p><b>TEST-1 forced outcomes (TEST-MODE ONLY).</b> By default every mock create succeeds — an
+ * integrator could never exercise decline/failure handling without a real declined card (which the
+ * sandbox charter forbids). So {@link #createPayment} honors a reserved, SERVER-CONTROL metadata key
+ * {@code __test_outcome} (case-insensitive value): {@code "declined"}, {@code "insufficient_funds"},
+ * {@code "expired_card"} force a {@code STATUS_FAILED} response with the matching {@code error_code} +
+ * {@code error_message} (single source of truth: {@link ForcedOutcome}); absent / {@code "succeed"} / an
+ * UNKNOWN value preserves the existing success behavior byte-for-byte (an unknown value must NEVER fail a
+ * happy-path test — it is logged at debug, not honored). {@link #createRefund} forces a failed refund via
+ * a documented MAGIC AMOUNT sentinel ({@code amount % 100 == }{@value #REFUND_FAILURE_SENTINEL}), because
+ * {@code RefundRequest} carries no metadata map.
+ *
+ * <p>This mechanism is reachable ONLY through this mock, which is reachable ONLY when {@code
+ * GatedPaymentGateway.routeToMock(...)} is true (a TEST key / {@code livemode=false}); an {@code sk_live_}
+ * key can NEVER reach the mock. So a forced FAILURE can never cancel/skip a REAL charge or touch
+ * HyperSwitch — it moves no real money and does zero network I/O, exactly like every other mock op.</p>
  */
 @Component
 public class MockPaymentGatewayPort implements PaymentGatewayPort {
@@ -44,6 +62,81 @@ public class MockPaymentGatewayPort implements PaymentGatewayPort {
 
     /** Connector name stamped on every mock response (mirrors HyperSwitch's connector field). */
     public static final String CONNECTOR = "mock";
+
+    /**
+     * TEST-1: the reserved, SERVER-CONTROL metadata key an integrator sets on a TEST-mode create to force a
+     * deterministic non-success outcome. Like {@code __livemode} it is a server-reserved control key (the
+     * {@code __} prefix) — it must NEVER leak into a delivered webhook's {@code data.metadata}
+     * ({@code WebhookMetadataService} strips it; see RESERVED-KEY HYGIENE).
+     */
+    public static final String TEST_OUTCOME_KEY = "__test_outcome";
+
+    /**
+     * TEST-1 refund-failure signal. {@code RefundRequest} has no metadata map, so a forced refund FAILURE is
+     * signalled by a documented MAGIC AMOUNT: a refund whose minor-units {@code amount % 100 ==} this
+     * sentinel forces {@code STATUS_FAILED} + {@code error_code "refund_failed"}. Any other amount keeps the
+     * existing {@code STATUS_SUCCEEDED} behavior. Chosen because it is the only deterministic signal already
+     * present on {@code RefundRequest} (no new field/collaborator) and is trivially reproducible in a curl.
+     */
+    public static final int REFUND_FAILURE_SENTINEL = 66;
+
+    /** TEST-1: the forced-refund-failure error code (mirrors a PSP {@code refund_failed}). */
+    public static final String REFUND_FAILED_CODE = "refund_failed";
+
+    /**
+     * TEST-1 single-source-of-truth mapping for forced PAYMENT failures: outcome string -&gt;
+     * ({@code error_code}, {@code error_message}). A {@code null} {@link #lookup(Object)} result means
+     * "no forced failure" — keep the existing success/requires_capture behavior.
+     */
+    private enum ForcedOutcome {
+        DECLINED("declined", "card_declined", "Your card was declined."),
+        INSUFFICIENT_FUNDS("insufficient_funds", "insufficient_funds", "Your card has insufficient funds."),
+        EXPIRED_CARD("expired_card", "expired_card", "Your card has expired.");
+
+        /** A normal (non-failing) sentinel an integrator may pass to be explicit — maps to NO failure. */
+        private static final String SUCCEED = "succeed";
+
+        private final String token;
+        final String errorCode;
+        final String errorMessage;
+
+        ForcedOutcome(String token, String errorCode, String errorMessage) {
+            this.token = token;
+            this.errorCode = errorCode;
+            this.errorMessage = errorMessage;
+        }
+
+        /**
+         * Resolves a {@code __test_outcome} metadata value to a forced FAILURE, or {@code null} when the
+         * value is absent, {@code "succeed"}, or UNKNOWN (a typo must NOT fail a happy-path test — the
+         * caller logs at debug and proceeds with the normal success path). Case-insensitive, trimmed.
+         */
+        static ForcedOutcome lookup(Object raw) {
+            if (raw == null) {
+                return null;
+            }
+            String v = raw.toString().trim().toLowerCase(Locale.ROOT);
+            if (v.isEmpty() || SUCCEED.equals(v)) {
+                return null;
+            }
+            for (ForcedOutcome o : values()) {
+                if (o.token.equals(v)) {
+                    return o;
+                }
+            }
+            return null; // UNKNOWN -> no forced failure (back-compat: a typo never breaks a happy path)
+        }
+    }
+
+    /**
+     * TEST-1: the set of recognized {@code __test_outcome} values that force a PAYMENT failure — exposed for
+     * the catalog doc + tests (single source of truth, derived from {@link ForcedOutcome}). Does NOT include
+     * {@code "succeed"} (which is an explicit no-op) or the refund sentinel (a refund-amount signal).
+     */
+    public static final Set<String> FORCED_PAYMENT_OUTCOMES = Set.of(
+            ForcedOutcome.DECLINED.token,
+            ForcedOutcome.INSUFFICIENT_FUNDS.token,
+            ForcedOutcome.EXPIRED_CARD.token);
 
     /**
      * Test-mode id prefixes (Stripe-style). PUBLIC so the {@code GatedPaymentGateway} can use them as a
@@ -75,6 +168,30 @@ public class MockPaymentGatewayPort implements PaymentGatewayPort {
     @Override
     public PaymentResponse createPayment(PaymentRequest request) {
         String id = PAY_PREFIX + uuid();
+        String captureMethod = isManual(request.captureMethod()) ? "manual" : "automatic";
+        Map<String, Object> metadata = request.metadata() != null ? request.metadata() : Map.of();
+
+        // TEST-1 (TEST-MODE ONLY — this code is only reachable through the mock): honor a reserved
+        // __test_outcome control key to force a deterministic FAILURE so an integrator can exercise
+        // decline handling without a real declined card. Absent/"succeed"/UNKNOWN -> normal success below
+        // (an unknown value must NEVER fail a happy-path test — a typo can't silently break it).
+        ForcedOutcome forced = ForcedOutcome.lookup(metadata.get(TEST_OUTCOME_KEY));
+        if (forced != null) {
+            PaymentResponse failed = new PaymentResponse(
+                    id, PaymentResponse.STATUS_FAILED, request.amount(), request.currency(), captureMethod,
+                    request.customerId(), CONNECTOR, TXN_PREFIX + uuid(),
+                    forced.errorCode, forced.errorMessage, Instant.now(), metadata);
+            payments.put(id, failed); // stored so getPayment still works on a failed intent
+            log.debug("Mock createPayment FORCED FAILURE: id={} outcome={} errorCode={}",
+                    id, forced.token, forced.errorCode);
+            return failed;
+        }
+        if (metadata.get(TEST_OUTCOME_KEY) != null) {
+            // Present but unrecognized (or "succeed"): fall through to success, but make the no-op visible.
+            log.debug("Mock createPayment: unrecognized {}={} — defaulting to the normal success path",
+                    TEST_OUTCOME_KEY, metadata.get(TEST_OUTCOME_KEY));
+        }
+
         // Auto-capture intents settle immediately (succeeded, a terminal MONEY state); manual intents
         // authorize only and wait for an explicit capture (requires_capture).
         String status = isManual(request.captureMethod())
@@ -82,12 +199,10 @@ public class MockPaymentGatewayPort implements PaymentGatewayPort {
                 : PaymentResponse.STATUS_SUCCEEDED;
         // Echo the caller's amount/currency/customer/metadata back so the fake behaves like a real PSP
         // response for the round-trip; the capture method is normalized to automatic/manual.
-        String captureMethod = isManual(request.captureMethod()) ? "manual" : "automatic";
         PaymentResponse response = new PaymentResponse(
                 id, status, request.amount(), request.currency(), captureMethod,
                 request.customerId(), CONNECTOR, TXN_PREFIX + uuid(),
-                null, null, Instant.now(),
-                request.metadata() != null ? request.metadata() : Map.of());
+                null, null, Instant.now(), metadata);
         payments.put(id, response);
         log.debug("Mock createPayment: id={} status={}", id, status);
         return response;
@@ -133,12 +248,19 @@ public class MockPaymentGatewayPort implements PaymentGatewayPort {
     @Override
     public RefundResponse createRefund(RefundRequest request) {
         String id = REFUND_PREFIX + uuid();
+        // TEST-1 (TEST-MODE ONLY): RefundRequest carries no metadata map, so a forced refund FAILURE is
+        // signalled by a documented MAGIC AMOUNT — a refund whose minor-units amount % 100 == the reserved
+        // sentinel fails with error_code "refund_failed". Any other amount keeps the SUCCEEDED behavior.
+        boolean forceFailure = Math.floorMod(request.amount(), 100) == REFUND_FAILURE_SENTINEL;
+        String status = forceFailure ? RefundResponse.STATUS_FAILED : RefundResponse.STATUS_SUCCEEDED;
+        String errorCode = forceFailure ? REFUND_FAILED_CODE : null;
+        String errorMessage = forceFailure ? "The refund failed at the processor." : null;
         RefundResponse response = new RefundResponse(
-                id, request.paymentId(), RefundResponse.STATUS_SUCCEEDED,
+                id, request.paymentId(), status,
                 request.amount(), request.currency(), request.reason(),
-                CONNECTOR, TXN_PREFIX + uuid(), null, null, Instant.now());
+                CONNECTOR, TXN_PREFIX + uuid(), errorCode, errorMessage, Instant.now());
         refunds.put(id, response);
-        log.debug("Mock createRefund: id={} paymentId={}", id, request.paymentId());
+        log.debug("Mock createRefund: id={} paymentId={} status={}", id, request.paymentId(), status);
         return response;
     }
 

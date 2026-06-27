@@ -85,6 +85,32 @@ public class MockWebhookSynthesizer {
     }
 
     /**
+     * TEST-1: synthesizes a FAILED-PAYMENT webhook ({@code PaymentFailed -> payment.failed}) for a forced
+     * test-mode decline. Same outbox shape + same {@link #write} delivery path as {@link #onTerminal}, but
+     * the {@code data.object} carries {@code status="failed"} plus the mock's {@code error_code} /
+     * {@code error_message}. Best-effort: a synthesis failure must never fail the already-completed mock op
+     * (the {@code write(...)} swallows it, exactly like the success emitters). No-op when null.
+     *
+     * @param response    the FAILED mock payment response (carries {@code pay_test_*} id + error fields)
+     * @param tenantId    the TRUSTED tenant the gateway recorded for this payment (origin store)
+     * @param internalType the internal PascalCase event type ({@link EventTypes#PAYMENT_FAILED})
+     */
+    public void onTerminalFailure(PaymentResponse response, String tenantId, String internalType) {
+        if (response == null || response.gatewayPaymentId() == null) {
+            return;
+        }
+        String paymentId = response.gatewayPaymentId();
+        Map<String, Object> object = new LinkedHashMap<>();
+        object.put("payment_id", paymentId);
+        object.put("amount", response.amount());
+        object.put("currency", response.currency());
+        object.put("status", response.status());          // "failed"
+        object.put("error_code", response.errorCode());
+        object.put("error_message", response.errorMessage());
+        write(AGGREGATE_PAYMENT, paymentId, paymentId, internalType, object, tenantId);
+    }
+
+    /**
      * Synthesizes a terminal REFUND webhook ({@code RefundCompleted -> payment.refunded}). The
      * {@code aggregate_id} is the originating PAYMENT id (mirrors the real controller's
      * {@code aggregate_id = payment_id}), so the INT-1 metadata lookup by payment id round-trips.
@@ -104,6 +130,32 @@ public class MockWebhookSynthesizer {
         object.put("amount", refund.amount());
         object.put("currency", refund.currency());
         object.put("status", refund.status());
+        write(AGGREGATE_REFUND, paymentId, paymentId, internalType, object, tenantId);
+    }
+
+    /**
+     * TEST-1: synthesizes a FAILED-REFUND webhook ({@code RefundFailed -> payment.refund.failed}) for a
+     * forced test-mode refund failure. Mirrors {@link #onRefundTerminal} (aggregate_id = originating PAYMENT
+     * id, same {@link #write} delivery path) but the {@code data.object} carries {@code status="failed"} +
+     * the mock's {@code error_code} / {@code error_message}. Best-effort + null-safe, like every emitter.
+     *
+     * @param refund      the FAILED mock refund response (carries {@code re_test_*} id + payment id + error)
+     * @param tenantId    the TRUSTED tenant resolved from the originating payment's origin row
+     * @param internalType the internal PascalCase event type ({@link EventTypes#REFUND_FAILED})
+     */
+    public void onRefundFailed(RefundResponse refund, String tenantId, String internalType) {
+        if (refund == null || refund.paymentId() == null) {
+            return;
+        }
+        String paymentId = refund.paymentId();
+        Map<String, Object> object = new LinkedHashMap<>();
+        object.put("refund_id", refund.gatewayRefundId());
+        object.put("payment_id", paymentId);
+        object.put("amount", refund.amount());
+        object.put("currency", refund.currency());
+        object.put("status", refund.status());            // "failed"
+        object.put("error_code", refund.errorCode());
+        object.put("error_message", refund.errorMessage());
         write(AGGREGATE_REFUND, paymentId, paymentId, internalType, object, tenantId);
     }
 

@@ -255,6 +255,28 @@ invariant, not a runtime flag. The response `mode`/`livemode` and the webhook
 envelope's `livemode` all reflect `test`/`false`, so your downstream code can
 assert on them too.
 
+### Forcing failure outcomes (test mode only)
+
+Because the mock always succeeds, you can deterministically force a **decline /
+failure** to exercise your error and failed-refund handling — **without a real
+declined card**. Set the reserved `metadata.__test_outcome` control key on create
+(case-insensitive):
+
+| `__test_outcome` | status | `error_code` | webhook |
+|---|---|---|---|
+| *absent* / `succeed` / *unknown* | `succeeded` | — | `payment.succeeded` |
+| `declined` | `failed` | `card_declined` | `payment.failed` |
+| `insufficient_funds` | `failed` | `insufficient_funds` | `payment.failed` |
+| `expired_card` | `failed` | `expired_card` | `payment.failed` |
+
+For a **failed refund**, refund a minor-units **`amount % 100 == 66`** (e.g.
+`1066`) → status `failed`, `error_code` `refund_failed`, webhook
+`payment.refund.failed`. An **unknown** `__test_outcome` value is treated as
+success (never breaks a happy path), and the reserved `__test_outcome` key never
+appears in the delivered webhook `data.metadata`. This works **only** for
+`sk_test_` keys and moves no real money. See `docs/LOCAL_DEV.md` for runnable
+curls.
+
 ## 7. Versioning — three numbers, two meanings
 
 You will see three version-like identifiers. They are **not** the same thing:

@@ -414,4 +414,42 @@ class GatedPaymentGatewayModeRoutingTest {
         // Fails if the onRefundTerminal(...) call is removed from createRefund's mock branch.
         verify(synthesizer).onRefundTerminal(any(), eq("t1"), eq(PaymentEvent.REFUND_COMPLETED));
     }
+
+    // ---- TEST-1: a forced FAILED mock outcome wires the FAILURE synthesizer (mock-only path) ----
+
+    @Test
+    void testForcedFailedCreate_synthesizesPaymentFailed_notCaptured() {
+        PaymentMode.set(false); // test mode
+        PaymentResponse failed = new PaymentResponse("pay_test_fail", PaymentResponse.STATUS_FAILED,
+                5000, "USD", "automatic", "cust_1", "mock", "txn_1",
+                "card_declined", "Your card was declined.", Instant.EPOCH, Map.of());
+        when(mockDelegate.createPayment(any())).thenReturn(failed);
+
+        gateway.createPayment(createReq(), CallContext.interactive("t1"));
+
+        // The forced decline emits payment.failed and NEVER the success (captured) event.
+        verify(synthesizer).onTerminalFailure(any(), eq("t1"), eq(PaymentEvent.PAYMENT_FAILED));
+        org.mockito.Mockito.verify(synthesizer, org.mockito.Mockito.never())
+                .onTerminal(any(), any(), eq(PaymentEvent.PAYMENT_CAPTURED));
+        // The forced failure stays inside the mock — HyperSwitch is never touched.
+        verifyNoInteractions(hyperSwitch);
+    }
+
+    @Test
+    void testForcedFailedRefund_synthesizesRefundFailed() {
+        PaymentMode.set(false); // test mode
+        RefundResponse failed = new RefundResponse("re_test_fail", "pay_test_1",
+                RefundResponse.STATUS_FAILED, 1066, "USD", "req", "mock", "txn_1",
+                "refund_failed", "The refund failed at the processor.", Instant.EPOCH);
+        when(mockDelegate.createRefund(any())).thenReturn(failed);
+        when(origins.find(any())).thenReturn(
+                Optional.of(new ScreeningOriginService.Origin("t1", ScreeningMode.INTERACTIVE)));
+
+        gateway.createRefund(new RefundRequest("pay_test_1", 1066, "USD", "req", "k"));
+
+        // A failed mock refund emits payment.refund.failed, NOT the completed event.
+        verify(synthesizer).onRefundFailed(any(), eq("t1"), eq(PaymentEvent.REFUND_FAILED));
+        org.mockito.Mockito.verify(synthesizer, org.mockito.Mockito.never())
+                .onRefundTerminal(any(), any(), eq(PaymentEvent.REFUND_COMPLETED));
+    }
 }
