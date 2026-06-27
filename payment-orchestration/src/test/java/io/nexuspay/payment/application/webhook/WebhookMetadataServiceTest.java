@@ -165,6 +165,22 @@ class WebhookMetadataServiceTest {
     }
 
     @Test
+    void testOutcomeControlKey_isStripped_neverStoredNorDelivered() throws Exception {
+        // TEST-1: the reserved __test_outcome control key (used to force a mock decline) must NEVER survive
+        // into the stored correlation map (sanitize() drops it, like __livemode), so a delivered webhook's
+        // data.metadata can never echo it. The correlation keys are untouched.
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("userId", "u_42");
+        meta.put("__test_outcome", "declined");
+
+        service.record("pay_1", "tenant-A", meta, false);
+
+        Map<String, Object> parsed = objectMapper.readValue(captureSaved().getMetadataJson(), MAP_TYPE);
+        assertThat(parsed).doesNotContainKey("__test_outcome");
+        assertThat(parsed).containsEntry("userId", "u_42").containsEntry("__livemode", false);
+    }
+
+    @Test
     void record4Arg_stampsServerDerivedLivemodeFalse_forTestPayment() throws Exception {
         // INT-3: the TEST path stamps __livemode=false via the 4-arg overload.
         service.record("pay_1", "tenant-A", Map.of("userId", "u_42"), false);

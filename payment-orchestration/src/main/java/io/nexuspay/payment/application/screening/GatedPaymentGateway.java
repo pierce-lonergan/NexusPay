@@ -218,6 +218,11 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
                 // ship {} metadata + a "default" tenant). An auto-capture create is a terminal money state.
                 if (response.isSuccessful()) {
                     mockWebhookSynthesizer.onTerminal(response, tenantId, PaymentEvent.PAYMENT_CAPTURED);
+                } else if (response.isFailed()) {
+                    // TEST-1: a forced __test_outcome decline is a terminal FAILED state — synthesize the
+                    // canonical payment.failed webhook so an integrator can exercise failure handling. This
+                    // is reachable ONLY here (routeToMock true / TEST key); a real charge is never affected.
+                    mockWebhookSynthesizer.onTerminalFailure(response, tenantId, PaymentEvent.PAYMENT_FAILED);
                 }
             }
             return response;
@@ -432,8 +437,14 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
         // HyperSwitch through the maker-checker/reconciler path. fail-safe || thread-mode.
         if (routeToMock() || isTestModeId(request != null ? request.paymentId() : null)) {
             RefundResponse r = mockDelegate.createRefund(request);
-            mockWebhookSynthesizer.onRefundTerminal(r, resolveTenant(request.paymentId()),
-                    PaymentEvent.REFUND_COMPLETED);
+            String tenant = resolveTenant(request.paymentId());
+            if (r != null && !r.isSuccessful()) {
+                // TEST-1: a forced refund failure (magic-amount sentinel) -> canonical payment.refund.failed.
+                // Mock-only path; no real refund is ever skipped/cancelled by this.
+                mockWebhookSynthesizer.onRefundFailed(r, tenant, PaymentEvent.REFUND_FAILED);
+            } else {
+                mockWebhookSynthesizer.onRefundTerminal(r, tenant, PaymentEvent.REFUND_COMPLETED);
+            }
             return r;
         }
         return delegate.createRefund(request);

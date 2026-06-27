@@ -200,6 +200,48 @@ Because the key is `sk_test_`, `GatedPaymentGateway` routes to
 auto-capture create is terminal, so the mock webhook synthesizer emits the
 canonical **`payment.succeeded`** event (`PAYMENT_CAPTURED → payment.succeeded`).
 
+### Forcing test outcomes (TEST-MODE ONLY — moves no real money)
+
+By default the in-process mock **always succeeds**. To exercise decline / failure
+handling (and the failure webhooks) **without a real declined card**, set the
+reserved control key **`__test_outcome`** in the payment's `metadata` on create
+(case-insensitive value). This is honored **only** by the in-process mock, which
+is reachable **only** for `sk_test_` (test-mode) keys — an `sk_live_` key can
+never reach it, so a forced failure can never affect a real charge or touch
+HyperSwitch. The reserved `__test_outcome` key is **stripped** server-side and
+never appears in the delivered webhook's `data.metadata`.
+
+```bash
+curl -X POST http://localhost:8090/v1/payments \
+  -H "Authorization: Bearer sk_test_..." \
+  -H "Content-Type: application/json" \
+  -d '{"amount":1000,"currency":"USD","metadata":{"__test_outcome":"declined"}}'
+```
+
+| `__test_outcome` | result status | `error_code` | webhook fired |
+| --- | --- | --- | --- |
+| *absent* / `succeed` / *unknown* | `succeeded` (or `requires_capture` if `capture_method=manual`) | — | `payment.succeeded` |
+| `declined` | `failed` | `card_declined` | `payment.failed` |
+| `insufficient_funds` | `failed` | `insufficient_funds` | `payment.failed` |
+| `expired_card` | `failed` | `expired_card` | `payment.failed` |
+
+> An **unknown** value is intentionally treated as success (logged at debug), so a
+> typo can never silently break a happy-path test.
+
+**Forcing a failed refund.** `RefundRequest` carries no metadata, so a forced
+refund failure uses a documented **magic amount**: a refund whose minor-units
+**`amount % 100 == 66`** (e.g. `1066`, `4266`) fails with status `failed` +
+`error_code` `refund_failed` and fires **`payment.refund.failed`**. Any other
+amount refunds successfully (`payment.refunded`).
+
+```bash
+# refund 1066 minor units against a pay_test_… payment -> forced refund failure
+curl -X POST http://localhost:8090/v1/refunds \
+  -H "Authorization: Bearer sk_test_..." \
+  -H "Content-Type: application/json" \
+  -d '{"payment_id":"pay_test_...","amount":1066,"currency":"USD"}'
+```
+
 ---
 
 ## 6. SEC-4b caveat — webhooks CANNOT be delivered to `localhost`

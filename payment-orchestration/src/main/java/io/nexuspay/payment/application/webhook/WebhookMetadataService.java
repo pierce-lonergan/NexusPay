@@ -59,6 +59,16 @@ public class WebhookMetadataService implements WebhookMetadataPort {
     static final String LIVEMODE_KEY = "__livemode";
 
     /**
+     * TEST-1: the reserved, SERVER-CONTROL key an integrator sets on a TEST-mode create to force a
+     * deterministic outcome (decline/insufficient_funds/expired_card). Like {@link #LIVEMODE_KEY} it is a
+     * server-reserved control key ({@code __} prefix) and must NEVER reach the delivered
+     * {@code data.metadata}; {@link #sanitize(Map)} strips it. Unlike {@code __livemode} it is never
+     * re-stamped — it is purely a control input. Must match
+     * {@code MockPaymentGatewayPort.TEST_OUTCOME_KEY}.
+     */
+    static final String TEST_OUTCOME_KEY = "__test_outcome";
+
+    /**
      * Keys that must NEVER be persisted (PAN/card material) plus the authority markers the gate owns
      * (so a client-echoed {@code source}/{@code workflow}/{@code tenant_id} is not stored as a
      * correlation key). Matched case-insensitively at any nesting depth.
@@ -68,7 +78,9 @@ public class WebhookMetadataService implements WebhookMetadataPort {
             "source", "workflow", "tenant_id",
             // INT-3: the reserved server-only mode key — a client-echoed __livemode must NEVER survive to
             // the stored map; record(...) re-stamps the true server-derived value after sanitize().
-            LIVEMODE_KEY);
+            LIVEMODE_KEY,
+            // TEST-1: the reserved test-outcome control key must never leak into the delivered metadata.
+            TEST_OUTCOME_KEY);
 
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };

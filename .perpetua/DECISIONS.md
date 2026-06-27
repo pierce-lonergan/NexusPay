@@ -1165,3 +1165,28 @@ tool: correct dark theme + gradient-clip text, all sections/cards/tabs/arch-SVG 
 anchors functional, zero console errors (the screenshot capturer timed out on the hero blur filters — an
 environment limitation, not a page defect; confirmed via computed-style + DOM inspection instead). OWNER
 ACTION to go live: repo Settings -> Pages -> Deploy from a branch -> main -> /docs. ADR-053.
+
+## ADR-054 | 2026-06-27 | TEST-1: forced test-mode payment outcomes in the mock (critique v3 A1/A2) (T3)
+Integrator critique v3 (testability) root-cause A: the in-process test-mode mock ALWAYS succeeds, so an
+integrator cannot exercise decline / failure / failed-refund handling without a real declined card (their
+charter forbids). Added a DETERMINISTIC, TEST-MODE-ONLY forced-outcome convention. MockPaymentGatewayPort
+honors a reserved request-metadata key __test_outcome (case-insensitive) on createPayment: declined ->
+card_declined, insufficient_funds -> insufficient_funds, expired_card -> expired_card, each returning
+STATUS_FAILED + a populated errorCode/errorMessage; absent / "succeed" / UNKNOWN -> the byte-identical prior
+success path (an unknown value must NOT fail a happy-path test). Mapping is a single-source-of-truth private
+enum. Refund failure uses a documented magic-amount sentinel (amount % 100 == 66 -> refund STATUS_FAILED,
+since RefundRequest carries no metadata). MockWebhookSynthesizer gained onTerminalFailure (PaymentFailed ->
+payment.failed) + onRefundFailed (RefundFailed -> payment.refund.failed), reusing the existing best-effort
+write(...) outbox path so the OutboxRelay->WebhookDeliveryService pipeline delivers them with ZERO new
+delivery code. GatedPaymentGateway: in the doCreate MOCK branch only, an `else if (response.isFailed())`
+synthesizes payment.failed; in the refund MOCK branch only, a failed refund synthesizes payment.refund.failed
+else the existing payment.refunded. MONEY-SAFETY (the dedicated review lens cleared it, NIT-only): the
+mechanism is reachable ONLY through the mock, which a live sk_live_ key can NEVER reach (routeToMock=false ->
+HyperSwitch; arch test enforces the mock imports no HTTP client); the live branch is untouched, so a forced
+FAILURE can never skip/cancel a real charge. __test_outcome is a server-reserved control key added to
+WebhookMetadataService.FORBIDDEN (the same sanitize() set that strips client __livemode/PAN) so it can never
+leak into the delivered data.metadata. Catalog documented in LOCAL_DEV.md + INTEGRATION.md. REVIEW (4 lenses)
+1 actionable SHOULD_FIX: the end-to-end IT no-leak assertion was a TAUTOLOGY (it asserted __test_outcome
+absent from a delivered envelope whose metadata fixture never contained it) -> fixed by routing the merchant
+map (incl. __test_outcome) through the REAL WebhookMetadataService.record()/find() path so the strip is
+genuinely exercised. No migration. CI is the oracle. L-069. ADR-054.
