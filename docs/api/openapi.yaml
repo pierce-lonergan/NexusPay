@@ -1020,6 +1020,33 @@ components:
           description: >-
             Arbitrary merchant key-value metadata. Round-trips onto the payment
             and into the webhook envelope's `data.metadata` for correlation.
+        payment_method:
+          type: string
+          description: >-
+            TEST-3c: a saved payment-method id (`pm_...`) to charge OFF-SESSION
+            (the cardholder is not present). When present, the server resolves
+            this tenant-owned saved method (its opaque credential + customer)
+            instead of taking the inline-card path. Test recipe: attach
+            `pm_card_visa` then create with `payment_method` + `off_session:true`
+            → succeeds (`payment.captured`); `pm_card_chargeDeclined` →
+            `payment.failed`.
+          example: pm_1a2b3c
+        off_session:
+          type: boolean
+          description: >-
+            TEST-3c: whether this is an off-session charge (cardholder not
+            present). Forwarded to the PSP as a charge hint.
+          example: true
+        setup_future_usage:
+          type: string
+          enum: [off_session, on_session]
+          description: 'TEST-3c: intended future usage of the payment method.'
+          example: off_session
+        mandate_id:
+          type: string
+          description: >-
+            TEST-3c: an associated mandate id (a 3d hint; threaded through to the
+            PSP but no mandate resource is created in 3c).
 
     PaymentApiResponse:
       type: object

@@ -48,7 +48,13 @@ public class HyperSwitchPaymentAdapter implements PaymentGatewayPort {
                 request.captureMethod() != null ? request.captureMethod() : "automatic",
                 request.description(),
                 request.returnUrl(),
-                request.metadata()
+                request.metadata(),
+                // TEST-3c: pure passthrough of the off-session hints. All null for an inline-card create,
+                // so the wire body is byte-identical (HsPaymentCreateRequest is @JsonInclude(NON_NULL)).
+                request.paymentMethod(),
+                request.offSession(),
+                request.setupFutureUsage(),
+                request.mandateId()
         );
 
         try {

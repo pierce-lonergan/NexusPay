@@ -19,6 +19,14 @@ public record HsPaymentCreateRequest(
         @JsonProperty("capture_method") String captureMethod,
         @JsonProperty("description") String description,
         @JsonProperty("return_url") String returnUrl,
-        @JsonProperty("metadata") Map<String, Object> metadata
+        @JsonProperty("metadata") Map<String, Object> metadata,
+
+        // TEST-3c off-session fields. The record is @JsonInclude(NON_NULL), so each is ABSENT on the
+        // HyperSwitch wire when null -> the request body for an inline-card create is byte-identical to
+        // pre-3c. payment_method carries the opaque chargeable credential_ref (never a raw PAN).
+        @JsonProperty("payment_method") String paymentMethod,
+        @JsonProperty("off_session") Boolean offSession,
+        @JsonProperty("setup_future_usage") String setupFutureUsage,
+        @JsonProperty("mandate_id") String mandateId
 ) {
 }

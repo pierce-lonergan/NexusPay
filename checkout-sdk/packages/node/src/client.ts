@@ -156,6 +156,12 @@ export class NexusPay {
       capture_method: resolved.captureMethod,
       capture: resolved.capture,
       metadata: params.metadata,
+      // TEST-3c off-session charge of a saved method. compact() drops undefined, so an existing
+      // inline-card call sends an identical body (these keys are absent when not supplied).
+      payment_method: params.paymentMethod,
+      off_session: params.offSession,
+      setup_future_usage: params.setupFutureUsage,
+      mandate_id: params.mandateId,
     });
     return this.request<Payment>('POST', '/v1/payments', body, opts);
   }

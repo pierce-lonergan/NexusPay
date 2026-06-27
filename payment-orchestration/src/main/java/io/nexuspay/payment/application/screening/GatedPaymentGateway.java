@@ -506,8 +506,13 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
         scrubbed.remove(META_SOURCE);
         scrubbed.remove(META_WORKFLOW);
         scrubbed.remove(META_TENANT_ID);
+        // TEST-3c: preserve the off-session fields (paymentMethod/offSession/setupFutureUsage/mandateId)
+        // when only the metadata is scrubbed — otherwise an off-session charge that carries an authority
+        // marker would silently lose its credentialRef/off_session hints. null for inline-card requests.
         return new PaymentRequest(request.amount(), request.currency(), request.customerId(),
                 request.paymentMethodType(), request.paymentMethodData(), request.returnUrl(),
-                request.description(), request.captureMethod(), request.idempotencyKey(), scrubbed);
+                request.description(), request.captureMethod(), request.idempotencyKey(), scrubbed,
+                request.paymentMethod(), request.offSession(), request.setupFutureUsage(),
+                request.mandateId());
     }
 }

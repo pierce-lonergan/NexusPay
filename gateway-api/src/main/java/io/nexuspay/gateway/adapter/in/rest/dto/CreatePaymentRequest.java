@@ -39,6 +39,27 @@ public record CreatePaymentRequest(
         Boolean capture,
 
         @Schema(description = "Arbitrary key-value metadata")
-        Map<String, Object> metadata
+        Map<String, Object> metadata,
+
+        // TEST-3c (off-session charge of a SAVED method). All four are OPTIONAL and backward-compatible:
+        // an existing create that omits them binds byte-identically (JSON binding is by-name and Spring's
+        // FAIL_ON_UNKNOWN is false). The DTO is @JsonInclude(NON_NULL), so an absent field is omitted on
+        // both read and (echoed) write.
+        @Schema(description = "A saved payment-method id (pm_...) to charge off-session. When present, the "
+                + "create resolves this tenant-owned saved method instead of taking an inline-card path.",
+                example = "pm_1a2b3c")
+        String payment_method,
+
+        @Schema(description = "Whether this is an off-session charge (the cardholder is NOT present). "
+                + "Threaded to the PSP as a charge hint.", example = "true")
+        Boolean off_session,
+
+        @Schema(description = "Indicates intended future usage of the payment method.",
+                example = "off_session", allowableValues = {"off_session", "on_session"})
+        String setup_future_usage,
+
+        @Schema(description = "An associated mandate id (a 3d hint; threaded through but no mandate "
+                + "resource is created in 3c).")
+        String mandate_id
 ) {
 }

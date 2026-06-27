@@ -1289,3 +1289,39 @@ guard + a @WebMvcTest proving a top-level PAN 400s and the service is never call
 node paymentMethods resource + OpenAPI + fixture catalog (docs/LOCAL_DEV.md) added; no SDK version bump (TEST-5).
 CONSEQUENCES: 3c (off-session charge) charges a pm_ by id, resolving credential_ref through the gateway/mock. CI is
 the oracle; node SDK DTS build verified locally. Flyway global max now V4039.
+
+## ADR-058 | 2026-06-27 | TEST-3c: off-session charge of a saved pm_ on the create path (critique v3 B3) (T3 money)
+STATUS: Accepted (T3 — money path; lands via PR). The verb of the saved-credential cluster: charge a saved method
+(pm_, 3b) when the cardholder is absent, testable end-to-end with no real card. NO migration (the new fields are
+PSP-request hints; the payment already records customer_id + metadata).
+DECISION (scout -> Blueprint -> Implement -> 5 money/tenant/arch/contract/test lenses -> Fix):
+ - ONE money path: EXTEND POST /v1/payments (no parallel endpoint). PaymentController branches on the optional
+   payment_method (pm_) being present -> delegates to a new OffSessionChargeService; absent -> the inline-card path
+   is byte-identical. REUSES the gateway-api IdempotencyFilter (Valkey lock + 24h cache), the @Primary
+   GatedPaymentGateway fraud+sanctions screen, and the ledger/outbox webhook synthesis (payment.captured/.failed) —
+   zero new money-moving surface. Four OPTIONAL backward-compatible fields added to CreatePaymentRequest (snake_case
+   component names) / PaymentRequest (+ a 10-arg COMPAT constructor so all ~15 existing call sites are byte-identical)
+   / HsPaymentCreateRequest (@JsonProperty + @JsonInclude NON_NULL): payment_method, off_session, setup_future_usage,
+   mandate_id; HyperSwitchPaymentAdapter passes them through.
+ - OffSessionChargeService (payment-orchestration, NO gateway-api import): resolve pm_ TENANT-SCOPED via
+   PaymentMethodService.findById + TenantOwnership.require -> 404 no-oracle (a foreign/missing/detached pm_ is
+   indistinguishable; the gateway is NEVER reached, so no charge); LIVEMODE MATCH (pm.livemode == !isTest, else 400
+   livemode_mismatch — upholds sk_live-never-mock / sk_test-never-real); send the opaque credentialRef (NOT the pm_
+   id, NOT a PAN; never logged) as the chargeable handle; charge via createPayment(req, CallContext.interactive) —
+   an API-initiated off-session charge is merchant-present = interactive rail (NOT serverOther, which is for system
+   threads). TEST-mode: when isTest and credentialRef is a synthetic fixture ref, TestPaymentMethodFixtures.
+   forcedOutcomeFor decodes it and injects metadata __test_outcome=declined (pm_card_chargeDeclined) so the mock
+   returns STATUS_FAILED + a payment.failed webhook; the __ key is stripped before merchant delivery by the 3a
+   MetadataSanitizer __-prefix rule. Decode helpers (isSyntheticRef/fixtureTokenFromRef/forcedOutcomeFor) are
+   single-sourced in TestPaymentMethodFixtures.
+ - SECURITY-CONTROL TOUCH (verified non-weakening): GatedPaymentGateway.scrubAuthorityMarkers still removes the
+   B-029 authority markers (source/workflow/tenant_id) from metadata; it was only extended to carry the 4 new
+   off-session fields through the PaymentRequest REBUILD (else the 10-arg compat ctor silently nulled them, dropping
+   the credentialRef). The off-session fields are charge params, not authority markers — preserving them grants no
+   softer rail.
+REVIEW: 5 lenses, 1 actionable SHOULD_FIX (test-fidelity) — the off-session snake_case fields were not exercised
+through the REAL Jackson binder (the same class as TEST-3b's BLOCKER, here only a test-coverage gap since
+CreatePaymentRequest uses snake_case component NAMES that bind directly) -> added a @WebMvcTest MockMvc case posting
+raw snake_case JSON, asserting binding + delegation + tenant/isTest-from-PRINCIPAL (not body) + back-compat. No
+production change needed for it. CONSEQUENCES: 3d (mandate) is the last sub-batch. CI is the oracle; node SDK DTS
+build verified. Flyway global max unchanged at V4039 (no 3c migration). L-072.

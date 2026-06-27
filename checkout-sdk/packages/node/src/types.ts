@@ -52,6 +52,19 @@ export interface CreatePaymentParams {
   /** INT-2 boolean alias: true -> automatic, false -> manual. */
   capture?: boolean;
   metadata?: Metadata;
+  /**
+   * TEST-3c: a saved payment-method id (`pm_...`) to charge OFF-SESSION (the cardholder is not
+   * present). When set, the server resolves this tenant-owned saved method instead of the inline-card
+   * path. Test recipe: attach `pm_card_visa` -> charge with `offSession: true` -> succeeds;
+   * `pm_card_chargeDeclined` -> the payment fails (a `payment.failed` webhook).
+   */
+  paymentMethod?: string;
+  /** TEST-3c: whether this is an off-session charge (cardholder not present). */
+  offSession?: boolean;
+  /** TEST-3c: intended future usage of the payment method. */
+  setupFutureUsage?: 'off_session' | 'on_session';
+  /** TEST-3c: an associated mandate id (a 3d hint; threaded through, no mandate resource created). */
+  mandateId?: string;
 }
 
 /**
