@@ -6,6 +6,7 @@ import io.nexuspay.payment.adapter.out.mock.MockPaymentGatewayPort;
 import io.nexuspay.payment.adapter.out.mock.TestPaymentMethodFixtures;
 import io.nexuspay.payment.application.port.PaymentGatewayPort;
 import io.nexuspay.payment.application.screening.CallContext;
+import io.nexuspay.payment.application.service.mandate.MandateService;
 import io.nexuspay.payment.application.service.paymentmethod.PaymentMethodService;
 import io.nexuspay.payment.domain.PaymentRequest;
 import io.nexuspay.payment.domain.PaymentResponse;
@@ -73,7 +74,8 @@ class OffSessionChargeServiceTest {
         when(capturing.createPayment(any(PaymentRequest.class), any(CallContext.class)))
                 .thenAnswer(inv -> gateway.createPayment(inv.getArgument(0)));
 
-        var svc = new OffSessionChargeService(pmService, capturing);
+        var mandateService = mock(MandateService.class);
+        var svc = new OffSessionChargeService(pmService, mandateService, capturing);
         PaymentResponse resp = svc.charge(TENANT_A, "pm_visa", 5000, "USD",
                 Boolean.TRUE, "off_session", null, /* isTest */ true, "idem-1",
                 Map.of("userId", "u1"));
@@ -92,6 +94,8 @@ class OffSessionChargeServiceTest {
         assertThat(req.metadata()).doesNotContainKey(MockPaymentGatewayPort.TEST_OUTCOME_KEY);
         // Interactive rail — an API-initiated off-session charge is merchant-present.
         assertThat(ctx.getValue().tenantId()).isEqualTo(TENANT_A);
+        // (3d back-compat) no mandate_id cited -> the consent gate is never consulted.
+        verify(mandateService, never()).validateActiveForCharge(any(), any(), any());
     }
 
     // (2) pm_card_chargeDeclined (TEST) -> service injects __test_outcome=declined, real mock returns FAILED.
@@ -106,7 +110,8 @@ class OffSessionChargeServiceTest {
         when(capturing.createPayment(any(PaymentRequest.class), any(CallContext.class)))
                 .thenAnswer(inv -> gateway.createPayment(inv.getArgument(0)));
 
-        var svc = new OffSessionChargeService(pmService, capturing);
+        var mandateService = mock(MandateService.class);
+        var svc = new OffSessionChargeService(pmService, mandateService, capturing);
         PaymentResponse resp = svc.charge(TENANT_A, "pm_dec", 5000, "USD",
                 Boolean.TRUE, null, null, /* isTest */ true, "idem-2", null);
 
@@ -127,7 +132,8 @@ class OffSessionChargeServiceTest {
         // tenant B's view of tenant A's pm_ is empty (findByIdAndTenantId predicate).
         when(pmService.findById("pm_foreign", "tenant_b")).thenReturn(Optional.empty());
 
-        var svc = new OffSessionChargeService(pmService, gateway);
+        var mandateService = mock(MandateService.class);
+        var svc = new OffSessionChargeService(pmService, mandateService, gateway);
         assertThatThrownBy(() -> svc.charge("tenant_b", "pm_foreign", 5000, "USD",
                 Boolean.TRUE, null, null, true, "idem-3", null))
                 .isInstanceOf(ResourceNotFoundException.class);
@@ -143,7 +149,8 @@ class OffSessionChargeServiceTest {
         when(pmService.findById("pm_visa", TENANT_A))
                 .thenReturn(Optional.of(pm("pm_visa", TENANT_A, false, synthetic("pm_card_visa"))));
 
-        var svc = new OffSessionChargeService(pmService, gateway);
+        var mandateService = mock(MandateService.class);
+        var svc = new OffSessionChargeService(pmService, mandateService, gateway);
         assertThatThrownBy(() -> svc.charge(TENANT_A, "pm_visa", 5000, "USD",
                 Boolean.TRUE, null, null, /* isTest */ false, "idem-4", null))
                 .isInstanceOf(InvalidRequestException.class)
@@ -161,12 +168,120 @@ class OffSessionChargeServiceTest {
         when(pmService.findById("pm_live", TENANT_A))
                 .thenReturn(Optional.of(pm("pm_live", TENANT_A, true, "ptok_live_abc123")));
 
-        var svc = new OffSessionChargeService(pmService, gateway);
+        var mandateService = mock(MandateService.class);
+        var svc = new OffSessionChargeService(pmService, mandateService, gateway);
         assertThatThrownBy(() -> svc.charge(TENANT_A, "pm_live", 5000, "USD",
                 Boolean.TRUE, null, null, /* isTest */ true, "idem-5", null))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasFieldOrPropertyWithValue("errorCode", "livemode_mismatch");
 
         verifyNoInteractions(gateway);
+    }
+
+    // ---- TEST-3d: a cited mandate is a real consent gate ----
+
+    private static final String MANDATE = "mandate_ok";
+
+    // (5) ACTIVE mandate for the SAME pm_ -> proceeds (gateway called, success).
+    @Test
+    void citedActiveMandate_samePm_proceeds() {
+        var pmService = mock(PaymentMethodService.class);
+        var mandateService = mock(MandateService.class);
+        var gateway = new MockPaymentGatewayPort();
+        var capturing = mock(PaymentGatewayPort.class);
+        String credRef = synthetic("pm_card_visa");
+        when(pmService.findById("pm_visa", TENANT_A))
+                .thenReturn(Optional.of(pm("pm_visa", TENANT_A, false, credRef)));
+        when(capturing.createPayment(any(PaymentRequest.class), any(CallContext.class)))
+                .thenAnswer(inv -> gateway.createPayment(inv.getArgument(0)));
+
+        var svc = new OffSessionChargeService(pmService, mandateService, capturing);
+        PaymentResponse resp = svc.charge(TENANT_A, "pm_visa", 5000, "USD",
+                Boolean.TRUE, "off_session", MANDATE, /* isTest */ true, "idem-6", null);
+
+        assertThat(resp.status()).isEqualTo(PaymentResponse.STATUS_SUCCEEDED);
+        // The gate was consulted with the trusted tenant-owned pm id and the cited mandate.
+        verify(mandateService).validateActiveForCharge(MANDATE, TENANT_A, "pm_visa");
+        verify(capturing).createPayment(any(PaymentRequest.class), any(CallContext.class));
+    }
+
+    // (6) FOREIGN/missing mandate -> ResourceNotFoundException, gateway NEVER called.
+    @Test
+    void citedForeignMandate_404s_andNeverCharges() {
+        var pmService = mock(PaymentMethodService.class);
+        var mandateService = mock(MandateService.class);
+        var gateway = mock(PaymentGatewayPort.class);
+        when(pmService.findById("pm_visa", TENANT_A))
+                .thenReturn(Optional.of(pm("pm_visa", TENANT_A, false, synthetic("pm_card_visa"))));
+        org.mockito.Mockito.doThrow(new ResourceNotFoundException("Mandate not found"))
+                .when(mandateService).validateActiveForCharge("mandate_foreign", TENANT_A, "pm_visa");
+
+        var svc = new OffSessionChargeService(pmService, mandateService, gateway);
+        assertThatThrownBy(() -> svc.charge(TENANT_A, "pm_visa", 5000, "USD",
+                Boolean.TRUE, null, "mandate_foreign", true, "idem-7", null))
+                .isInstanceOf(ResourceNotFoundException.class);
+
+        verifyNoInteractions(gateway);
+    }
+
+    // (7) INACTIVE mandate -> InvalidRequestException invalid_mandate, gateway never called.
+    @Test
+    void citedInactiveMandate_400s_andNeverCharges() {
+        var pmService = mock(PaymentMethodService.class);
+        var mandateService = mock(MandateService.class);
+        var gateway = mock(PaymentGatewayPort.class);
+        when(pmService.findById("pm_visa", TENANT_A))
+                .thenReturn(Optional.of(pm("pm_visa", TENANT_A, false, synthetic("pm_card_visa"))));
+        org.mockito.Mockito.doThrow(new InvalidRequestException("Mandate is not active", "invalid_mandate"))
+                .when(mandateService).validateActiveForCharge("mandate_dead", TENANT_A, "pm_visa");
+
+        var svc = new OffSessionChargeService(pmService, mandateService, gateway);
+        assertThatThrownBy(() -> svc.charge(TENANT_A, "pm_visa", 5000, "USD",
+                Boolean.TRUE, null, "mandate_dead", true, "idem-8", null))
+                .isInstanceOf(InvalidRequestException.class)
+                .hasFieldOrPropertyWithValue("errorCode", "invalid_mandate");
+
+        verifyNoInteractions(gateway);
+    }
+
+    // (8) mandate authorizes a DIFFERENT pm_ -> mandate_payment_method_mismatch, gateway never called.
+    @Test
+    void citedMandate_pmMismatch_400s_andNeverCharges() {
+        var pmService = mock(PaymentMethodService.class);
+        var mandateService = mock(MandateService.class);
+        var gateway = mock(PaymentGatewayPort.class);
+        when(pmService.findById("pm_visa", TENANT_A))
+                .thenReturn(Optional.of(pm("pm_visa", TENANT_A, false, synthetic("pm_card_visa"))));
+        org.mockito.Mockito.doThrow(new InvalidRequestException(
+                        "Mandate does not authorize this payment method", "mandate_payment_method_mismatch"))
+                .when(mandateService).validateActiveForCharge("mandate_other_pm", TENANT_A, "pm_visa");
+
+        var svc = new OffSessionChargeService(pmService, mandateService, gateway);
+        assertThatThrownBy(() -> svc.charge(TENANT_A, "pm_visa", 5000, "USD",
+                Boolean.TRUE, null, "mandate_other_pm", true, "idem-9", null))
+                .isInstanceOf(InvalidRequestException.class)
+                .hasFieldOrPropertyWithValue("errorCode", "mandate_payment_method_mismatch");
+
+        verifyNoInteractions(gateway);
+    }
+
+    // (9) back-compat: a BLANK mandate_id stays the 3c pass-through (gate never consulted, success).
+    @Test
+    void blankMandateId_isPassThrough_gateNeverConsulted() {
+        var pmService = mock(PaymentMethodService.class);
+        var mandateService = mock(MandateService.class);
+        var gateway = new MockPaymentGatewayPort();
+        var capturing = mock(PaymentGatewayPort.class);
+        when(pmService.findById("pm_visa", TENANT_A))
+                .thenReturn(Optional.of(pm("pm_visa", TENANT_A, false, synthetic("pm_card_visa"))));
+        when(capturing.createPayment(any(PaymentRequest.class), any(CallContext.class)))
+                .thenAnswer(inv -> gateway.createPayment(inv.getArgument(0)));
+
+        var svc = new OffSessionChargeService(pmService, mandateService, capturing);
+        PaymentResponse resp = svc.charge(TENANT_A, "pm_visa", 5000, "USD",
+                Boolean.TRUE, null, "   ", /* isTest */ true, "idem-10", null);
+
+        assertThat(resp.status()).isEqualTo(PaymentResponse.STATUS_SUCCEEDED);
+        verify(mandateService, never()).validateActiveForCharge(any(), any(), any());
     }
 }

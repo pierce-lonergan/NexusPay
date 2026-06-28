@@ -63,7 +63,14 @@ export interface CreatePaymentParams {
   offSession?: boolean;
   /** TEST-3c: intended future usage of the payment method. */
   setupFutureUsage?: 'off_session' | 'on_session';
-  /** TEST-3c: an associated mandate id (a 3d hint; threaded through, no mandate resource created). */
+  /**
+   * TEST-3d: a cited mandate id (`mandate_…`) is a VALIDATED CONSENT GATE for an off-session charge. When
+   * present it must be an `ACTIVE` mandate for the caller's tenant authorizing the charged `paymentMethod`
+   * (`pm_…`): a foreign/missing mandate (or `paymentMethod`) -> 404; a non-ACTIVE mandate -> 400
+   * `invalid_mandate`; a mandate authorizing a different `pm_` -> 400 `mandate_payment_method_mismatch`. The
+   * gateway is never reached on any of these (no money moves). A null/absent `mandateId` is the 3c
+   * pass-through (no consent gate).
+   */
   mandateId?: string;
 }
 
@@ -308,6 +315,58 @@ export interface DeletedPaymentMethod {
   object: 'payment_method';
   deleted: true;
 }
+
+// ---- mandates (TEST-3d) ----
+
+/**
+ * A mandate / consent record — the recorded off-session consent of the saved-credential cluster, as
+ * returned by `POST /v1/mandates`, `GET /v1/mandates`, `GET /v1/mandates/{id}`, and
+ * `POST /v1/mandates/{id}/revoke`. `customer` is the `cus_` id (derived from the `pm_`'s owner);
+ * `payment_method` is the authorized `pm_`; `created` is epoch seconds. The tenant is NEVER present in the
+ * body. `status` is one of `PENDING` / `ACTIVE` / `INACTIVE`; `type` is `MULTI_USE` / `SINGLE_USE`.
+ *
+ * NOTE: `type` is a recorded DESCRIPTIVE hint, not an enforced control. A `SINGLE_USE` mandate is NOT
+ * self-consumed — it stays `ACTIVE` after an off-session charge and the consent gate (tenant + ACTIVE +
+ * matching `payment_method`) does not consider `type`, so a `SINGLE_USE` mandate can be cited on more than
+ * one off-session charge. Do not rely on single-use enforcement; revoke the mandate to stop further use.
+ */
+export interface Mandate {
+  id: string;
+  object: 'mandate';
+  livemode: boolean;
+  status: string;
+  /** `MULTI_USE` / `SINGLE_USE`. Descriptive hint only — `SINGLE_USE` is NOT enforced (not self-consumed). */
+  type: string;
+  customer: string;
+  payment_method: string;
+  scenario?: string;
+  created: number;
+}
+
+/**
+ * Params for `createMandate`. `paymentMethod` is the saved method (`pm_…`) the consent authorizes; the
+ * mandate's customer is derived from it server-side. `type` defaults to `MULTI_USE`. There is no tenant or
+ * customer field — both are server-derived. NOTE: `SINGLE_USE` is a descriptive hint only — it is NOT
+ * enforced (the mandate is not self-consumed and may be cited on more than one off-session charge).
+ */
+export interface MandateCreateParams {
+  paymentMethod: string;
+  /** `MULTI_USE` (default) / `SINGLE_USE`. `SINGLE_USE` is a descriptive hint only — NOT enforced. */
+  type?: string;
+  scenario?: string;
+  metadata?: Metadata;
+}
+
+export interface ListMandatesParams {
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * Body returned by `POST /v1/mandates/{id}/revoke` — the full mandate body, now `status: 'INACTIVE'`
+ * (revoke is NOT a soft delete; the mandate stays retrievable).
+ */
+export interface RevokedMandate extends Mandate {}
 
 // ---- per-call options ----
 export interface RequestOptions {

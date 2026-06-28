@@ -30,11 +30,15 @@ import type {
   DisputeEvent,
   ListCustomersParams,
   ListDisputesParams,
+  ListMandatesParams,
   ListPaymentMethodsParams,
+  Mandate,
+  MandateCreateParams,
   Payment,
   PaymentMethod,
   PaymentSession,
   RequestOptions,
+  RevokedMandate,
   SimulateDisputeParams,
 } from './types';
 
@@ -451,6 +455,59 @@ export class NexusPay {
     return this.request<DeletedPaymentMethod>(
       'DELETE',
       `/v1/payment_methods/${encodeURIComponent(id)}`,
+      undefined,
+      opts,
+    );
+  }
+
+  // ---- mandates (TEST-3d) ----
+
+  /**
+   * Records a mandate / consent (`POST /v1/mandates`) from a saved method. Requires the `customers:write`
+   * scope. `livemode` is server-derived from the key mode and must equal the `pm_`'s livemode. The
+   * mandate's customer is derived from the `pm_`'s owner server-side. Returns the mandate with
+   * `status: 'ACTIVE'`. The tenant is derived from the key server-side, never a client header.
+   */
+  createMandate(params: MandateCreateParams, opts?: RequestOptions): Promise<Mandate> {
+    const body = compact({
+      payment_method: params.paymentMethod,
+      type: params.type,
+      scenario: params.scenario,
+      metadata: params.metadata,
+    });
+    return this.request<Mandate>('POST', '/v1/mandates', body, opts);
+  }
+
+  /**
+   * Retrieves one mandate by id (`GET /v1/mandates/{id}`). Requires `customers:read`. A revoked (INACTIVE)
+   * mandate is still retrievable. A foreign-tenant id returns 404 (no existence oracle).
+   */
+  getMandate(id: string, opts?: RequestOptions): Promise<Mandate> {
+    return this.request<Mandate>('GET', `/v1/mandates/${encodeURIComponent(id)}`, undefined, opts);
+  }
+
+  /**
+   * Lists the caller tenant's mandates (`GET /v1/mandates`). Requires `customers:read`. Results are scoped
+   * to the authenticated key's tenant server-side — never a client header.
+   */
+  listMandates(params?: ListMandatesParams, opts?: RequestOptions): Promise<Mandate[]> {
+    const search = new URLSearchParams();
+    if (params?.limit !== undefined) search.set('limit', String(params.limit));
+    if (params?.offset !== undefined) search.set('offset', String(params.offset));
+    const qs = search.toString();
+    const path = qs ? `/v1/mandates?${qs}` : '/v1/mandates';
+    return this.request<Mandate[]>('GET', path, undefined, opts);
+  }
+
+  /**
+   * Revokes (deactivates) a mandate (`POST /v1/mandates/{id}/revoke`). Requires `customers:write`. Returns
+   * the full mandate body, now `status: 'INACTIVE'` (revoke is NOT a soft delete — the mandate stays
+   * retrievable). A foreign-tenant id returns 404 (no oracle).
+   */
+  revokeMandate(id: string, opts?: RequestOptions): Promise<RevokedMandate> {
+    return this.request<RevokedMandate>(
+      'POST',
+      `/v1/mandates/${encodeURIComponent(id)}/revoke`,
       undefined,
       opts,
     );

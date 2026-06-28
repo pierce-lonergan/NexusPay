@@ -5,6 +5,7 @@ import io.nexuspay.payment.adapter.out.hyperswitch.HyperSwitchPaymentAdapter;
 import io.nexuspay.payment.adapter.out.mock.MockPaymentGatewayPort;
 import io.nexuspay.payment.adapter.out.mock.TestPaymentMethodFixtures;
 import io.nexuspay.payment.application.service.OffSessionChargeService;
+import io.nexuspay.payment.application.service.mandate.MandateService;
 import io.nexuspay.payment.application.service.paymentmethod.PaymentMethodService;
 import io.nexuspay.payment.application.webhook.MockWebhookSynthesizer;
 import io.nexuspay.payment.application.webhook.WebhookMetadataService;
@@ -69,7 +70,9 @@ class GatedPaymentGatewayOffSessionWebhookTest {
                 webhookMetadata, synthesizer);
 
         pmService = mock(PaymentMethodService.class);
-        offSession = new OffSessionChargeService(pmService, gateway);
+        // TEST-3d: these cases all pass a null mandateId (back-compat 3c pass-through), so the mandate gate
+        // is never consulted — a bare mock suffices.
+        offSession = new OffSessionChargeService(pmService, mock(MandateService.class), gateway);
 
         // TEST rail: route every port op to the mock (the off-session charge is merchant-present but TEST).
         PaymentMode.set(false);

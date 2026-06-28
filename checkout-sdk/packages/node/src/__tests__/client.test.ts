@@ -404,6 +404,67 @@ describe('NexusPay client', () => {
     });
   });
 
+  // --- mandates (TEST-3d) ---
+  describe('mandates', () => {
+    it('createMandate POSTs /v1/mandates with snake_case payment_method', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        okJson({ id: 'mandate_1', object: 'mandate', status: 'ACTIVE' }, 201),
+      );
+      const client = makeClient(fetchMock);
+
+      const result = await client.createMandate({ paymentMethod: 'pm_1', type: 'MULTI_USE' });
+
+      const { url, init } = lastCall(fetchMock);
+      expect(url).toBe(`${BASE}/v1/mandates`);
+      expect(init.method).toBe('POST');
+      const body = JSON.parse(init.body as string);
+      expect(body.payment_method).toBe('pm_1');
+      expect(body.type).toBe('MULTI_USE');
+      expect(result.id).toBe('mandate_1');
+      expect(result.object).toBe('mandate');
+    });
+
+    it('getMandate GETs the id path with no body', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        okJson({ id: 'mandate_1', object: 'mandate', status: 'ACTIVE' }),
+      );
+      const client = makeClient(fetchMock);
+
+      const result = await client.getMandate('mandate_1');
+
+      const { url, init } = lastCall(fetchMock);
+      expect(url).toBe(`${BASE}/v1/mandates/mandate_1`);
+      expect(init.method).toBe('GET');
+      expect(init.body).toBeUndefined();
+      expect(result.id).toBe('mandate_1');
+    });
+
+    it('listMandates GETs /v1/mandates with limit/offset', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(okJson([{ id: 'mandate_1', object: 'mandate' }]));
+      const client = makeClient(fetchMock);
+
+      await client.listMandates({ limit: 5, offset: 10 });
+
+      const { url, init } = lastCall(fetchMock);
+      expect(url).toBe(`${BASE}/v1/mandates?limit=5&offset=10`);
+      expect(init.method).toBe('GET');
+    });
+
+    it('revokeMandate POSTs /v1/mandates/{id}/revoke and returns the INACTIVE body', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        okJson({ id: 'mandate_1', object: 'mandate', status: 'INACTIVE' }),
+      );
+      const client = makeClient(fetchMock);
+
+      const result = await client.revokeMandate('mandate_1');
+
+      const { url, init } = lastCall(fetchMock);
+      expect(url).toBe(`${BASE}/v1/mandates/mandate_1/revoke`);
+      expect(init.method).toBe('POST');
+      expect(result.status).toBe('INACTIVE');
+    });
+  });
+
   // --- DX-2 critique 4.2: opt-in retry/backoff + auto-idempotency ---
   describe('opt-in retry / backoff / idempotency', () => {
     function okJsonWithHeaders(body: unknown, status: number, headers: Record<string, string> = {}) {

@@ -6,6 +6,7 @@ import io.nexuspay.payment.adapter.out.mock.MockPaymentGatewayPort;
 import io.nexuspay.payment.adapter.out.mock.TestPaymentMethodFixtures;
 import io.nexuspay.payment.application.port.PaymentGatewayPort;
 import io.nexuspay.payment.application.screening.CallContext;
+import io.nexuspay.payment.application.service.mandate.MandateService;
 import io.nexuspay.payment.application.service.paymentmethod.PaymentMethodService;
 import io.nexuspay.payment.domain.PaymentRequest;
 import io.nexuspay.payment.domain.PaymentResponse;
@@ -64,12 +65,16 @@ public class OffSessionChargeService {
     private static final Logger log = LoggerFactory.getLogger(OffSessionChargeService.class);
 
     private final PaymentMethodService paymentMethodService;
+    /** TEST-3d: the in-module consent gate for a cited {@code mandate_id} (tenant + ACTIVE + pm match). */
+    private final MandateService mandateService;
     /** Spring binds the {@code @Primary} {@code GatedPaymentGateway} here (gate + routing + side-effects). */
     private final PaymentGatewayPort paymentGateway;
 
     public OffSessionChargeService(PaymentMethodService paymentMethodService,
+                                   MandateService mandateService,
                                    PaymentGatewayPort paymentGateway) {
         this.paymentMethodService = paymentMethodService;
+        this.mandateService = mandateService;
         this.paymentGateway = paymentGateway;
     }
 
@@ -82,7 +87,9 @@ public class OffSessionChargeService {
      * @param currency         ISO-4217 currency
      * @param offSession       off-session hint forwarded to the PSP (nullable)
      * @param setupFutureUsage future-usage hint (e.g. {@code off_session}) forwarded to the PSP (nullable)
-     * @param mandateId        a 3d mandate hint — threaded through, no mandate resource is created (nullable)
+     * @param mandateId        a 3d mandate_ id — when cited (non-null/blank) it is validated as a real,
+     *                         ACTIVE, pm-matching consent for the tenant (else 404/400, no charge); a
+     *                         null/blank mandateId is the back-compat 3c pass-through (nullable)
      * @param isTest           caller key mode (test == {@code !principal.live()}); gates the fixture outcome
      * @param idempotencyKey   the caller {@code Idempotency-Key} (forwarded to the PSP; reuses the filter)
      * @param metadata         already-sanitized merchant metadata (the off-session control key is injected
@@ -105,6 +112,16 @@ public class OffSessionChargeService {
         if (pm.isLivemode() != callerLive) {
             throw new InvalidRequestException(
                     "Payment method livemode does not match the caller key mode", "livemode_mismatch");
+        }
+
+        // (2b) TEST-3d CONSENT GATE: when a mandate_id is cited, it must be a real, ACTIVE consent for the
+        // caller's tenant authorizing THIS pm_. A null/blank mandate_id stays the existing 3c pass-through
+        // (back-compat — every pre-3d call site passes null and is unchanged). Validation runs AFTER the pm_
+        // tenant+livemode resolve (pm.getId() is the trusted tenant-owned pm) and BEFORE the gateway call, so
+        // a bad mandate NEVER charges. validateActiveForCharge throws: 404 (foreign/missing, no oracle), 400
+        // invalid_mandate (not ACTIVE), or 400 mandate_payment_method_mismatch (pm differs).
+        if (mandateId != null && !mandateId.isBlank()) {
+            mandateService.validateActiveForCharge(mandateId, tenantId, pm.getId());
         }
 
         // (3) Read the opaque chargeable handle + the resolved customer (both server-trusted). NEVER a PAN;

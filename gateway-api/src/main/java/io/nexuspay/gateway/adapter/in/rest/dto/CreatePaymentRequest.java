@@ -58,8 +58,12 @@ public record CreatePaymentRequest(
                 example = "off_session", allowableValues = {"off_session", "on_session"})
         String setup_future_usage,
 
-        @Schema(description = "An associated mandate id (a 3d hint; threaded through but no mandate "
-                + "resource is created in 3c).")
+        @Schema(description = "TEST-3d: a cited mandate id (mandate_*) is a VALIDATED CONSENT GATE for an "
+                + "off-session charge. When present it must be an ACTIVE mandate for the caller's tenant "
+                + "authorizing the charged payment_method (pm_*): a foreign/missing mandate (or payment_method) "
+                + "-> 404 no-oracle; a non-ACTIVE mandate -> 400 invalid_mandate; a mandate authorizing a "
+                + "different pm_ -> 400 mandate_payment_method_mismatch. The gateway is never reached on any of "
+                + "these (no money moves). A null/absent mandate_id is the 3c pass-through.")
         String mandate_id
 ) {
 }
