@@ -1433,3 +1433,40 @@ DECISION (Blueprint -> Implement -> 5 lenses -> Fix):
    @nexus-pay/node/testing subpath (-> root import); added /v1/ping to docs/api/openapi.yaml (Connectivity tag +
    PingResponse schema + 401). CONSEQUENCES: TEST-6 (P2 fidelity) is the last batch; F1 read-model still the one
    deferred known-gap. CI is the oracle; SDK locally verified (128/128).
+
+## ADR-063 | 2026-06-27 | TEST-6: forced-outcome fidelity (A3/A4/A5) + request_id envelope (F3); FINAL testability batch
+STATUS: Accepted (mock + domain in payment-orchestration, mapper + error-envelope in gateway-api, SDK 0.1.2 folded;
+CI-verified Java, SDK local). COMPLETES the TEST-1..6 testability program. No new endpoint/ApiScope (rides
+__test_outcome + the existing /v1/test/events + the existing error envelope). TEST-MODE-ONLY by construction:
+the new outcomes ride __test_outcome through the mock, which routeToMock=false for sk_live_ never reaches.
+DECISION (Blueprint -> Implement -> 2-finding review -> Fix):
+ - A3 requires_action: new PaymentResponse.STATUS_REQUIRES_ACTION + nullable typed NextAction field (additive; a
+   12-arg compat ctor delegates to the 13-arg canonical so the ~16 existing call sites stay green, mirroring the
+   TEST-3c 10-arg lesson). Mock returns it + a next_action redirect stub derived from the minted pay id (no
+   hardcoded id, L-071). ResponseMapper surfaces the TYPED domain field (NOT the INT-6 metadata path). SDK Payment
+   gains status + next_action?. NON-TERMINAL: no webhook synthesized.
+ - A4 processing: STATUS_PROCESSING (already existed) with NO terminal webhook; integrator advances to settled by
+   firing POST /v1/test/events payment.succeeded (the TEST-4a trigger) — documented as the catalog recipe. No new status.
+ - A5 fraud_hold: chose OPTION (b) — return STATUS_REQUIRES_CAPTURE WITHOUT a payment_capture_hold row, documented
+   as a review-hold SIMULATION. Rejected option (a) (gate writes a real hold row): the mock path BYPASSES
+   PreAuthorizationGate/CaptureHoldService by design (routeToMock), so a faithful fraud screen is genuinely not
+   exercisable in test mode; threading a real hold row off a mock response would be a money-safety seam added for a
+   test outcome. (b) gives a testable requires_capture->capture flow that the existing capture endpoint releases,
+   with ZERO change to the real gate or capture-hold control. Least-invasive, fail-closed.
+ - F3 request_id: VERIFIED already-closed — GlobalExceptionHandler.requestId() reads MDC (CorrelationIdFilter
+   set it) with a UUID fallback; ApiError serializes request_id (NON_NULL never drops it). Added
+   ErrorEnvelopeRequestIdTest asserting error.request_id == X-Request-Id response header (inbound-echo + generated).
+ - DEFER (known-gaps.md): F1=GAP-076 (payment/refund LIST — no read-model), F4=GAP-077 (per-tenant reset — mock is a
+   global singleton), F5=GAP-078 (test clocks — no injectable Clock; largest/lowest-value), F6=GAP-079 (idempotency
+   inspect/clear — niche). Each a P2 testability NICETY, not a security/money gap.
+ - REVIEW (2 SHOULD_FIX, both fixed): (1) next_action wire shape = FLAT {type,url}, a DELIBERATE deviation from the
+   blueprint's nested {type,redirect_to_url:{url}} — kept flat to match INT-6 ConfirmResponse.NextAction (already
+   shipped {type,url}) so the API exposes ONE next_action shape, not two; the deviation is now CALLED OUT explicitly
+   at all 4 shape sites (domain NextAction, PaymentApiResponse.NextAction, SDK NextAction, LOCAL_DEV) + here, with
+   the trade-off (a flat shape cannot carry a non-redirect action -> a future breaking reshape if ever needed). (2)
+   No test pinned the A3/A4 no-terminal-webhook contract THROUGH the gate (the mock never synthesizes; the gate does)
+   -> added GatedPaymentGateway test cases: in test mode (ctx.live=false), processing + requires_action create
+   synthesize NOTHING (verifyNoInteractions(mockWebhookSynthesizer)), with success->PaymentCaptured + decline->
+   payment.failed as the positive control, so a future synthesis-branch change can't silently violate A3/A4 green.
+ - CONSEQUENCES: testability program A/B/C/D/E/F fully delivered-or-resolved. Only durable deferral = F1 read-model
+   (+ its dependents F4/F5/F6). CI is the oracle (Gradle can't run locally); SDK verified locally.

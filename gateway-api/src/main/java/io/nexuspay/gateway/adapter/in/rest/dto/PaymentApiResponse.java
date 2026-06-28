@@ -59,6 +59,31 @@ public record PaymentApiResponse(
 
         @Schema(description = "true when mode == live; mirrors the webhook envelope's livemode. "
                 + "Nullable: dropped (NON_NULL) on the no-mode overload alongside mode.")
-        Boolean livemode
+        Boolean livemode,
+
+        @Schema(description = "TEST-6 (A3): the 3DS/SCA next action to perform. Present ONLY for a "
+                + "requires_action payment (dropped by NON_NULL otherwise). An integrator drives their "
+                + "SCA/redirect handling from this; in TEST mode the url is a harmless stub.")
+        NextAction next_action
 ) {
+    /**
+     * TEST-6 (A3): the typed 3DS/redirect next action surfaced on a requires_action payment. The component
+     * names ({@code type}, {@code url}) ARE the snake-shaped wire keys (no transform; both are single tokens),
+     * matching the DTO's component-name-as-wire-name style (L-072). NON_NULL drops the enclosing
+     * {@code next_action} for non-action responses.
+     *
+     * <p>DELIBERATE BLUEPRINT DEVIATION: this is the FLAT {@code {type, url}} shape (NOT the blueprint's
+     * nested {@code {type, redirect_to_url:{url}}}), chosen to expose exactly ONE {@code next_action} shape
+     * across the confirm path (INT-6 {@code ConfirmResponse.NextAction}, which already locked {@code {type,
+     * url}}) and this payment path. Full rationale + trade-off on {@code PaymentResponse.NextAction}.</p>
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record NextAction(
+            @Schema(description = "The next-action type, e.g. \"redirect_to_url\".")
+            String type,
+            @Schema(description = "The redirect URL the client should send the cardholder to (3DS/SCA). "
+                    + "In TEST mode this is a harmless stub under test.nexuspay.local.")
+            String url
+    ) {
+    }
 }

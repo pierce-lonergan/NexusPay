@@ -79,6 +79,37 @@ describe('NexusPay client', () => {
     expect(result.id).toBe('pay_1');
   });
 
+  // TEST-6 (A3): a requires_action Payment exposes next_action.{type,url}; a success has it undefined.
+  it('getPayment surfaces next_action for a requires_action payment', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      okJson({
+        id: 'pay_1',
+        status: 'requires_action',
+        amount: 1000,
+        currency: 'usd',
+        next_action: { type: 'redirect_to_url', url: 'https://test.nexuspay.local/3ds/pay_1' },
+      }),
+    );
+    const client = makeClient(fetchMock);
+
+    const result = await client.getPayment('pay_1');
+
+    expect(result.status).toBe('requires_action');
+    expect(result.next_action).toBeDefined();
+    expect(result.next_action?.type).toBe('redirect_to_url');
+    expect(result.next_action?.url).toBe('https://test.nexuspay.local/3ds/pay_1');
+  });
+
+  it('getPayment has no next_action for a success payment', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okJson({ id: 'pay_1', status: 'succeeded', amount: 1000, currency: 'usd' }));
+    const client = makeClient(fetchMock);
+
+    const result = await client.getPayment('pay_1');
+
+    expect(result.status).toBe('succeeded');
+    expect(result.next_action).toBeUndefined();
+  });
+
   it('capturePayment maps amount_to_capture', async () => {
     const fetchMock = vi.fn().mockResolvedValue(okJson({ id: 'pay_1', status: 'succeeded' }));
     const client = makeClient(fetchMock);

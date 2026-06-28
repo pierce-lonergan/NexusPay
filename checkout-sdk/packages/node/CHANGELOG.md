@@ -29,6 +29,14 @@ network. No removals; nothing existing changes.
   returns the INT-2 error envelope for non-2xx so `NexusPayError` maps it.
   Unit-test SDK-using code with no network: `new NexusPay({ apiKey, baseUrl,
   fetch: createTestTransport({...}) })`.
+- **`Payment.next_action`** (+ a `NextAction` type) — present ONLY on a
+  `requires_action` payment (3DS/SCA), carrying `{ type, url }` so you can drive
+  your redirect handling. Absent on every other status. Mirrors the gateway wire
+  shape (snake_case, no transform). `Payment.status` is unchanged (a plain
+  string), so `requires_action` / `processing` / `requires_capture` flow through
+  with no enum change. Pairs with the new TEST-MODE forced outcomes
+  (`__test_outcome` = `requires_action` / `processing` / `fraud_hold`; see
+  `docs/LOCAL_DEV.md`).
 
 ## 0.1.1
 

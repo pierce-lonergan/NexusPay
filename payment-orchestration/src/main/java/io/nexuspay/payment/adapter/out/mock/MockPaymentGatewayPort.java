@@ -139,6 +139,77 @@ public class MockPaymentGatewayPort implements PaymentGatewayPort {
             ForcedOutcome.EXPIRED_CARD.token);
 
     /**
+     * TEST-6 single-source-of-truth mapping for forced NON-FAILURE outcomes: a {@code __test_outcome} value
+     * that resolves a successful create into a deterministic non-terminal/manual-capture state so an
+     * integrator can exercise SCA/redirect, async-settle, and review-hold→capture flows WITHOUT a real card.
+     * Parallel to {@link ForcedOutcome} (which only ever yields {@code STATUS_FAILED}) so the failure enum
+     * stays clean. A {@code null} {@link #lookup(Object)} means "no forced non-failure" — keep the existing
+     * success/requires_capture default. NONE of these synthesizes a terminal webhook (all are non-terminal or
+     * a manual-capture shape; the gateway synthesizes only on success/failed).
+     *
+     * <p>TEST-MODE ONLY, like every mock outcome: reachable only through this mock, which a live key
+     * ({@code sk_live_}) can never reach (see class javadoc). A real payment can NEVER be forced into
+     * requires_action / processing / a review hold — no real money moves and no PSP is touched.</p>
+     */
+    private enum NonFailureOutcome {
+        /**
+         * A3: 3DS/SCA — STATUS_REQUIRES_ACTION + a {@code next_action} redirect stub (built from the minted
+         * pay id; non-terminal, no webhook).
+         */
+        REQUIRES_ACTION("requires_action", PaymentResponse.STATUS_REQUIRES_ACTION),
+        /** A4: async settle — STATUS_PROCESSING, no next_action, no webhook (integrator fires the test event). */
+        PROCESSING("processing", PaymentResponse.STATUS_PROCESSING),
+        /**
+         * A5 (option b): review-hold SIMULATION — STATUS_REQUIRES_CAPTURE (manual-capture shaped), no hold row.
+         * Released via the existing capture endpoint. The real PreAuthorizationGate/CaptureHoldService fraud
+         * screen is bypassed in mock mode by design ({@code routeToMock}), so this is a documented simulation,
+         * not a faithful gate — the capture-hold money-safety stays untouched.
+         */
+        FRAUD_HOLD("fraud_hold", PaymentResponse.STATUS_REQUIRES_CAPTURE);
+
+        private final String token;
+        final String status;
+
+        NonFailureOutcome(String token, String status) {
+            this.token = token;
+            this.status = status;
+        }
+
+        /** Case-insensitive, trimmed resolve; {@code null} when absent/unrecognized (back-compat — a typo
+         * never alters the happy path). */
+        static NonFailureOutcome lookup(Object raw) {
+            if (raw == null) {
+                return null;
+            }
+            String v = raw.toString().trim().toLowerCase(Locale.ROOT);
+            if (v.isEmpty()) {
+                return null;
+            }
+            for (NonFailureOutcome o : values()) {
+                if (o.token.equals(v)) {
+                    return o;
+                }
+            }
+            return null;
+        }
+    }
+
+    /**
+     * TEST-6: the set of recognized {@code __test_outcome} values that force a NON-FAILURE outcome — exposed
+     * for the catalog doc + tests (single source of truth, derived from {@link NonFailureOutcome}).
+     */
+    public static final Set<String> FORCED_NONFAILURE_OUTCOMES = Set.of(
+            NonFailureOutcome.REQUIRES_ACTION.token,
+            NonFailureOutcome.PROCESSING.token,
+            NonFailureOutcome.FRAUD_HOLD.token);
+
+    /** TEST-6 (A3): the {@code next_action.type} for the 3DS/SCA redirect stub. */
+    public static final String NEXT_ACTION_REDIRECT = "redirect_to_url";
+
+    /** TEST-6 (A3): the test 3DS redirect URL prefix; the minted pay id is appended (no hardcoded id, L-071). */
+    public static final String TEST_3DS_URL_PREFIX = "https://test.nexuspay.local/3ds/";
+
+    /**
      * Test-mode id prefixes (Stripe-style). PUBLIC so the {@code GatedPaymentGateway} can use them as a
      * defense-in-depth fail-safe: a {@code pay_test_}/{@code re_test_} id is, by construction, a mock
      * artifact that the real PSP never minted, so a refund/read targeting one MUST route to the mock even
@@ -185,6 +256,26 @@ public class MockPaymentGatewayPort implements PaymentGatewayPort {
             log.debug("Mock createPayment FORCED FAILURE: id={} outcome={} errorCode={}",
                     id, forced.token, forced.errorCode);
             return failed;
+        }
+        // TEST-6 (TEST-MODE ONLY): honor the same reserved control key for a forced NON-FAILURE outcome so an
+        // integrator can exercise SCA/redirect (requires_action), async-settle (processing), and review-hold
+        // ->capture (fraud_hold) flows without a real card. Resolved BEFORE the success default; absent/
+        // unrecognized falls through to the byte-identical success path below (a typo never alters it). None
+        // synthesizes a terminal webhook (all are non-terminal or a manual-capture shape).
+        NonFailureOutcome nonFailure = NonFailureOutcome.lookup(metadata.get(TEST_OUTCOME_KEY));
+        if (nonFailure != null) {
+            PaymentResponse base = new PaymentResponse(
+                    id, nonFailure.status, request.amount(), request.currency(), captureMethod,
+                    request.customerId(), CONNECTOR, TXN_PREFIX + uuid(),
+                    null, null, Instant.now(), metadata);
+            // A3: attach a 3DS redirect stub derived from the just-minted id (no hardcoded server id, L-071).
+            PaymentResponse response = nonFailure == NonFailureOutcome.REQUIRES_ACTION
+                    ? base.withNextAction(new PaymentResponse.NextAction(NEXT_ACTION_REDIRECT, TEST_3DS_URL_PREFIX + id))
+                    : base;
+            payments.put(id, response); // stored so getPayment round-trips
+            log.debug("Mock createPayment FORCED NON-FAILURE: id={} outcome={} status={}",
+                    id, nonFailure.token, nonFailure.status);
+            return response;
         }
         if (metadata.get(TEST_OUTCOME_KEY) != null) {
             // Present but unrecognized (or "succeed"): fall through to success, but make the no-op visible.

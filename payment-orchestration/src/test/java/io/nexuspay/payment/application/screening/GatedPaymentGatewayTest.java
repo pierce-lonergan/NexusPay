@@ -409,4 +409,97 @@ class GatedPaymentGatewayTest {
         assertThat(mode.getValue()).isEqualTo(ScreeningMode.INTERACTIVE); // strict fallback, NOT from metadata
         assertThat(tenant.getValue()).isNull();                          // no tenant from a tampered blob
     }
+
+    // ---- TEST-6 (A3/A4): the new non-failure outcomes synthesize NO terminal webhook (through the GATE) ----
+    //
+    // The blueprint names "processing returns processing with no terminal webhook" (A4) and "NO terminal
+    // webhook is synthesized for requires_action" (A3) as explicit deliverables. The mock NEVER synthesizes
+    // webhooks — the GATE does (doCreate fires the synthesizer ONLY on response.isSuccessful() ->
+    // PaymentCaptured, else response.isFailed() -> payment.failed; REQUIRES_ACTION / PROCESSING /
+    // REQUIRES_CAPTURE fall through both branches). So this is the ONLY place that can assert the no-webhook
+    // property. A future change to the synthesis branch (e.g. an `else if requiresCapture()` arm) would
+    // otherwise silently violate A3/A4 with green tests.
+    //
+    // These cases drive the MOCK path by supplying ctx.live()==FALSE (routeToMock(false) -> true), which is
+    // the test-mode routing an sk_test_ key takes. mockDelegate is a Mockito mock here, so we stub the mock
+    // create to return each TEST-6 status and verify the synthesizer is / is not invoked accordingly.
+
+    private static PaymentResponse mockResp(String status, String captureMethod) {
+        return new PaymentResponse("pay_test_x", status, 5000, "USD", captureMethod,
+                "cust_1", "mock", "txn_test_1", null, null, Instant.EPOCH, Map.of());
+    }
+
+    private static CallContext testMode() {
+        // ctx.live()==FALSE forces the mock route in doCreate (DX-5a routeToMock(ctxLive)).
+        return new CallContext("T", ScreeningMode.INTERACTIVE, Boolean.FALSE);
+    }
+
+    @Test
+    void testMode_processing_synthesizesNoTerminalWebhook() {
+        // A4: a forced `processing` create is non-terminal — the gate must NOT synthesize any webhook.
+        when(mockDelegate.createPayment(any())).thenReturn(mockResp(PaymentResponse.STATUS_PROCESSING, "automatic"));
+
+        PaymentResponse r = gateway.createPayment(req(Map.of()), testMode());
+
+        assertThat(r.status()).isEqualTo(PaymentResponse.STATUS_PROCESSING);
+        verify(mockDelegate).createPayment(any());     // routed to the mock (not the real delegate)
+        verifyNoInteractions(delegate);                // the real PSP is never touched in test mode
+        verifyNoInteractions(mockSynthesizer);         // NO terminal webhook for a non-terminal state (A4)
+    }
+
+    @Test
+    void testMode_requiresAction_synthesizesNoTerminalWebhook() {
+        // A3: a forced `requires_action` (3DS/SCA) create is non-terminal — no webhook is synthesized.
+        when(mockDelegate.createPayment(any()))
+                .thenReturn(mockResp(PaymentResponse.STATUS_REQUIRES_ACTION, "automatic"));
+
+        PaymentResponse r = gateway.createPayment(req(Map.of()), testMode());
+
+        assertThat(r.status()).isEqualTo(PaymentResponse.STATUS_REQUIRES_ACTION);
+        verify(mockDelegate).createPayment(any());
+        verifyNoInteractions(delegate);
+        verifyNoInteractions(mockSynthesizer);         // NO terminal webhook for a non-terminal state (A3)
+    }
+
+    @Test
+    void testMode_fraudHold_requiresCapture_synthesizesNoTerminalWebhook() {
+        // A5 (option b): a forced `fraud_hold` -> requires_capture (manual-capture shape) is NOT terminal at
+        // create — the gate synthesizes nothing here (capture later fires PaymentCaptured via the capture path).
+        when(mockDelegate.createPayment(any()))
+                .thenReturn(mockResp(PaymentResponse.STATUS_REQUIRES_CAPTURE, "manual"));
+
+        PaymentResponse r = gateway.createPayment(req(Map.of()), testMode());
+
+        assertThat(r.status()).isEqualTo(PaymentResponse.STATUS_REQUIRES_CAPTURE);
+        verify(mockDelegate).createPayment(any());
+        verifyNoInteractions(delegate);
+        verifyNoInteractions(mockSynthesizer);         // requires_capture is not terminal at create
+    }
+
+    @Test
+    void testMode_success_synthesizesPaymentCaptured_positiveControl() {
+        // POSITIVE CONTROL: an auto-capture success IS terminal -> the gate DOES synthesize PaymentCaptured.
+        // This proves the no-webhook assertions above are meaningful (the synthesizer is wired + reachable).
+        when(mockDelegate.createPayment(any())).thenReturn(mockResp(PaymentResponse.STATUS_SUCCEEDED, "automatic"));
+
+        gateway.createPayment(req(Map.of()), testMode());
+
+        verify(mockSynthesizer).onTerminal(any(), any(),
+                eq(io.nexuspay.payment.domain.event.PaymentEvent.PAYMENT_CAPTURED));
+        verify(mockSynthesizer, never()).onTerminalFailure(any(), any(), any());
+    }
+
+    @Test
+    void testMode_decline_synthesizesPaymentFailed_positiveControl() {
+        // POSITIVE CONTROL: a forced decline IS terminal (failed) -> the gate synthesizes payment.failed.
+        when(mockDelegate.createPayment(any())).thenReturn(new PaymentResponse(
+                "pay_test_x", PaymentResponse.STATUS_FAILED, 5000, "USD", "automatic", "cust_1",
+                "mock", "txn_test_1", "card_declined", "Your card was declined.", Instant.EPOCH, Map.of()));
+
+        gateway.createPayment(req(Map.of()), testMode());
+
+        verify(mockSynthesizer).onTerminalFailure(any(), any(),
+                eq(io.nexuspay.payment.domain.event.PaymentEvent.PAYMENT_FAILED));
+        verify(mockSynthesizer, never()).onTerminal(any(), any(), any());
+    }
 }
