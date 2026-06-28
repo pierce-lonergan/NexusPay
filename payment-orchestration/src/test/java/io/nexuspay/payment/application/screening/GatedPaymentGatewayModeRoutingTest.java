@@ -71,7 +71,8 @@ class GatedPaymentGatewayModeRoutingTest {
         synthesizer = mock(MockWebhookSynthesizer.class);
         lenient().when(origins.find(any())).thenReturn(Optional.empty());
         gateway = new GatedPaymentGateway(hyperSwitch, mockDelegate, gate, holds, origins,
-                webhookMetadata, synthesizer);
+                webhookMetadata, synthesizer,
+                mock(io.nexuspay.payment.application.service.projection.PaymentProjectionService.class));
     }
 
     @AfterEach

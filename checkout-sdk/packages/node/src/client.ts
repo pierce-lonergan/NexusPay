@@ -32,6 +32,8 @@ import type {
   ListDisputesParams,
   ListMandatesParams,
   ListPaymentMethodsParams,
+  ListPaymentsParams,
+  ListRefundsParams,
   Mandate,
   MandateCreateParams,
   Payment,
@@ -39,6 +41,7 @@ import type {
   PaymentSession,
   PingResponse,
   PingResult,
+  Refund,
   RequestOptions,
   RevokedMandate,
   SimulateDisputeParams,
@@ -180,6 +183,27 @@ export class NexusPay {
     return this.request<Payment>('GET', `/v1/payments/${encodeURIComponent(id)}`, undefined, opts);
   }
 
+  /**
+   * GAP-076 (critique v3 F1): lists the caller tenant's payments from the durable READ-MODEL projection
+   * (`GET /v1/payments`). Requires the `payments:read` scope. Results are scoped to the authenticated
+   * key's tenant AND mode (a test key lists only test payments) server-side — never a client header.
+   * Optional `status` / `customerId` (-> `customer_id`) filters; `limit` (default 20) is clamped to
+   * [1,100] server-side.
+   *
+   * FORWARD-FILL CAVEAT: enumerates only payments created AFTER the read-model shipped; `getPayment(id)`
+   * still serves older ones. The list may lag a live async settlement by the webhook-delivery window.
+   */
+  listPayments(params?: ListPaymentsParams, opts?: RequestOptions): Promise<Payment[]> {
+    const search = new URLSearchParams();
+    if (params?.status !== undefined) search.set('status', params.status);
+    if (params?.customerId !== undefined) search.set('customer_id', params.customerId);
+    if (params?.limit !== undefined) search.set('limit', String(params.limit));
+    if (params?.offset !== undefined) search.set('offset', String(params.offset));
+    const qs = search.toString();
+    const path = qs ? `/v1/payments?${qs}` : '/v1/payments';
+    return this.request<Payment[]>('GET', path, undefined, opts);
+  }
+
   confirmPayment(
     id: string,
     params?: ConfirmPaymentParams,
@@ -269,6 +293,24 @@ export class NexusPay {
       });
     }
     return result;
+  }
+
+  /**
+   * GAP-076 (critique v3 F1): lists the caller tenant's refunds from the durable READ-MODEL projection
+   * (`GET /v1/refunds`). Requires the `refunds:read` scope. Results are scoped to the authenticated key's
+   * tenant AND mode server-side. Optional `paymentId` (-> `payment`, filter by parent payment) / `status`
+   * filters; `limit` (default 20) is clamped to [1,100] server-side. Same forward-fill caveat as
+   * {@link listPayments}.
+   */
+  listRefunds(params?: ListRefundsParams, opts?: RequestOptions): Promise<Refund[]> {
+    const search = new URLSearchParams();
+    if (params?.paymentId !== undefined) search.set('payment', params.paymentId);
+    if (params?.status !== undefined) search.set('status', params.status);
+    if (params?.limit !== undefined) search.set('limit', String(params.limit));
+    if (params?.offset !== undefined) search.set('offset', String(params.offset));
+    const qs = search.toString();
+    const path = qs ? `/v1/refunds?${qs}` : '/v1/refunds';
+    return this.request<Refund[]>('GET', path, undefined, opts);
   }
 
   // ---- disputes (TEST-2) ----

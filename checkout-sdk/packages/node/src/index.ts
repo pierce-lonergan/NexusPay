@@ -55,6 +55,8 @@ export type {
   Refund,
   RefundApproval,
   CreateRefundResult,
+  ListPaymentsParams,
+  ListRefundsParams,
   Customer,
   CustomerCreateParams,
   CustomerUpdateParams,

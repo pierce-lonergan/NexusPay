@@ -497,9 +497,14 @@ money-safety gap**: nothing here weakens the gate, the capture-hold control, a t
 boundary, or any production correctness. They were deferred because each needs a
 semi-orthogonal platform seam that is out of scope for a testability batch.
 
-### GAP-076 (F1): No payments / refunds LIST (read-model)
+### GAP-076 (F1): No payments / refunds LIST (read-model) — ✅ DELIVERED 2026-06-28 (ADR-064)
 - **Identified**: TEST-4 (re-confirmed TEST-6)
-- **Status**: Deferred — P2 testability nicety (NOT a security/money gap)
+- **Status**: ✅ **DELIVERED** — `GET /v1/payments` + `GET /v1/refunds` now backed by a durable, tenant+livemode-scoped
+  projection (V4041 `payments`/`refunds` tables) written BEST-EFFORT at the gateway + async-webhook hooks (a
+  projection write can never fail/block/rollback a charge; never a source of truth). Forward-fill (lists rows created
+  after 2026-06-28; `GET /{id}` still serves older; a live async settlement may lag by the webhook window). SDK
+  `listPayments`/`listRefunds`. See ADR-064. *(Original deferral rationale retained below for history.)*
+- **Original status (now superseded)**: Deferred — P2 testability nicety (NOT a security/money gap)
 - **What it is**: There is no `GET /v1/payments` / `GET /v1/refunds` list endpoint. An integrator
   cannot enumerate the payments/refunds they created in a test session.
 - **Why deferred**: No payment/refund **read-model** exists. Live state lives inside HyperSwitch;

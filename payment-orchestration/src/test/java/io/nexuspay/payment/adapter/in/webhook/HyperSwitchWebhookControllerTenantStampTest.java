@@ -66,7 +66,9 @@ class HyperSwitchWebhookControllerTenantStampTest {
         // rejecting it. Each test signs its body with WEBHOOK_SECRET via signed(...).
         controller = new HyperSwitchWebhookController(
                 webhookRepository, outboxRepository, redisTemplate, new ObjectMapper(),
-                screeningOrigins, new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
+                screeningOrigins,
+                mock(io.nexuspay.payment.application.service.projection.PaymentProjectionService.class),
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
                 WEBHOOK_SECRET);
     }
 
@@ -160,6 +162,7 @@ class HyperSwitchWebhookControllerTenantStampTest {
         ScreeningOriginService origins = mock(ScreeningOriginService.class);
         HyperSwitchWebhookController blankSecretController = new HyperSwitchWebhookController(
                 hooks, outbox, redis, new ObjectMapper(), origins,
+                mock(io.nexuspay.payment.application.service.projection.PaymentProjectionService.class),
                 new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), "");
 
         var response = blankSecretController.handleWebhook("{\"event_id\":\"x\"}", "deadbeef");

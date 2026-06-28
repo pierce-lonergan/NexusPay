@@ -7,6 +7,7 @@ import io.nexuspay.payment.application.port.PaymentGatewayPort;
 import io.nexuspay.payment.application.screening.CallContext;
 import io.nexuspay.payment.application.screening.ScreeningOriginService;
 import io.nexuspay.payment.application.service.OffSessionChargeService;
+import io.nexuspay.payment.application.service.projection.PaymentProjectionQueryService;
 import io.nexuspay.payment.domain.*;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -21,6 +22,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -35,29 +37,33 @@ public class PaymentController {
     private final ScreeningOriginService screeningOrigins;
     /** TEST-3c: off-session charge of a SAVED method (pm_). Resolves the pm_ then reuses the SAME gateway. */
     private final OffSessionChargeService offSessionCharge;
+    /** GAP-076 (critique v3 F1): read-only query service backing the new GET /v1/payments LIST endpoint. */
+    private final PaymentProjectionQueryService projectionQuery;
 
     @Autowired
     public PaymentController(PaymentGatewayPort paymentGateway,
                               RefundOrchestrationService refundOrchestration,
                               ScreeningOriginService screeningOrigins,
-                              OffSessionChargeService offSessionCharge) {
+                              OffSessionChargeService offSessionCharge,
+                              PaymentProjectionQueryService projectionQuery) {
         this.paymentGateway = paymentGateway;
         this.refundOrchestration = refundOrchestration;
         this.screeningOrigins = screeningOrigins;
         this.offSessionCharge = offSessionCharge;
+        this.projectionQuery = projectionQuery;
     }
 
     /**
      * TEST-3c back-compat 3-arg constructor: pre-3c direct-construction unit tests (capture-alias,
      * idempotency-derivation, refund-approval, ownership) build the controller without an
      * {@link OffSessionChargeService}. Those tests never send a {@code payment_method}, so off-session
-     * delegation is never reached. Spring uses the 4-arg constructor for real wiring (single explicit
+     * delegation is never reached. Spring uses the 5-arg constructor for real wiring (single explicit
      * autowire candidate); this overload exists purely for those tests.
      */
     public PaymentController(PaymentGatewayPort paymentGateway,
                               RefundOrchestrationService refundOrchestration,
                               ScreeningOriginService screeningOrigins) {
-        this(paymentGateway, refundOrchestration, screeningOrigins, null);
+        this(paymentGateway, refundOrchestration, screeningOrigins, null, null);
     }
 
     /**
@@ -253,6 +259,35 @@ public class PaymentController {
         screeningOrigins.assertOwnedBy(id, principal != null ? principal.tenantId() : null);
         var response = paymentGateway.getPayment(id);
         return ResponseEntity.ok(ResponseMapper.toPaymentResponse(response, modeOf(principal)));
+    }
+
+    /**
+     * GAP-076 (critique v3 F1): lists the caller tenant's payments from the durable READ-MODEL projection.
+     * Tenant is ALWAYS {@code principal.tenantId()} and livemode is ALWAYS {@code principal.live()} — a
+     * foreign tenant's payments are never listable (no IDOR / no count leak) and a test key lists only
+     * test payments (Stripe parity + safety). Optional {@code status} / {@code customer_id} filters;
+     * {@code limit} (default 20) is clamped to [1,100] and {@code offset} (default 0) to &ge; 0 by the
+     * query service.
+     *
+     * <p>FORWARD-FILL CAVEAT: the list enumerates only payments created AFTER the read-model shipped;
+     * {@code GET /v1/payments/{id}} still serves older ones (it reads HyperSwitch/mock directly). The list
+     * may also lag a live async settlement by the webhook-delivery window (a live payment shows {@code
+     * processing} until the HyperSwitch webhook advances it).</p>
+     */
+    @GetMapping
+    @PreAuthorize("hasAnyRole('admin', 'operator', 'viewer') and @scopeAuth.has('payments:read')")
+    @Operation(summary = "List payments (read-model projection)")
+    public ResponseEntity<List<PaymentApiResponse>> listPayments(
+            @RequestParam(value = "status", required = false) String status,
+            @RequestParam(value = "customer_id", required = false) String customerId,
+            @RequestParam(defaultValue = "20") int limit,
+            @RequestParam(defaultValue = "0") int offset,
+            @AuthenticationPrincipal NexusPayPrincipal principal) {
+        // Tenant + livemode ALWAYS from the authenticated principal — never a client header/body.
+        String tenantId = principal != null ? principal.tenantId() : null;
+        boolean livemode = principal != null && principal.live();
+        var rows = projectionQuery.listPayments(tenantId, livemode, status, customerId, limit, offset);
+        return ResponseEntity.ok(rows.stream().map(ResponseMapper::toPaymentResponse).toList());
     }
 
     @PostMapping("/{id}/refunds")

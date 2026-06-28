@@ -9,6 +9,9 @@ import io.nexuspay.payment.adapter.out.outbox.OutboxEventRepository;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.nexuspay.payment.application.screening.ScreeningOriginService;
+import io.nexuspay.payment.application.service.projection.PaymentProjectionService;
+import io.nexuspay.payment.domain.PaymentResponse;
+import io.nexuspay.payment.domain.RefundResponse;
 import io.nexuspay.payment.domain.event.PaymentEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -60,6 +63,13 @@ public class HyperSwitchWebhookController {
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final ScreeningOriginService screeningOrigins;
+    /**
+     * GAP-076 (critique v3 F1): BEST-EFFORT read-model writer. The ONLY place a LIVE payment transitions
+     * processing -> succeeded/failed/cancelled (and a refund pending -> succeeded/failed) without a
+     * gateway call is here. The status update is swallowed inside the service + runs REQUIRES_NEW, so it
+     * can NEVER affect the 200 OK or the outbox write (the CARDINAL RULE).
+     */
+    private final PaymentProjectionService projection;
     private final String webhookSecret;
 
     /**
@@ -76,6 +86,7 @@ public class HyperSwitchWebhookController {
             StringRedisTemplate redisTemplate,
             ObjectMapper objectMapper,
             ScreeningOriginService screeningOrigins,
+            PaymentProjectionService projection,
             MeterRegistry meterRegistry,
             @org.springframework.beans.factory.annotation.Value("${nexuspay.hyperswitch.webhook-secret:}") String webhookSecret) {
         this.webhookRepository = webhookRepository;
@@ -83,6 +94,7 @@ public class HyperSwitchWebhookController {
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
         this.screeningOrigins = screeningOrigins;
+        this.projection = projection;
         this.webhookSecret = webhookSecret;
         this.webhookDefaultTenantStamped = Counter.builder("nexuspay.webhook.outbox.default_tenant_stamped")
                 .description("Webhook events stamped tenant=default because the payment's origin tenant "
@@ -247,6 +259,13 @@ public class HyperSwitchWebhookController {
 
             outboxRepository.save(new OutboxEvent(
                     aggregateType, aggregateId, nexusEventType, outboxPayload, eventTenant, 1));
+
+            // GAP-076 (critique v3 F1): best-effort read-model status advance for the ASYNC-LIVE
+            // settlement — the only place a LIVE payment/refund transitions without a gateway call.
+            // Swallowed inside the projection service + runs REQUIRES_NEW, so it can NEVER affect the
+            // 200 OK or the outbox write above. Update-if-exists (a pre-read-model payment is a no-op;
+            // the {id} endpoint serves it from HyperSwitch). livemode is read from the webhook payload.
+            recordProjectionStatusUpdate(payload, eventType, paymentId, eventTenant);
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize outbox event", e);
             webhook.markFailed();
@@ -281,6 +300,56 @@ public class HyperSwitchWebhookController {
             log.error("HMAC verification error", e);
             return false;
         }
+    }
+
+    /**
+     * GAP-076: best-effort read-model status advance for the async-live settlement. Maps the HyperSwitch
+     * event type to a projection status and update-if-exists on the row (precedence-guarded inside the
+     * service). Refund events route to the refund projection (the refund id is read from the payload).
+     * Wrapped so even an unexpected error here cannot affect the 200 OK / outbox write.
+     */
+    private void recordProjectionStatusUpdate(JsonNode payload, String eventType, String paymentId,
+                                              String resolvedTenant) {
+        try {
+            boolean livemode = livemodeFromPayload(payload);
+            String hs = eventType == null ? "" : eventType.toLowerCase();
+            switch (hs) {
+                case "payment_succeeded" -> projection.recordStatusUpdate(
+                        paymentId, resolvedTenant, PaymentResponse.STATUS_SUCCEEDED, livemode);
+                case "payment_failed" -> projection.recordStatusUpdate(
+                        paymentId, resolvedTenant, PaymentResponse.STATUS_FAILED, livemode);
+                case "payment_processing" -> projection.recordStatusUpdate(
+                        paymentId, resolvedTenant, PaymentResponse.STATUS_PROCESSING, livemode);
+                case "payment_cancelled" -> projection.recordStatusUpdate(
+                        paymentId, resolvedTenant, PaymentResponse.STATUS_CANCELLED, livemode);
+                case "refund_succeeded" -> projection.recordRefundStatusUpdate(
+                        refundIdFromPayload(payload), paymentId, resolvedTenant,
+                        RefundResponse.STATUS_SUCCEEDED, livemode);
+                case "refund_failed" -> projection.recordRefundStatusUpdate(
+                        refundIdFromPayload(payload), paymentId, resolvedTenant,
+                        RefundResponse.STATUS_FAILED, livemode);
+                default -> { /* not a state-bearing event for the projection */ }
+            }
+        } catch (RuntimeException e) {
+            // Defense-in-depth: the projection methods already swallow, but never let a stray error here
+            // touch the webhook's 200 OK / outbox write.
+            log.warn("GAP-076 projection status update skipped for payment_id={} event_type={}",
+                    paymentId, eventType);
+        }
+    }
+
+    /** Reads the webhook payload's livemode flag (content.object.livemode or top-level), default false. */
+    private boolean livemodeFromPayload(JsonNode payload) {
+        JsonNode obj = payload.path("content").path("object").path("livemode");
+        if (!obj.isMissingNode() && !obj.isNull()) {
+            return obj.asBoolean(false);
+        }
+        return payload.path("livemode").asBoolean(false);
+    }
+
+    /** Reads the refund id from the webhook payload (content.object.refund_id), or null. */
+    private String refundIdFromPayload(JsonNode payload) {
+        return extractNestedField(payload, "content", "object", "refund_id");
     }
 
     /**

@@ -496,6 +496,46 @@ describe('NexusPay client', () => {
     });
   });
 
+  // --- GAP-076 (critique v3 F1): payments/refunds READ-MODEL list endpoints ---
+  describe('list payments / refunds (read-model)', () => {
+    it('listPayments GETs /v1/payments with no query string when no params', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(okJson([{ id: 'pay_1', status: 'succeeded' }]));
+      const client = makeClient(fetchMock);
+
+      const result = await client.listPayments();
+
+      const { url, init } = lastCall(fetchMock);
+      expect(url).toBe(`${BASE}/v1/payments`);
+      expect(init.method).toBe('GET');
+      expect(init.body).toBeUndefined();
+      expect(result[0].id).toBe('pay_1');
+    });
+
+    it('listPayments maps status + customerId(->customer_id) + limit/offset to the query string', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(okJson([{ id: 'pay_1', status: 'failed' }]));
+      const client = makeClient(fetchMock);
+
+      await client.listPayments({ status: 'failed', customerId: 'cus_9', limit: 5, offset: 10 });
+
+      const { url } = lastCall(fetchMock);
+      expect(url).toBe(`${BASE}/v1/payments?status=failed&customer_id=cus_9&limit=5&offset=10`);
+    });
+
+    it('listRefunds GETs /v1/refunds and maps paymentId(->payment) + status', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        okJson([{ id: 're_1', payment_id: 'pay_1', status: 'succeeded', requires_approval: false }]),
+      );
+      const client = makeClient(fetchMock);
+
+      const result = await client.listRefunds({ paymentId: 'pay_1', status: 'succeeded' });
+
+      const { url, init } = lastCall(fetchMock);
+      expect(url).toBe(`${BASE}/v1/refunds?payment=pay_1&status=succeeded`);
+      expect(init.method).toBe('GET');
+      expect(result[0].payment_id).toBe('pay_1');
+    });
+  });
+
   // --- DX-2 critique 4.2: opt-in retry/backoff + auto-idempotency ---
   describe('opt-in retry / backoff / idempotency', () => {
     function okJsonWithHeaders(body: unknown, status: number, headers: Record<string, string> = {}) {

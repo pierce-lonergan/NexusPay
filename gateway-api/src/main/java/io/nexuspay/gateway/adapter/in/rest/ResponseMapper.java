@@ -11,6 +11,8 @@ import io.nexuspay.ledger.domain.JournalEntry;
 import io.nexuspay.ledger.domain.LedgerAccount;
 import io.nexuspay.payment.domain.PaymentResponse;
 import io.nexuspay.payment.domain.RefundResponse;
+import io.nexuspay.payment.domain.projection.PaymentProjectionRow;
+import io.nexuspay.payment.domain.projection.RefundProjectionRow;
 
 import java.util.Map;
 
@@ -55,6 +57,36 @@ final class ResponseMapper {
                 p.captureMethod(), p.customerId(), p.connectorName(),
                 p.errorCode(), p.errorMessage(), p.createdAt(), p.metadata(), mode, livemode, nextAction
         );
+    }
+
+    /**
+     * GAP-076 (critique v3 F1): maps a payments READ-MODEL projection row to the SAME
+     * {@link PaymentApiResponse} shape the {@code GET /v1/payments/{id}} endpoint returns, so the list and
+     * the by-id retrieve are byte-compatible. {@code mode}/{@code livemode} are derived from the ROW's
+     * {@code livemode} (a list element from a test key's projection is always {@code mode:"test"}). The
+     * projection carries no {@code next_action} (a non-terminal redirect is a transient by-id concern), so
+     * it is dropped by NON_NULL.
+     */
+    static PaymentApiResponse toPaymentResponse(PaymentProjectionRow row) {
+        String mode = row.livemode() ? "live" : "test";
+        return new PaymentApiResponse(
+                row.paymentId(), row.status(), row.amount(), row.currency(),
+                row.captureMethod(), row.customerId(), row.connectorName(),
+                row.errorCode(), row.errorMessage(), row.createdAt(),
+                null, mode, row.livemode(), null);
+    }
+
+    /**
+     * GAP-076 (critique v3 F1): maps a refunds READ-MODEL projection row to the SAME
+     * {@link RefundApiResponse} shape as {@code GET /v1/refunds/{id}}. A listed refund is self-describing
+     * as not-approval-required ({@code requires_approval=false}), matching the created-refund shape.
+     */
+    static RefundApiResponse toRefundResponse(RefundProjectionRow row) {
+        return new RefundApiResponse(
+                row.refundId(), row.paymentId(), row.status(), row.amount(),
+                row.currency(), row.reason(), row.connectorName(),
+                row.errorCode(), row.errorMessage(), row.createdAt(),
+                Boolean.FALSE);
     }
 
     static RefundApiResponse toRefundResponse(RefundResponse r) {

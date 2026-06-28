@@ -86,7 +86,8 @@ class GatedPaymentGatewayGeographyTest {
         mockDelegate = mock(MockPaymentGatewayPort.class);
         mockSynthesizer = mock(io.nexuspay.payment.application.webhook.MockWebhookSynthesizer.class);
         gateway = new GatedPaymentGateway(delegate, mockDelegate, gate, holds, origins, webhookMetadata,
-                mockSynthesizer);
+                mockSynthesizer,
+                mock(io.nexuspay.payment.application.service.projection.PaymentProjectionService.class));
         // These live-path tests rely on routeToMock() resolving to the REAL delegate, which requires
         // PaymentMode UNSET and NO servlet request bound. JUnit reuses worker threads across classes, so a
         // prior test (e.g. the routing test, which binds a MockHttpServletRequest) could leave ambient

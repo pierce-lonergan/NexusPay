@@ -130,6 +130,22 @@ export interface ConfirmPaymentParams {
   returnUrl?: string;
 }
 
+/**
+ * GAP-076 (critique v3 F1): query params for `GET /v1/payments` (the READ-MODEL list). Tenant +
+ * livemode are derived from the authenticated key server-side — never a client param. `customerId` maps
+ * to the `customer_id` wire param.
+ *
+ * FORWARD-FILL CAVEAT: the list enumerates only payments created AFTER the read-model shipped;
+ * `getPayment(id)` still serves older ones. The list may also lag a live async settlement by the
+ * webhook-delivery window (a live payment shows `processing` until the webhook advances it).
+ */
+export interface ListPaymentsParams {
+  status?: string;
+  customerId?: string;
+  limit?: number;
+  offset?: number;
+}
+
 export interface CapturePaymentParams {
   amountToCapture?: number;
 }
@@ -179,6 +195,18 @@ export interface RefundApproval {
 
 /** Discriminated union on `requires_approval` — the caller narrows. */
 export type CreateRefundResult = Refund | RefundApproval;
+
+/**
+ * GAP-076 (critique v3 F1): query params for `GET /v1/refunds` (the READ-MODEL list). Tenant + livemode
+ * are derived from the authenticated key server-side. `paymentId` maps to the `payment` wire param
+ * (filter by parent payment). Same forward-fill caveat as {@link ListPaymentsParams}.
+ */
+export interface ListRefundsParams {
+  paymentId?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+}
 
 // ---- dispute (TEST-2) ----
 
