@@ -105,7 +105,10 @@ class TestIdempotencyControllerTest {
         String keyA1 = prefixA + "order-1";
         String keyA2 = prefixA + "order-2";
 
-        when(redis.scan(any(ScanOptions.class))).thenReturn(cursorOver(List.of(keyA1, keyA2)));
+        // Build the cursor BEFORE stubbing redis.scan — calling cursorOver() (which itself stubs) inside the
+        // thenReturn(...) argument would start a new stubbing while redis.scan's is open (UnfinishedStubbingException).
+        Cursor<String> cursor = cursorOver(List.of(keyA1, keyA2));
+        when(redis.scan(any(ScanOptions.class))).thenReturn(cursor);
         when(valueOps.get(keyA1)).thenReturn("PROCESSING");
         when(valueOps.get(keyA2)).thenReturn("{\"status\":201,\"contentType\":\"application/json\",\"body\":\"{}\"}");
         when(redis.getExpire(keyA1, TimeUnit.SECONDS)).thenReturn(60L);
@@ -148,7 +151,8 @@ class TestIdempotencyControllerTest {
         // sanity: the two callers derive DIFFERENT scopes.
         assertThat(prefixA).isNotEqualTo(prefixB);
 
-        when(redis.scan(any(ScanOptions.class))).thenReturn(cursorOver(List.of()));
+        Cursor<String> cursor = cursorOver(List.of());
+        when(redis.scan(any(ScanOptions.class))).thenReturn(cursor);
 
         controller(reqA).list();
 
@@ -168,7 +172,8 @@ class TestIdempotencyControllerTest {
         String prefixA = IdempotencyScope.keyPrefix(reqA);
         String keyA1 = prefixA + "order-1";
         String keyA2 = prefixA + "order-2";
-        when(redis.scan(any(ScanOptions.class))).thenReturn(cursorOver(List.of(keyA1, keyA2)));
+        Cursor<String> cursor = cursorOver(List.of(keyA1, keyA2));
+        when(redis.scan(any(ScanOptions.class))).thenReturn(cursor);
         when(redis.delete(anyString())).thenReturn(true);
 
         ResponseEntity<Void> resp = controller(reqA).clearAll();
