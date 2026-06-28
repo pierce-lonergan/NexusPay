@@ -1353,3 +1353,36 @@ DECISION (Blueprint -> Implement -> 5 lenses -> Fix):
    snake_case payment_method binding was unproven -> added a @WebMvcTest verify() so dropping @JsonProperty fails CI
    (L-072). CONSEQUENCES: TEST-3 (B1-B5) COMPLETE — Customer + saved method + off-session charge + mandate, all
    test-mode-exercisable with no real card. CI is the oracle; node SDK DTS verified. Flyway global max now V4040.
+
+## ADR-060 | 2026-06-27 | TEST-4a: test-event trigger (D1) + webhook-delivery body/signature visibility (F2) (critique v3) (T3)
+STATUS: Accepted (T3 — a test surface + secret-adjacent webhook visibility; via PR). Two developer-testability
+features reusing existing machinery, NO new tables. SCOPE NOTE: F1 (payments/refunds LIST) is DEFERRED — there is
+NO payment/refund read-model (live state is in HyperSwitch, test state in the in-memory singleton mock), so a durable
+list needs a projection table — a semi-orthogonal platform feature recorded as a known-gap, not shipped half-baked.
+The CLI (D2/D3) is a separate batch (the nexus-pay bin does NOT exist yet — DX-6 shipped only the Docker image).
+DECISION (scout -> Blueprint -> Implement -> 5 lenses -> Fix):
+ - D1 = POST /v1/test/events (gateway-api TestEventController): HARD-GATED on CallerMode.isTest() FIRST (a LIVE key
+   -> 404, no oracle the route exists; CallerMode is fail-closed) + CallerTenant.require(); body {type (dotted
+   canonical, validated against WebhookEventTaxonomy.CANONICAL else 400), id?, data?}; reverse-maps dotted->internal
+   via a NEW single-sourced WebhookEventTaxonomy.fromDotted + aggregateTypeFor (CANONICAL/toDotted untouched, parity
+   test green); synthesizes via TestEventOutboxAdapter — a native INSERT INTO event_outbox mirroring
+   DisputeOutboxAdapter (NO payment-orchestration OutboxEvent import; cross-module boundary respected), stamped
+   __livemode=false under the CALLER tenant so it fans out ONLY to the caller's own enabled endpoints (a test key
+   cannot inject into another tenant or forge a live webhook). Reuses webhooks:write.
+ - F2 = GET /v1/webhook-deliveries/{id}/body + /{id}/signature (WebhookEndpointController): resolve via
+   findByIdAndTenantId -> 404 no-oracle (a foreign/missing delivery is indistinguishable); /body returns the stored
+   canonical_body (the caller's OWN delivered bytes — owner-only); /signature RECOMPUTES HMAC-SHA256 over
+   canonical_body using the owning endpoint's CURRENT secret (read transiently, tenant-scoped) and returns ONLY
+   {algorithm, signature(hex), endpoint_id, rotated_secret_caveat} — the SECRET IS NEVER RETURNED (not even masked).
+   Documented rotated-secret caveat (the recompute uses the CURRENT secret, so it differs from the original
+   signature if rotated after delivery). The HMAC routine was EXTRACTED to a single-sourced WebhookSignature helper
+   (WebhookDeliveryService.send now delegates to it, byte-identical) so the recompute can never drift from the sender.
+   Reuses webhooks:read.
+ - REVIEW (5 lenses; the secret/tenant-privacy lens found NO BLOCKER/SHOULD_FIX — F2's no-secret handling held): 2
+   SHOULD_FIX — (1) springdoc @Tag drift (Test Events -> Test Helpers to match the published spec + group with
+   /v1/test/disputes); (2) the native event_outbox INSERT was only covered at the wrong seam (the controller test
+   mocks the adapter) -> added TestEventOutboxAdapterTest mirroring DisputeOutboxAdapterTest (mocked EntityManager,
+   L-071 findAndRegisterModules, asserts the billing-mirror column shape + tenant + __livemode=false). RESIDUAL
+   (CI-confirmed): event_outbox must be reachable from gateway-api's EntityManager for the native INSERT — low risk
+   (shared monolith DB/EMF; DisputeOutboxAdapter precedent). CONSEQUENCES: TEST-4b = the nexus-pay CLI (trigger +
+   listen) next; F1 deferred as a known-gap. CI is the oracle; node SDK DTS verified (SDK tests 5/5 local).

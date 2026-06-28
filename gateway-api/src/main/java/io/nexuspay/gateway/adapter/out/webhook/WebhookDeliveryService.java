@@ -34,14 +34,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClient;
 
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 import java.net.InetAddress;
 import java.net.URI;
 import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
@@ -76,7 +73,6 @@ import java.util.function.Function;
 public class WebhookDeliveryService {
 
     private static final Logger log = LoggerFactory.getLogger(WebhookDeliveryService.class);
-    private static final String HMAC_ALGORITHM = "HmacSHA256";
 
     private static final String EVENT_TYPE_HEADER = "event_type";
     private static final String TENANT_ID_HEADER = "tenant_id";
@@ -593,15 +589,12 @@ public class WebhookDeliveryService {
         return DEFAULT_TENANT;
     }
 
+    /**
+     * TEST-4a: delegates to the single-sourced {@link WebhookSignature#sign(String, String)} so the
+     * sender and the F2 signature-inspection endpoint can never fork the algorithm. Byte-identical to the
+     * prior inline {@code HmacSHA256}-over-UTF-8-bytes, hex routine.
+     */
     private String computeSignature(String payload, String secret) {
-        try {
-            Mac mac = Mac.getInstance(HMAC_ALGORITHM);
-            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), HMAC_ALGORITHM));
-            byte[] hash = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(hash);
-        } catch (Exception e) {
-            log.error("Failed to compute webhook signature", e);
-            return "";
-        }
+        return WebhookSignature.sign(payload, secret);
     }
 }

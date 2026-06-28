@@ -444,3 +444,62 @@ export interface WebhookEvent<T extends WebhookEventObject = WebhookEventObject>
   api_version: string;
   data: { object: T; metadata: Metadata };
 }
+
+// ---- test events + delivery visibility (TEST-4a) ----
+
+/**
+ * Params for the TEST-MODE-only webhook-event trigger (`POST /v1/test/events`). Only reachable with a TEST
+ * key (`sk_test_`); a live key is rejected with 404 (no oracle). Synthesizes + delivers a canonical webhook
+ * of `type` to the caller's OWN tenant's endpoints so an integrator can exercise their receiver WITHOUT
+ * driving a real payment. `id` is an OPTIONAL opaque test aggregate id (defaulted server-side with the
+ * aggregate-correct prefix); `data` is an OPTIONAL overlay merged onto the synthesized `data.object`.
+ */
+export interface TriggerTestEventParams {
+  /** Dotted canonical event type (reuses the platform WebhookEventType union). */
+  type: WebhookEventType;
+  id?: string;
+  data?: Record<string, unknown>;
+}
+
+/**
+ * The synthesized event returned by `POST /v1/test/events`. `id` matches the delivered webhook's `id`;
+ * `livemode` is always `false` (a test trigger can never synthesize a live event); `object` is the
+ * delivered `data.object`.
+ */
+export interface TestEvent {
+  id: string;
+  type: WebhookEventType;
+  livemode: boolean;
+  object: Record<string, unknown>;
+}
+
+/**
+ * The exact delivered body of one webhook delivery the caller OWNS (`GET /v1/webhook-deliveries/{id}/body`).
+ * `canonical_body` is the caller's OWN delivered envelope bytes — the precise payload that was signed.
+ * Carries NO secret.
+ */
+export interface WebhookDeliveryBody {
+  id: string;
+  endpoint_id: string;
+  event_id: string;
+  event_type: string;
+  /** The EXACT canonical envelope bytes that were delivered + signed. */
+  canonical_body: string;
+}
+
+/**
+ * The recomputed HMAC signature for one webhook delivery the caller OWNS
+ * (`GET /v1/webhook-deliveries/{id}/signature`). NEVER carries the secret — only the algorithm + hex
+ * signature + owning endpoint id.
+ *
+ * ROTATED-SECRET CAVEAT: the signature is recomputed with the endpoint's CURRENT secret. If the secret was
+ * rotated after the original delivery, this differs from the originally-delivered `X-NexusPay-Signature`
+ * header — it is not proof the original delivery was mis-signed. `rotated_secret_caveat` carries this note.
+ */
+export interface WebhookDeliverySignature {
+  id: string;
+  endpoint_id: string;
+  algorithm: string;
+  signature: string;
+  rotated_secret_caveat?: string;
+}
