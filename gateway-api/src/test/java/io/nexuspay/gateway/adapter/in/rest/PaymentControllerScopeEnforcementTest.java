@@ -79,6 +79,9 @@ class PaymentControllerScopeEnforcementTest {
     // TEST-3c: PaymentController now also depends on OffSessionChargeService — supply a mock so the
     // @WebMvcTest context can construct the controller (the scope tests never send a payment_method).
     @MockBean private io.nexuspay.payment.application.service.OffSessionChargeService offSessionCharge;
+    // GAP-076: PaymentController now also depends on the read-model query service (for GET /v1/payments) —
+    // supply a mock so the @WebMvcTest context can construct the controller (the scope tests never list).
+    @MockBean private io.nexuspay.payment.application.service.projection.PaymentProjectionQueryService projectionQuery;
 
     private static Authentication auth(String role, Set<String> scopes) {
         return auth(role, scopes, true);
