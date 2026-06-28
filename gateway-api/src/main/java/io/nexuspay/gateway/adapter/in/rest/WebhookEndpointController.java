@@ -3,12 +3,15 @@ package io.nexuspay.gateway.adapter.in.rest;
 import io.nexuspay.common.exception.ResourceNotFoundException;
 import io.nexuspay.common.id.PrefixedId;
 import io.nexuspay.gateway.adapter.in.rest.dto.CreateWebhookEndpointRequest;
+import io.nexuspay.gateway.adapter.in.rest.dto.WebhookDeliveryBodyResponse;
 import io.nexuspay.gateway.adapter.in.rest.dto.WebhookDeliveryResponse;
+import io.nexuspay.gateway.adapter.in.rest.dto.WebhookDeliverySignatureResponse;
 import io.nexuspay.gateway.adapter.in.rest.dto.WebhookEndpointResponse;
 import io.nexuspay.gateway.adapter.out.persistence.JpaWebhookDeliveryRepository;
 import io.nexuspay.gateway.adapter.out.persistence.JpaWebhookEndpointRepository;
 import io.nexuspay.gateway.adapter.out.persistence.WebhookDeliveryEntity;
 import io.nexuspay.gateway.adapter.out.persistence.WebhookEndpointEntity;
+import io.nexuspay.gateway.adapter.out.webhook.WebhookSignature;
 import io.nexuspay.iam.domain.NexusPayPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -148,6 +151,65 @@ public class WebhookEndpointController {
         delivery.requeueForReplay(Instant.now());
         return ResponseEntity.accepted()
                 .body(ResponseMapper.toWebhookDeliveryResponse(webhookDeliveryRepository.save(delivery)));
+    }
+
+    /** Rotated-secret caveat surfaced on the F2 signature response (and documented in javadoc/OpenAPI/SDK). */
+    private static final String ROTATED_SECRET_CAVEAT =
+            "Signature is recomputed with the endpoint's CURRENT secret (as the sender signs per attempt). "
+            + "If the secret was rotated after this delivery, this value differs from the originally-"
+            + "delivered X-NexusPay-Signature header — it is not proof the original delivery was mis-signed.";
+
+    /**
+     * TEST-4a (F2): inspect the EXACT delivered body of ONE delivery the caller OWNS, so an integrator can
+     * debug signature verification against the precise bytes that were signed. Tenant-scoped via
+     * {@code findByIdAndTenantId} — a foreign/missing id is indistinguishable (404, no existence oracle),
+     * mirroring the {@code /replay} resolution. The {@code canonical_body} is the caller's OWN delivered
+     * bytes (it contains only the merchant's own data.metadata); no secret is on this entity, so the body
+     * route cannot leak a key. Same {@code webhooks:read} scope as the delivery list.
+     */
+    @GetMapping("/v1/webhook-deliveries/{id}/body")
+    @PreAuthorize("hasAnyRole('admin', 'operator') and @scopeAuth.has('webhooks:read')")
+    @Operation(summary = "Get the exact delivered body of a webhook delivery the caller owns")
+    public ResponseEntity<WebhookDeliveryBodyResponse> getDeliveryBody(
+            @PathVariable String id,
+            @AuthenticationPrincipal NexusPayPrincipal principal) {
+        var delivery = webhookDeliveryRepository.findByIdAndTenantId(id, principal.tenantId())
+                .orElseThrow(() -> ResourceNotFoundException.of("WebhookDelivery", id));
+        return ResponseEntity.ok(new WebhookDeliveryBodyResponse(
+                delivery.getId(), delivery.getEndpointId(), delivery.getEventId(),
+                delivery.getEventType(), delivery.getCanonicalBody()));
+    }
+
+    /**
+     * TEST-4a (F2): recompute the HMAC-SHA256 signature for ONE delivery the caller OWNS, so an integrator
+     * can compare it against their own verifier. The signature is recomputed over the stored
+     * {@code canonical_body} using the OWNING endpoint's CURRENT secret (read tenant-scoped from
+     * {@code webhook_endpoints}) via the SINGLE-SOURCED {@link WebhookSignature#sign} — the same routine the
+     * sender uses, so the algorithm is never forked. The SECRET is NEVER returned (only the algorithm + hex
+     * signature + endpoint id).
+     *
+     * <p>Resolution is tenant-scoped end to end: a foreign/missing delivery → 404 (no oracle); and if the
+     * owning endpoint is no longer resolvable for the tenant (deleted/foreign), also 404 (no secret to sign
+     * with — never fabricate a signature). ROTATED-SECRET CAVEAT: see {@link #ROTATED_SECRET_CAVEAT}.</p>
+     */
+    @GetMapping("/v1/webhook-deliveries/{id}/signature")
+    @PreAuthorize("hasAnyRole('admin', 'operator') and @scopeAuth.has('webhooks:read')")
+    @Operation(summary = "Recompute a webhook delivery's signature (never returns the secret)")
+    public ResponseEntity<WebhookDeliverySignatureResponse> getDeliverySignature(
+            @PathVariable String id,
+            @AuthenticationPrincipal NexusPayPrincipal principal) {
+        String tenant = principal.tenantId();
+        var delivery = webhookDeliveryRepository.findByIdAndTenantId(id, tenant)
+                .orElseThrow(() -> ResourceNotFoundException.of("WebhookDelivery", id));
+        // Load the OWNING endpoint tenant-scoped to read its CURRENT secret. If it is no longer resolvable
+        // for this tenant, treat as 404 (no oracle) rather than fabricating a signature.
+        var endpoint = webhookEndpointRepository.findByIdAndTenantId(delivery.getEndpointId(), tenant)
+                .orElseThrow(() -> ResourceNotFoundException.of("WebhookDelivery", id));
+        // Recompute via the single-sourced helper using the CURRENT secret (discarded immediately after).
+        String signature = WebhookSignature.sign(delivery.getCanonicalBody(), endpoint.getSecret());
+        return ResponseEntity.ok(new WebhookDeliverySignatureResponse(
+                delivery.getId(), endpoint.getId(), WebhookSignature.ALGORITHM,
+                signature, ROTATED_SECRET_CAVEAT));
     }
 
     private String generateWebhookSecret() {

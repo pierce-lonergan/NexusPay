@@ -385,6 +385,77 @@ When a `mandate_id` is cited the charge validates it, in order, against the
 
 ---
 
+## 5b. Trigger a synthetic webhook + inspect a delivery (TEST-4a)
+
+Two developer-testability helpers that reuse the normal signed delivery pipeline —
+no real payment required.
+
+### Trigger a synthetic webhook (`POST /v1/test/events`)
+
+**TEST-MODE ONLY** (a LIVE key → `404`, no oracle). Scope: `webhooks:write`.
+Synthesizes a canonical webhook of the chosen `type` and delivers it to **your
+own** tenant's enabled endpoints through the same signed pipeline a real event
+would, stamped `livemode: false`.
+
+```bash
+# trigger a payment.succeeded webhook to your own endpoints
+curl -X POST http://localhost:8090/v1/test/events \
+  -H "Authorization: Bearer sk_test_..." \
+  -H "Content-Type: application/json" \
+  -d '{"type":"payment.succeeded","data":{"amount":4242,"currency":"USD"}}'
+# -> 202 {"id":"evt_...","type":"payment.succeeded","livemode":false,"object":{...}}
+```
+
+- `type` MUST be a canonical dotted event name (see `WebhookEventType`); an unknown
+  name or `"*"` → `400`.
+- `id` is OPTIONAL (an opaque test aggregate id; defaulted with the
+  aggregate-correct prefix `pay_test_*` / `dp_test_*` — NOT resolved against any
+  aggregate).
+- `data` is OPTIONAL (overlaid onto the synthesized `data.object`).
+- The tenant is always **yours** (from the key) — never a body/header — so the
+  event fans out only to your own endpoints. **A test key cannot synthesize a live
+  event or target another tenant.**
+
+> **Delivery gap (by design):** the event only delivers if your tenant has an
+> **ENABLED endpoint subscribed** to that `type` (or `"*"`). With no matching
+> endpoint the event silently no-ops — register/subscribe an endpoint first (and
+> see §6 for why it must be a public HTTPS URL, e.g. via ngrok).
+
+### Inspect a delivery's body + signature (`GET .../body`, `.../signature`)
+
+Owner-scoped read endpoints to debug **signature verification**. Scope:
+`webhooks:read`. Both resolve tenant-scoped — a foreign/absent delivery id → `404`
+(no oracle). Find a delivery id from `GET /v1/webhook-deliveries`.
+
+```bash
+# the EXACT delivered bytes that were signed (your own delivery only)
+curl http://localhost:8090/v1/webhook-deliveries/whd_.../body \
+  -H "Authorization: Bearer sk_test_..."
+# -> {"id":"whd_...","endpoint_id":"we_...","event_id":"evt_...",
+#     "event_type":"payment.succeeded","canonical_body":"{...exact bytes...}"}
+
+# recompute the HMAC-SHA256 signature over those bytes (never returns the secret)
+curl http://localhost:8090/v1/webhook-deliveries/whd_.../signature \
+  -H "Authorization: Bearer sk_test_..."
+# -> {"id":"whd_...","endpoint_id":"we_...","algorithm":"HmacSHA256",
+#     "signature":"<hex>","rotated_secret_caveat":"..."}
+```
+
+- **The signing secret is NEVER returned** — not by `/body`, not by `/signature`,
+  not in any log or error. The `/signature` route reads the endpoint's secret only
+  transiently to recompute the HMAC, then discards it.
+- **ROTATED-SECRET CAVEAT:** `/signature` recomputes with the endpoint's **CURRENT**
+  secret (exactly as the sender signs per attempt). If you **rotated** the secret
+  AFTER the original delivery, the recomputed signature **differs** from the
+  originally-delivered `X-NexusPay-Signature` header — it is *not* proof the
+  original delivery was mis-signed. The `rotated_secret_caveat` field says so
+  in-band.
+- To verify: recompute `HMAC-SHA256(canonical_body, whsec_…)` yourself (e.g. with
+  the `@nexus-pay/node` SDK's `verifyWebhook`) and compare against the `/signature`
+  result — they match when the secret has not been rotated since delivery.
+
+---
+
 ## 6. SEC-4b caveat — webhooks CANNOT be delivered to `localhost`
 
 `WebhookUrlValidator` is **fail-closed**: at both registration and delivery it

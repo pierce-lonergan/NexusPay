@@ -464,6 +464,61 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /v1/webhook-deliveries/{id}/body:
+    get:
+      tags: [Webhook Endpoints]
+      summary: Get the exact delivered body of a webhook delivery you own
+      description: >-
+        Roles: admin, operator. Scope: `webhooks:read`. Returns the EXACT
+        `canonical_body` that was delivered + signed for one of YOUR OWN
+        deliveries, so you can debug signature verification against the precise
+        payload. Tenant-scoped: a foreign/absent delivery id returns `404` (no
+        existence oracle). The signing secret is never a field on this response.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: The delivered body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDeliveryBodyResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/webhook-deliveries/{id}/signature:
+    get:
+      tags: [Webhook Endpoints]
+      summary: Recompute a webhook delivery's signature (never returns the secret)
+      description: >-
+        Roles: admin, operator. Scope: `webhooks:read`. Recomputes the
+        HMAC-SHA256 signature over the stored `canonical_body` using the OWNING
+        endpoint's CURRENT secret (the same routine the sender uses per attempt)
+        and returns the algorithm + hex signature + endpoint id. The secret is
+        NEVER returned. Tenant-scoped: a foreign/absent delivery id — or an
+        owning endpoint no longer resolvable for your tenant — returns `404` (no
+        oracle). ROTATED-SECRET CAVEAT: because the recompute uses the CURRENT
+        secret, the returned signature DIFFERS from the originally-delivered
+        `X-NexusPay-Signature` header if the secret was rotated AFTER delivery —
+        it is not proof the original delivery was mis-signed.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: The recomputed signature
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDeliverySignatureResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /v1/api-keys:
     post:
       tags: [API Keys]
@@ -1033,6 +1088,45 @@ paths:
         '404':
           description: Endpoint not reachable with this key (live key in test-only surface)
 
+  /v1/test/events:
+    post:
+      tags: [Test Helpers]
+      summary: Trigger a synthetic webhook event (TEST MODE ONLY)
+      description: >-
+        TEST-MODE ONLY. Reachable ONLY with an `sk_test_` key — a LIVE key gets
+        404 (no oracle). Scope: `webhooks:write`. Synthesizes + delivers a
+        canonical webhook of the chosen `type` to the CALLER's OWN tenant's
+        enabled endpoints, through the SAME signed delivery pipeline a real event
+        would, stamped `livemode: false` — so an integrator can exercise their
+        webhook receiver WITHOUT driving a real payment. `type` MUST be a
+        canonical dotted event name (an unknown/`*` type is rejected `400`). The
+        optional `id` is an opaque test aggregate id (defaulted server-side with
+        the aggregate-correct prefix, e.g. `pay_test_*` / `dp_test_*`); it is NOT
+        resolved against any aggregate. The optional `data` object is overlaid
+        onto the synthesized `data.object`. The tenant is always the caller's
+        own, so the event fans out only to the caller's own endpoints. NOTE: the
+        event only delivers if the caller tenant has an ENABLED endpoint
+        subscribed to `type` (or `*`) — register/subscribe one first.
+      security:
+        - apiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TestEventRequest'
+      responses:
+        '202':
+          description: The synthetic event was synthesized + queued for delivery
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TestEventResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          description: Endpoint not reachable with this key (live key in test-only surface)
+
 components:
   parameters:
     PathId:
@@ -1511,6 +1605,49 @@ components:
           type: string
           format: date-time
           description: When the delivery succeeded (null until DELIVERED).
+
+    WebhookDeliveryBodyResponse:
+      type: object
+      description: >-
+        The EXACT delivered body of one webhook delivery the caller owns
+        (NON_NULL). Carries the caller's OWN delivered bytes; never a secret.
+      properties:
+        id:
+          type: string
+        endpoint_id:
+          type: string
+        event_id:
+          type: string
+        event_type:
+          type: string
+        canonical_body:
+          type: string
+          description: The exact canonical envelope bytes that were delivered + signed.
+
+    WebhookDeliverySignatureResponse:
+      type: object
+      description: >-
+        Recomputed HMAC signature for one webhook delivery the caller owns
+        (NON_NULL). Never includes the signing secret.
+      properties:
+        id:
+          type: string
+        endpoint_id:
+          type: string
+        algorithm:
+          type: string
+          example: HmacSHA256
+        signature:
+          type: string
+          description: >-
+            Hex HMAC-SHA256 of `canonical_body` keyed by the endpoint's CURRENT
+            secret.
+        rotated_secret_caveat:
+          type: string
+          description: >-
+            Caveat: the recompute uses the CURRENT secret, so this DIFFERS from
+            the originally-delivered `X-NexusPay-Signature` header if the secret
+            was rotated after delivery.
 
     WebhookDeliveryPage:
       type: object
@@ -2090,3 +2227,46 @@ components:
           type: string
           description: Dispute reason code (defaults to `fraudulent`).
           example: fraudulent
+
+    TestEventRequest:
+      type: object
+      required: [type]
+      description: Body for the test-mode webhook-event trigger (`POST /v1/test/events`).
+      properties:
+        type:
+          type: string
+          description: >-
+            A canonical dotted event type (see `WebhookEventType`). An unknown
+            name or the `"*"` wildcard is rejected `400`.
+          example: payment.succeeded
+        id:
+          type: string
+          description: >-
+            Optional opaque test aggregate id. Defaulted server-side with the
+            aggregate-correct prefix (`pay_test_*` / `dp_test_*`) when omitted.
+            NOT resolved against any aggregate.
+          example: pay_test_abc123
+        data:
+          type: object
+          additionalProperties: true
+          description: Optional overlay merged onto the synthesized `data.object`.
+
+    TestEventResponse:
+      type: object
+      description: The synthesized test event (NON_NULL).
+      properties:
+        id:
+          type: string
+          description: Stable event id (matches the delivered webhook's `id`).
+          example: evt_abc123
+        type:
+          type: string
+          example: payment.succeeded
+        livemode:
+          type: boolean
+          description: Always false — a test trigger can never synthesize a live event.
+          example: false
+        object:
+          type: object
+          additionalProperties: true
+          description: The synthesized `data.object` delivered in the webhook body.

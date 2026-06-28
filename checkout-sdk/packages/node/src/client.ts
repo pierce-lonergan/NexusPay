@@ -40,6 +40,10 @@ import type {
   RequestOptions,
   RevokedMandate,
   SimulateDisputeParams,
+  TestEvent,
+  TriggerTestEventParams,
+  WebhookDeliveryBody,
+  WebhookDeliverySignature,
 } from './types';
 
 export interface NexusPayOptions {
@@ -508,6 +512,67 @@ export class NexusPay {
     return this.request<RevokedMandate>(
       'POST',
       `/v1/mandates/${encodeURIComponent(id)}/revoke`,
+      undefined,
+      opts,
+    );
+  }
+
+  // ---- test events + delivery visibility (TEST-4a) ----
+
+  /**
+   * TEST-MODE webhook-event trigger (`POST /v1/test/events`). Synthesizes + delivers a canonical webhook of
+   * `type` to the caller's OWN tenant's endpoints — through the SAME signed delivery pipeline a real event
+   * would — so an integrator can exercise their webhook receiver WITHOUT driving a real payment. The
+   * delivered webhook is stamped `livemode:false`.
+   *
+   * Hard-gated to TEST keys: a LIVE key (`sk_live_`) is rejected with 404 (no oracle). Requires the
+   * `webhooks:write` scope. An unknown `type` is rejected 400. The tenant is derived from the key
+   * server-side, never a client header.
+   *
+   * Note: the event only delivers if the caller tenant has an ENABLED endpoint subscribed to `type` (or
+   * `*`) — register/subscribe one first or no webhook is delivered.
+   */
+  triggerTestEvent(params: TriggerTestEventParams, opts?: RequestOptions): Promise<TestEvent> {
+    const body = compact({
+      type: params.type,
+      id: params.id,
+      data: params.data,
+    });
+    return this.request<TestEvent>('POST', '/v1/test/events', body, opts);
+  }
+
+  /**
+   * Inspects the EXACT delivered body of one webhook delivery the caller OWNS
+   * (`GET /v1/webhook-deliveries/{id}/body`). Returns `canonical_body` — the precise bytes that were signed
+   * — so you can debug signature verification. Requires `webhooks:read`. A foreign/missing delivery returns
+   * 404 (no oracle). The response never contains the signing secret.
+   */
+  getWebhookDeliveryBody(id: string, opts?: RequestOptions): Promise<WebhookDeliveryBody> {
+    return this.request<WebhookDeliveryBody>(
+      'GET',
+      `/v1/webhook-deliveries/${encodeURIComponent(id)}/body`,
+      undefined,
+      opts,
+    );
+  }
+
+  /**
+   * Recomputes the HMAC signature of one webhook delivery the caller OWNS
+   * (`GET /v1/webhook-deliveries/{id}/signature`). Returns the algorithm + hex `signature` + owning
+   * `endpoint_id` — NEVER the secret. Requires `webhooks:read`. A foreign/missing delivery returns 404.
+   *
+   * ROTATED-SECRET CAVEAT: the signature is recomputed with the endpoint's CURRENT secret (as the sender
+   * signs per attempt). If the secret was rotated AFTER the original delivery, this differs from the
+   * originally-delivered `X-NexusPay-Signature` header — it is not proof the original delivery was
+   * mis-signed. See `result.rotated_secret_caveat`.
+   */
+  getWebhookDeliverySignature(
+    id: string,
+    opts?: RequestOptions,
+  ): Promise<WebhookDeliverySignature> {
+    return this.request<WebhookDeliverySignature>(
+      'GET',
+      `/v1/webhook-deliveries/${encodeURIComponent(id)}/signature`,
       undefined,
       opts,
     );

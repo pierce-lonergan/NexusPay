@@ -1,5 +1,6 @@
 package io.nexuspay.common.event;
 
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
@@ -81,6 +82,21 @@ public final class WebhookEventTaxonomy {
             Set.copyOf(new LinkedHashSet<>(INTERNAL_TO_DOTTED.values()));
 
     /**
+     * TEST-4a: the INVERSE of {@link #INTERNAL_TO_DOTTED}, built once from the SAME single map so the
+     * reverse direction can never drift from the forward one. dotted → internal PascalCase. The mapping is
+     * a bijection (each dotted name has exactly one internal source), so inverting is unambiguous.
+     */
+    private static final Map<String, String> DOTTED_TO_INTERNAL;
+
+    static {
+        Map<String, String> inverse = new LinkedHashMap<>();
+        for (Map.Entry<String, String> e : INTERNAL_TO_DOTTED.entrySet()) {
+            inverse.put(e.getValue(), e.getKey());
+        }
+        DOTTED_TO_INTERNAL = Map.copyOf(inverse);
+    }
+
+    /**
      * Translates an internal PascalCase event type to its dotted canonical name.
      *
      * @return the dotted name, or {@code null} when the internal type has no canonical mapping
@@ -96,5 +112,47 @@ public final class WebhookEventTaxonomy {
      */
     public static boolean isValid(String dotted) {
         return "*".equals(dotted) || CANONICAL.contains(dotted);
+    }
+
+    /**
+     * TEST-4a: the EXACT inverse of {@link #toDotted(String)} — translates a dotted canonical name back to
+     * its internal PascalCase {@link EventTypes} constant. Single-sourced off {@link #INTERNAL_TO_DOTTED}
+     * (built into {@link #DOTTED_TO_INTERNAL}) so it can never disagree with the forward direction.
+     *
+     * <p>Used by the test-event trigger (synthesizing an {@code event_outbox} row from a caller-supplied
+     * dotted type). Returns {@code null} when {@code dotted} is not a concrete canonical name (including the
+     * {@code "*"} wildcard, which is NOT a single event), so the caller fails closed with a 400.</p>
+     *
+     * @return the internal PascalCase type, or {@code null} when {@code dotted} is not canonical.
+     */
+    public static String fromDotted(String dotted) {
+        return dotted == null ? null : DOTTED_TO_INTERNAL.get(dotted);
+    }
+
+    /**
+     * TEST-4a: the aggregate type ({@link EventTypes#AGGREGATE_PAYMENT} / {@link EventTypes#AGGREGATE_REFUND}
+     * / {@link EventTypes#AGGREGATE_DISPUTE}) for an internal PascalCase event type, keyed off the internal
+     * prefix — NOT the dotted prefix.
+     *
+     * <p>This distinction matters: the {@code payment.*} dotted family maps to BOTH Payment-prefixed AND
+     * Refund-prefixed internal types ({@code payment.refunded → RefundCompleted}), and
+     * {@code WebhookEnvelopeSerializer.normalizeObject} discriminates the {@code data.object} on the
+     * AGGREGATE type. Keying off the dotted prefix would normalize a refund test event as a payment object.
+     * {@code Refund*} → Refund, {@code Dispute*} → Dispute, everything else → Payment.</p>
+     *
+     * @param internal the internal PascalCase event type (e.g. from {@link #fromDotted(String)})
+     * @return the matching aggregate type constant; {@code null} when {@code internal} is null.
+     */
+    public static String aggregateTypeFor(String internal) {
+        if (internal == null) {
+            return null;
+        }
+        if (internal.startsWith("Refund")) {
+            return EventTypes.AGGREGATE_REFUND;
+        }
+        if (internal.startsWith("Dispute")) {
+            return EventTypes.AGGREGATE_DISPUTE;
+        }
+        return EventTypes.AGGREGATE_PAYMENT;
     }
 }

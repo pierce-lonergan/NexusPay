@@ -51,4 +51,8 @@ export type {
   WebhookEventType,
   WebhookEvent,
   WebhookEventObject,
+  TriggerTestEventParams,
+  TestEvent,
+  WebhookDeliveryBody,
+  WebhookDeliverySignature,
 } from './types';
