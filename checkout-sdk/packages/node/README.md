@@ -112,6 +112,81 @@ There are two replay-window options, and they are **not** equivalent:
   rewriting that header to "now", and the check (and signature) will still pass.
   Treat it as a coarse freshness hint, not a security control.
 
+## Testing your integration (0.1.2)
+
+These helpers let you unit-test your webhook handler and any SDK-using code
+**without** a live delivery or a network round-trip.
+
+### Generate a valid test signature (`generateTestHeaderString`)
+
+Sign a body with the same HMAC the platform uses, so you can exercise your
+handler's `constructEvent` / `verifyWebhook` path in a unit test:
+
+```ts
+import { constructEvent, generateTestHeaderString, buildTestEvent } from '@nexus-pay/node';
+
+const { body, ...headers } = generateTestHeaderString({
+  payload: buildTestEvent('payment.succeeded'), // an object — stringified once
+  secret: 'whsec_test',
+});
+
+// `body` is the EXACT bytes that were signed — pass THESE (not a re-stringify):
+const event = constructEvent(body, headers, 'whsec_test'); // your handler under test
+```
+
+> ⚠️ If `payload` is an object it is `JSON.stringify`-ed **once**; feed the
+> returned `body` to your handler. Re-serializing the object yourself reorders
+> keys and breaks the signature (same caveat as real webhooks above).
+> `generateTestSignature(payload, secret)` returns just the bare-hex signature
+> for the `verifyWebhook` boolean path.
+
+### Typed event fixtures (`testFixtures` / `buildTestEvent`)
+
+Ready-made, typed sample events — one per `WEBHOOK_EVENT_TYPES`:
+
+```ts
+import { testFixtures, buildTestEvent } from '@nexus-pay/node';
+
+const succeeded = testFixtures['payment.succeeded']; // a full, typed WebhookEvent
+const custom = buildTestEvent('payment.succeeded', {
+  data: { object: { amount: 999 } }, // shallow-merged; a wrong field is a compile error
+});
+```
+
+### Connectivity / credentials check (`client.ping`)
+
+A lightweight authenticated check — confirms the base URL is reachable, the key
+is valid, and which **mode** the key is (so you can verify test-vs-live):
+
+```ts
+const { ok, livemode, apiVersion } = await nexus.ping();
+// livemode === false for an sk_test_ key, true for an sk_live_ key.
+```
+
+It carries no tenant or anything sensitive — just `{ ok, livemode, apiVersion }`.
+
+### Inject a fake transport (`createTestTransport`)
+
+Unit-test code that uses the client with **no network** by injecting a fake
+`fetch` into the existing `fetch` option:
+
+```ts
+import { NexusPay, createTestTransport } from '@nexus-pay/node';
+
+const transport = createTestTransport({
+  'GET /v1/ping': () => ({ status: 200, body: { ok: true, livemode: false, api_version: '2026-06-16' } }),
+  'POST /v1/payments': (req) => ({ status: 201, body: { id: 'pay_test_1', status: 'succeeded' } }),
+});
+
+const nexus = new NexusPay({ apiKey: 'sk_test_x', baseUrl: 'https://api.test', fetch: transport });
+await nexus.ping();
+transport.calls; // recorded: [{ method, path, url, headers, body }]
+```
+
+Handlers are keyed by `"<METHOD> <path>"`; an unmatched route returns a 404
+`NexusPayError`. Non-2xx bodies should be the `{ error: { type, code, message } }`
+envelope so `NexusPayError` maps them.
+
 ## `nexuspay` CLI
 
 Installing the package adds a `nexuspay` command — a Stripe-CLI-style local

@@ -389,6 +389,34 @@ export interface RequestOptions {
   maxRetries?: number;
 }
 
+// ---- connectivity / credentials check (TEST-5 E3) ----
+
+/**
+ * The typed result of {@link NexusPay.ping} (`GET /v1/ping`). A lightweight
+ * authenticated connectivity + credentials check: a successful resolve confirms
+ * the base URL is reachable AND the API key is valid. `livemode` reflects the
+ * AUTHENTICATED KEY'S MODE (test key -> false, live key -> true) so an integrator
+ * can confirm they are pointed at test vs live. Carries NO tenant or anything
+ * sensitive.
+ */
+export interface PingResult {
+  ok: boolean;
+  /** The authenticated key's mode: test key -> `false`, live key -> `true`. */
+  livemode: boolean;
+  /** The API CONTRACT version (date-based, e.g. "2026-06-16") — not the SDK semver. */
+  apiVersion: string;
+}
+
+/**
+ * Internal wire shape of `GET /v1/ping` (snake_case `api_version`, per L-072).
+ * Mapped to the public {@link PingResult} (camelCase `apiVersion`) by the client.
+ */
+export interface PingResponse {
+  ok: boolean;
+  livemode: boolean;
+  api_version: string;
+}
+
 // ---- webhooks ----
 export const WEBHOOK_EVENT_TYPES = [
   'payment.created',

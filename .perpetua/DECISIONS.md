@@ -1408,3 +1408,28 @@ DECISION (Blueprint -> Implement -> 3 lenses [cli-security, dx-contract, test-fi
    it by flipping LOOPBACK_HOST to 0.0.0.0 (test failed) then reverting; the open-relay refusal + main() dispatch
    got real tests. CONSEQUENCES: TEST-4 substantially done (D1/D2/D3/D4 + F2); F1 (payment/refund list read-model)
    remains the one deferred known-gap. TEST-5 (SDK 0.1.2 helpers) + TEST-6 (P2 fidelity) next. Locally verified.
+
+## ADR-062 | 2026-06-27 | TEST-5: SDK 0.1.2 test helpers (E1-E4) + /v1/ping (critique v3 E-cluster)
+STATUS: Accepted (SDK + a tiny authed platform endpoint; via PR). Integrator test-ergonomics, bumping the published
+SDKs to 0.1.2. Mostly TS (built+tested LOCALLY: 128 vitest green, 20 new); the /v1/ping Java endpoint is CI-verified.
+DECISION (Blueprint -> Implement -> 5 lenses -> Fix):
+ - E1 generateTestHeaderString + generateTestSignature (webhooks.ts): SINGLE-SOURCE the HMAC via the module-private
+   computeSignature that verifyWebhook itself uses (no fork) -> a generated header round-trips through verifyWebhook
+   / constructEvent; a tampered body fails. Test-only (needs the integrator's own secret).
+ - E2 typed fixtures (fixtures.ts): testFixtures = Record<WebhookEventType, WebhookEvent> (all 15, dispute entries
+   typed via WebhookEvent<DisputeWebhookObject>) + buildTestEvent(type, overrides) — a wrong field is a compile error.
+ - E3 client.ping() + GET /v1/ping (gateway-api PingController): @PreAuthorize(\"isAuthenticated()\") (any valid key,
+   NO scope -> ApiScopeTest untouched); returns ONLY {ok, livemode, api_version} — CallerTenant.require() is
+   deliberately NOT called and there is NO tenant field, so it cannot leak tenant identity; livemode is SERVER-derived
+   (CallerMode.isLive()); api_version = ApiVersion.CURRENT. SDK ping() maps api_version -> apiVersion.
+ - E4 createTestTransport (testing.ts): a typed (typeof fetch) fake transport returning real Response objects + a
+   .calls recorder + a 404 api_error envelope on unmatched — reuses the client's EXISTING injectable fetch seam
+   (NexusPayOptions.fetch); no client re-architecture.
+ - VERSION: @nexus-pay/js + node + react 0.1.1 -> 0.1.2 in sync (private 'checkout' demo untouched); CHANGELOG +
+   README updated. PUBLISH IS OWNER-GATED (release.yml on an sdk-v0.1.2 tag) — bumped + landed only, NOT published.
+ - REVIEW (5 lenses; crypto + ping-security held): 4 SHOULD_FIX — added PingAuthEnforcementTest (a REAL @WebMvcTest
+   slice with the L-068 filter exclusion: anon -> 401/403, authed -> 200 + livemode reflects key mode + no tenant
+   field; corrected a false 'no @WebMvcTest in repo' claim); fixed testing.ts advertising a non-exported
+   @nexus-pay/node/testing subpath (-> root import); added /v1/ping to docs/api/openapi.yaml (Connectivity tag +
+   PingResponse schema + 401). CONSEQUENCES: TEST-6 (P2 fidelity) is the last batch; F1 read-model still the one
+   deferred known-gap. CI is the oracle; SDK locally verified (128/128).

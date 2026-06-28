@@ -1127,6 +1127,32 @@ paths:
         '404':
           description: Endpoint not reachable with this key (live key in test-only surface)
 
+  /v1/ping:
+    get:
+      tags: [Connectivity]
+      summary: Authenticated connectivity + credentials check
+      description: >-
+        A lightweight AUTHENTICATED connectivity + credentials check. A `200`
+        confirms three things in one cheap call: the base URL is reachable, the
+        API key is VALID (an unauthenticated/invalid key is rejected `401` before
+        the handler runs), and which MODE the key is. `livemode` is derived
+        SERVER-SIDE from the authenticated key's mode (an `sk_test_` key ->
+        `false`, an `sk_live_` key -> `true`), never from a client header — so an
+        integrator can confirm test-vs-live. The body carries NO tenant id (nor
+        scopes, nor the key, nor any principal detail). Distinct from
+        `/actuator/health`, which is an unauthenticated infra probe.
+      security:
+        - apiKey: []
+      responses:
+        '200':
+          description: The key authenticated; connectivity + mode confirmed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PingResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
 components:
   parameters:
     PathId:
@@ -2270,3 +2296,26 @@ components:
           type: object
           additionalProperties: true
           description: The synthesized `data.object` delivered in the webhook body.
+
+    PingResponse:
+      type: object
+      description: >-
+        Connectivity + credentials check result. Carries NO tenant id (nor
+        scopes, nor the key) — only liveness, the authenticated key's mode, and
+        the contract version.
+      required: [ok, livemode, api_version]
+      properties:
+        ok:
+          type: boolean
+          description: Always true when the call authenticated and reached the handler.
+          example: true
+        livemode:
+          type: boolean
+          description: >-
+            The authenticated KEY's mode, derived server-side (test key ->
+            false, live key -> true). Never read from a client header.
+          example: false
+        api_version:
+          type: string
+          description: The current contract version (`ApiVersion.CURRENT`).
+          example: 2026-06-16
