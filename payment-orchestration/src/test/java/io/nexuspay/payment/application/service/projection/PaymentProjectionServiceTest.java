@@ -181,6 +181,8 @@ class PaymentProjectionServiceTest {
             @Override public void updateStatusIfExists(String id, String t, String s, boolean l) { }
             @Override public java.util.List<PaymentProjectionRow> listByTenant(
                     String t, boolean l, String sf, String cf, int lim, int off) { return java.util.List.of(); }
+            @Override public java.util.List<String> findTestIds(String tenantId) { return java.util.List.of(); }
+            @Override public int deleteTestRows(String tenantId) { return 0; }
         };
         PaymentProjectionService svc = new PaymentProjectionService(new PaymentProjectionTxWriter(fake, refunds));
 
@@ -209,6 +211,8 @@ class PaymentProjectionServiceTest {
         Map<String, PaymentProjectionRow> store = new HashMap<>();
         PaymentProjectionRepository fake = new PaymentProjectionRepository() {
             @Override public void upsert(PaymentProjectionRow row) { store.put(row.paymentId(), row); }
+            @Override public java.util.List<String> findTestIds(String tenantId) { return java.util.List.of(); }
+            @Override public int deleteTestRows(String tenantId) { return 0; }
             @Override public void updateStatusIfExists(String id, String t, String s, boolean l) {
                 // find-then-precedence-then-save (mirrors JpaPaymentProjectionRepositoryAdapter): a missing
                 // row is a NO-OP (never back-filled); an existing row advances only when precedence allows.
