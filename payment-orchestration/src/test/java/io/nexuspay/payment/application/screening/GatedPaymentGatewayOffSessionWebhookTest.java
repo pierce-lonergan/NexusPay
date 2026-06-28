@@ -68,7 +68,9 @@ class GatedPaymentGatewayOffSessionWebhookTest {
         lenient().when(origins.find(any())).thenReturn(Optional.empty());
         gateway = new GatedPaymentGateway(hyperSwitch, realMock, gate, holds, origins,
                 webhookMetadata, synthesizer,
-                mock(io.nexuspay.payment.application.service.projection.PaymentProjectionService.class));
+                mock(io.nexuspay.payment.application.service.projection.PaymentProjectionService.class),
+                new io.nexuspay.payment.application.service.clock.TestClockService(
+                        mock(io.nexuspay.payment.application.port.out.TestClockRepository.class)));
 
         pmService = mock(PaymentMethodService.class);
         // TEST-3d: these cases all pass a null mandateId (back-compat 3c pass-through), so the mandate gate

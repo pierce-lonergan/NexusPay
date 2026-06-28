@@ -80,7 +80,9 @@ class GatedPaymentGatewayProjectionTest {
         lenient().when(origins.find(any()))
                 .thenReturn(Optional.of(new ScreeningOriginService.Origin("tenant-A", ScreeningMode.INTERACTIVE)));
         gateway = new GatedPaymentGateway(delegate, mockDelegate, gate, holds, origins, webhookMetadata,
-                synthesizer, projection);
+                synthesizer, projection,
+                new io.nexuspay.payment.application.service.clock.TestClockService(
+                        mock(io.nexuspay.payment.application.port.out.TestClockRepository.class)));
     }
 
     @AfterEach
@@ -114,7 +116,9 @@ class GatedPaymentGatewayProjectionTest {
         PaymentProjectionService realProjection = new PaymentProjectionService(
                 new io.nexuspay.payment.application.service.projection.PaymentProjectionTxWriter(payRepo, refRepo));
         return new GatedPaymentGateway(delegate, mockDelegate, gate, holds, origins, webhookMetadata,
-                synthesizer, realProjection);
+                synthesizer, realProjection,
+                new io.nexuspay.payment.application.service.clock.TestClockService(
+                        mock(io.nexuspay.payment.application.port.out.TestClockRepository.class)));
     }
 
     @Test

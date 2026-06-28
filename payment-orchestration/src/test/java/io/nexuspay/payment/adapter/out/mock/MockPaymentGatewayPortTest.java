@@ -207,6 +207,53 @@ class MockPaymentGatewayPortTest {
                 .isNotEqualTo(mock.createPayment(req("automatic")).gatewayPaymentId());
     }
 
+    // ---- GAP-078 (SHOULD_FIX): restampCreatedAt mutates the STORE so single-retrieve agrees ----
+
+    @Test
+    void restampCreatedAt_payment_mutatesStore_soGetPaymentReturnsFrozen() {
+        java.time.Instant frozen = java.time.Instant.parse("2026-01-01T00:00:00Z");
+        PaymentResponse created = mock.createPayment(req("automatic"));
+        // Pre-condition: the stored createdAt is the mock's real-time stamp, NOT the frozen instant.
+        assertThat(mock.getPayment(created.gatewayPaymentId()).createdAt()).isNotEqualTo(frozen);
+
+        mock.restampCreatedAt(created.gatewayPaymentId(), frozen);
+
+        // Single-retrieve (the GET /v1/payments/{id} read path) now returns the frozen instant — the store
+        // and the create response agree (the SHOULD_FIX read-path consistency guarantee).
+        assertThat(mock.getPayment(created.gatewayPaymentId()).createdAt()).isEqualTo(frozen);
+        // Every other field is preserved (status/amount/id untouched).
+        assertThat(mock.getPayment(created.gatewayPaymentId()).status())
+                .isEqualTo(PaymentResponse.STATUS_SUCCEEDED);
+    }
+
+    @Test
+    void restampCreatedAt_refund_mutatesStore_soGetRefundReturnsFrozen() {
+        java.time.Instant frozen = java.time.Instant.parse("2026-01-01T00:00:00Z");
+        RefundResponse created = mock.createRefund(new RefundRequest("pay_test_1", 4999, "USD", "dup", "k"));
+        assertThat(mock.getRefund(created.gatewayRefundId()).createdAt()).isNotEqualTo(frozen);
+
+        mock.restampCreatedAt(created.gatewayRefundId(), frozen);
+
+        assertThat(mock.getRefund(created.gatewayRefundId()).createdAt()).isEqualTo(frozen);
+        assertThat(mock.getRefund(created.gatewayRefundId()).status())
+                .isEqualTo(RefundResponse.STATUS_SUCCEEDED);
+    }
+
+    @Test
+    void restampCreatedAt_isNoOp_forUnknownIdOrNulls() {
+        // Unknown id / null id / null instant must never throw or resurrect a key (defensive guards).
+        java.time.Instant frozen = java.time.Instant.parse("2026-01-01T00:00:00Z");
+        mock.restampCreatedAt("pay_test_never_minted", frozen); // no-op, no throw
+        mock.restampCreatedAt(null, frozen);                     // no-op, no throw
+        PaymentResponse created = mock.createPayment(req("automatic"));
+        java.time.Instant original = mock.getPayment(created.gatewayPaymentId()).createdAt();
+        mock.restampCreatedAt(created.gatewayPaymentId(), null);  // null instant -> store unchanged
+        assertThat(mock.getPayment(created.gatewayPaymentId()).createdAt()).isEqualTo(original);
+        // Unknown id was NOT created in the store as a side effect.
+        assertThatThrownBy(() -> mock.getPayment("pay_test_never_minted"))
+                .isInstanceOf(PaymentException.class);
+    }
+
     /**
      * INT-3 (ArchUnit substitute): the mock must do ZERO network I/O — assert it imports NO
      * {@code HyperSwitch*} type and NO HTTP client ({@code RestClient}/{@code httpclient}). Reading the

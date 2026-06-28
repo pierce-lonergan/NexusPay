@@ -59,7 +59,9 @@ class RefundDeferredTestModeRoutingTest {
         lenient().when(origins.find(any())).thenReturn(Optional.empty());
         gateway = new GatedPaymentGateway(hyperSwitch, mockDelegate, gate, holds, origins,
                 webhookMetadata, synthesizer,
-                mock(io.nexuspay.payment.application.service.projection.PaymentProjectionService.class));
+                mock(io.nexuspay.payment.application.service.projection.PaymentProjectionService.class),
+                new io.nexuspay.payment.application.service.clock.TestClockService(
+                        mock(io.nexuspay.payment.application.port.out.TestClockRepository.class)));
         orchestration = new RefundOrchestrationService(gateway, mock(io.nexuspay.iam.application.ApprovalService.class),
                 origins, 50000L);
 

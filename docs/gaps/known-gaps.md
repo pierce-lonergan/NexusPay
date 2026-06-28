@@ -534,9 +534,17 @@ semi-orthogonal platform seam that is out of scope for a testability batch.
 - **What it would take**: partition the mock's stores by tenant (keyed maps or a per-tenant store)
   — then a tenant-scoped reset endpoint becomes safe. Deferred behind the tenant-aware-mock work.
 
-### GAP-078 (F5): No test clocks (control "now")
+### GAP-078 (F5): No test clocks (control "now") — ✅ DELIVERED 2026-06-28 (ADR-066)
 - **Identified**: TEST-6
-- **Status**: Deferred — P2 testability nicety (NOT a security/money gap)
+- **Status**: ✅ **DELIVERED (honest-narrow)** — `PUT`/`GET`/`DELETE /v1/test/clock` (test-mode 404-gate + `test:write`)
+  sets a per-tenant frozen instant (V4042 `test_clocks`) that controls the **creation timestamp on test-created
+  artifacts** (payment/refund `created_at` → inherited by the GAP-076 projection list ordering + the stored mock so
+  `GET /{id}` matches). It is **live-rail-isolated** — consulted only inside `GatedPaymentGateway`'s `routeToMock`
+  branches, so a live charge's timestamp is physically unreachable by it. It deliberately does **not** control mandate
+  expiry / idempotency TTL / webhook retry / `updated_at` / the synthesized-webhook envelope timestamp (a full
+  `Clock` retrofit across ~500 `now()` sites would be invasive, and a partial one would fake time-control where it
+  doesn't hold) — documented in the service javadoc + OpenAPI. See ADR-066.
+- **Original status (superseded)**: Deferred — P2 testability nicety (NOT a security/money gap)
 - **What it is**: No way to control the platform's notion of "now" to exercise time-dependent flows
   (expiry windows, dunning schedules, mandate/age checks) deterministically in test mode.
 - **Why deferred**: the platform calls `Instant.now()` **directly** throughout (e.g. mock

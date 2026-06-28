@@ -60,7 +60,9 @@ class GatedPaymentGatewayTest {
         // any leakage from other tests on the same (reused) thread.
         gateway = new GatedPaymentGateway(delegate, mockDelegate, gate, holds, origins, webhookMetadata,
                 mockSynthesizer,
-                mock(io.nexuspay.payment.application.service.projection.PaymentProjectionService.class));
+                mock(io.nexuspay.payment.application.service.projection.PaymentProjectionService.class),
+                new io.nexuspay.payment.application.service.clock.TestClockService(
+                        mock(io.nexuspay.payment.application.port.out.TestClockRepository.class)));
     }
 
     @org.junit.jupiter.api.AfterEach
