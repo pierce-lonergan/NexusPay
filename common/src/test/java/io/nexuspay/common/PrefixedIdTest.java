@@ -31,5 +31,6 @@ class PrefixedIdTest {
         assertTrue(PrefixedId.webhook().startsWith("wh_"));
         assertTrue(PrefixedId.event().startsWith("evt_"));
         assertTrue(PrefixedId.approval().startsWith("apr_"));
+        assertTrue(PrefixedId.mandate().startsWith("mandate_"));
     }
 }

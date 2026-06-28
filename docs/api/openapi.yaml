@@ -47,6 +47,10 @@ tags:
     description: >-
       Manage saved, multi-use payment methods attached to a customer; tenant-scoped, soft-deletable
       (detach). PCI-safe — never accepts or stores a raw PAN.
+  - name: Mandates
+    description: >-
+      Record off-session consent (mandates) of the saved-credential cluster; tenant-scoped. A cited
+      mandate is a validated consent gate on the off-session charge. Revoke deactivates (not a soft delete).
   - name: Test Helpers
     description: Test-mode-only control endpoints (reachable ONLY with an sk_test_ key)
 
@@ -127,6 +131,15 @@ paths:
         carries only the payment `id` (no `client_secret`); a browser
         `client_secret` comes from `POST /v1/payment-sessions`
         (`PaymentSessionResponse`).
+
+
+        TEST-3d off-session: when the body cites a saved `payment_method` (`pm_*`)
+        and/or a `mandate_id`, both are resolved TENANT-SCOPED with no existence
+        oracle. A foreign/missing `payment_method` or a foreign/missing cited
+        `mandate_id` returns **404** from THIS create call (not 422). A non-ACTIVE
+        cited mandate returns **400** `invalid_mandate`; a mandate authorizing a
+        different `payment_method` returns **400** `mandate_payment_method_mismatch`.
+        The gateway is never reached on any of these, so no money moves.
       security:
         - apiKey: []
         - bearerAuth: []
@@ -149,6 +162,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/PaymentError'
 
@@ -780,6 +795,124 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /v1/mandates:
+    post:
+      tags: [Mandates]
+      summary: Record a mandate (consent) from a saved payment method
+      description: >-
+        Scope: `customers:write`. Records a customer's stored consent to be charged
+        off-session, from a tenant-owned saved method (`pm_…`). The `pm_` is resolved
+        tenant-scoped (a foreign/missing one returns 404, no existence oracle); its
+        `livemode` must match the key mode (400 `livemode_mismatch`); the mandate's
+        `customer` is DERIVED from the `pm_`'s owner (never client-supplied). The id
+        is minted server-side (`mandate_…`) and the created mandate is `ACTIVE`.
+        Tenant is the AUTHENTICATED key's tenant — never an `X-Tenant-Id` header.
+        REUSES the `customers:*` scopes (a mandate is part of the saved-credential
+        consent cluster).
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMandateRequest'
+      responses:
+        '201':
+          description: The recorded mandate (status ACTIVE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Mandate'
+        '400':
+          description: >-
+            A livemode mismatch (`livemode_mismatch`) or an invalid `type`
+            (`invalid_type`).
+        '404':
+          $ref: '#/components/responses/NotFound'
+    get:
+      tags: [Mandates]
+      summary: List the tenant's mandates
+      description: >-
+        Scope: `customers:read`. Lists the AUTHENTICATED tenant's mandates, newest
+        first (including revoked/INACTIVE ones). Tenant-scoped server-side.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Max mandates to return (default 20, capped at 100 server-side).
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          description: Number of mandates to skip for pagination (default 0).
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: The tenant's mandates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Mandate'
+
+  /v1/mandates/{id}:
+    get:
+      tags: [Mandates]
+      summary: Retrieve a mandate by id
+      description: >-
+        Scope: `customers:read`. Tenant-scoped — a foreign-tenant OR absent id
+        returns 404 with no existence oracle. A revoked (INACTIVE) mandate IS still
+        retrievable (revoke is not a soft delete).
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: The mandate
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Mandate'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/mandates/{id}/revoke:
+    post:
+      tags: [Mandates]
+      summary: Revoke (deactivate) a mandate
+      description: >-
+        Scope: `customers:write`. Deactivates the consent — status becomes `INACTIVE`
+        and `revoked_at` is stamped. This is NOT a soft delete: the mandate stays
+        retrievable (and a cited revoked mandate fails the off-session charge gate
+        with 400 `invalid_mandate`). Tenant-scoped — a foreign-tenant OR absent id
+        returns 404 with no existence oracle.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: The mandate (now INACTIVE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevokedMandate'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /v1/disputes:
     get:
       tags: [Disputes]
@@ -1045,8 +1178,17 @@ components:
         mandate_id:
           type: string
           description: >-
-            TEST-3c: an associated mandate id (a 3d hint; threaded through to the
-            PSP but no mandate resource is created in 3c).
+            TEST-3d: a cited mandate id (`mandate_*`) is a VALIDATED CONSENT GATE
+            for an off-session charge. When present it MUST be an ACTIVE mandate
+            belonging to the caller's tenant that authorizes the charged
+            `payment_method` (`pm_*`): a foreign/missing mandate (or the
+            tenant-scoped `payment_method` resolution) returns 404 (no existence
+            oracle); a non-ACTIVE (revoked/inactive) mandate returns 400
+            `invalid_mandate`; a mandate authorizing a different `payment_method`
+            returns 400 `mandate_payment_method_mismatch`. The gateway is never
+            reached on any of these, so no money moves. A null/absent mandate_id
+            is the 3c pass-through (no consent gate; threaded to the PSP unchanged).
+          example: mandate_1a2b3c
 
     PaymentApiResponse:
       type: object
@@ -1748,6 +1890,97 @@ components:
         deleted:
           type: boolean
           enum: [true]
+
+    Mandate:
+      type: object
+      description: >-
+        A mandate / consent record — a customer's stored consent to be charged
+        off-session with a saved method, and the consent an off-session charge's
+        `mandate_id` references. Tenant-scoped; the tenant is NEVER exposed in the
+        body. `customer` is derived from the `pm_`'s owner.
+      properties:
+        id:
+          type: string
+          description: Mandate id (prefixed `mandate_…`).
+          example: mandate_8a1c4d2e
+        object:
+          type: string
+          enum: [mandate]
+        livemode:
+          type: boolean
+          description: Server-derived from the key mode; equals the `pm_`'s livemode.
+        status:
+          type: string
+          description: PENDING / ACTIVE / INACTIVE. A created mandate is ACTIVE; revoke makes it INACTIVE.
+          example: ACTIVE
+        type:
+          type: string
+          enum: [MULTI_USE, SINGLE_USE]
+          description: >-
+            MULTI_USE / SINGLE_USE. NOTE (3d): `type` is a recorded DESCRIPTIVE
+            hint, not an enforced control. In 3d a SINGLE_USE mandate is NOT
+            self-consumed — it stays ACTIVE after an off-session charge and the
+            consent gate (tenant + ACTIVE + matching `payment_method`) does NOT
+            consider `type`, so a SINGLE_USE mandate can be cited on more than one
+            off-session charge. Do NOT rely on the API to enforce single-use;
+            single-use consumption is a later increment. Revoke the mandate to
+            stop further use.
+          example: MULTI_USE
+        customer:
+          type: string
+          description: The `cus_` id (derived from the `pm_`'s owner).
+          example: cus_3f2a9c1b
+        payment_method:
+          type: string
+          description: The `pm_` the consent authorizes.
+          example: pm_8a1c4d2e
+        scenario:
+          type: string
+          nullable: true
+          description: e.g. recurring / unscheduled.
+          example: recurring
+        created:
+          type: integer
+          format: int64
+          description: Creation time in epoch seconds.
+
+    CreateMandateRequest:
+      type: object
+      description: >-
+        Body for `POST /v1/mandates`. Carries NO tenant, customer, or livemode field
+        (tenant + livemode are server-derived; customer is derived from the `pm_`'s
+        owner). The `payment_method` (`pm_…`) is the saved method the consent
+        authorizes.
+      required:
+        - payment_method
+      properties:
+        payment_method:
+          type: string
+          description: The `pm_` id the consent authorizes (must belong to the caller's tenant).
+          example: pm_8a1c4d2e
+        type:
+          type: string
+          enum: [MULTI_USE, SINGLE_USE]
+          description: >-
+            MULTI_USE / SINGLE_USE (defaults to MULTI_USE). NOTE (3d): SINGLE_USE
+            is a recorded descriptive hint only — it is NOT enforced; a SINGLE_USE
+            mandate is not self-consumed and may be cited on more than one
+            off-session charge. Revoke to stop further use.
+          example: MULTI_USE
+        scenario:
+          type: string
+          example: recurring
+        metadata:
+          type: object
+          additionalProperties: true
+
+    RevokedMandate:
+      allOf:
+        - $ref: '#/components/schemas/Mandate'
+      description: >-
+        Body returned by `POST /v1/mandates/{id}/revoke` — the full mandate body, now
+        `status: INACTIVE` (revoke is NOT a soft delete; the mandate stays
+        retrievable).
 
     Dispute:
       type: object

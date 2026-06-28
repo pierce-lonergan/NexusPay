@@ -1325,3 +1325,31 @@ CreatePaymentRequest uses snake_case component NAMES that bind directly) -> adde
 raw snake_case JSON, asserting binding + delegation + tenant/isTest-from-PRINCIPAL (not body) + back-compat. No
 production change needed for it. CONSEQUENCES: 3d (mandate) is the last sub-batch. CI is the oracle; node SDK DTS
 build verified. Flyway global max unchanged at V4039 (no 3c migration). L-072.
+
+## ADR-059 | 2026-06-27 | TEST-3d: mandate/consent resource + off-session consent gate (critique v3 B4/B5) (T3) — COMPLETES TEST-3
+STATUS: Accepted (T3 — money-adjacent consent + migration; via PR). The LAST sub-batch of the saved-credential
+cluster: a Mandate records a customer's consent to be charged off-session, and the off-session charge (3c) now
+VALIDATES a cited mandate_id (turning the threaded-but-inert 3c hint into a real consent gate). Full slice in
+payment-orchestration, mirroring the 3a/3b/3c slices; zero new Modulith edges; reuses customers:* scopes.
+DECISION (Blueprint -> Implement -> 5 lenses -> Fix):
+ - Resource: Mandate domain + entity (jsonb metadata) + repo + MandateService + MandateController; migration V4040
+   (mandates: mandate_ id, tenant_id, customer_id [cus_], payment_method_id [pm_], status PENDING/ACTIVE/INACTIVE,
+   type MULTI_USE/SINGLE_USE, scenario, livemode, revoked_at; dormant RLS). PrefixedId.MANDATE="mandate_". Endpoints
+   POST /v1/mandates (create from a pm_ -> status ACTIVE), GET /v1/mandates/{id}, GET /v1/mandates, POST
+   /v1/mandates/{id}/revoke (-> INACTIVE + revoked_at). create RESOLVES the pm_ tenant-scoped (404 no-oracle) and
+   DERIVES the customer from the pm_'s owner (never a client-supplied customer that disagrees); livemode = pm_'s
+   livemode = caller mode (mismatch -> 400).
+ - CONSENT GATE (the money payoff): MandateService.validateActiveForCharge(mandateId, tenantId, pm) wired into
+   OffSessionChargeService.charge BEFORE the gateway call: resolve tenant-scoped (404 no-oracle), require status
+   ACTIVE (else 400 invalid_mandate), require mandate.payment_method_id == the charged pm_ (else 400
+   mandate_payment_method_mismatch). A null/blank mandate_id stays the 3c pass-through (back-compat). A bad mandate
+   NEVER charges. REVOKE is NOT a soft-delete: a revoked mandate stays RETRIEVABLE (auditable) but fails the gate.
+ - REVIEW (5 lenses; tenant + Modulith found ZERO): 3 SHOULD_FIX — (1) SINGLE_USE is not self-consumed: chose
+   DOCUMENT-as-non-enforced-hint (Stripe parity: a mandate resource never self-consumes; enforcing single-use is a
+   SUCCEEDED-only, idempotency-sensitive money-state transition the spec did not mandate) over building it, warned
+   integrators across 5 surfaces, with an in-code note that if added it belongs in OffSessionChargeService AFTER a
+   SUCCEEDED result, never in the validator; (2) stale OpenAPI/@Schema/SDK text saying mandate_id is unused +
+   missing 404 on POST /v1/payments -> rewrote to the validated-consent-gate contract + added the 404; (3) the
+   snake_case payment_method binding was unproven -> added a @WebMvcTest verify() so dropping @JsonProperty fails CI
+   (L-072). CONSEQUENCES: TEST-3 (B1-B5) COMPLETE — Customer + saved method + off-session charge + mandate, all
+   test-mode-exercisable with no real card. CI is the oracle; node SDK DTS verified. Flyway global max now V4040.

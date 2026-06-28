@@ -42,6 +42,7 @@ public final class PrefixedId {
     public static final String PAYMENT_SESSION = "ps_";
     public static final String PAYMENT_TOKEN = "ptok_";
     public static final String CUSTOMER = "cus_";
+    public static final String MANDATE = "mandate_";
 
     /**
      * Generates a new prefixed ID with a random UUID (hyphens removed).
@@ -164,5 +165,9 @@ public final class PrefixedId {
 
     public static String customer() {
         return generate(CUSTOMER);
+    }
+
+    public static String mandate() {
+        return generate(MANDATE);
     }
 }

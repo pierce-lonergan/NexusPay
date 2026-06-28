@@ -28,7 +28,7 @@ public record PaymentRequest(
         String paymentMethod,       // the resolved opaque credentialRef (the chargeable handle; NO PAN)
         Boolean offSession,         // nullable tri-state: null = omitted (inline-card byte-identical)
         String setupFutureUsage,    // e.g. "off_session" / "on_session"
-        String mandateId            // 3d hint; threaded through, no mandate resource created in 3c
+        String mandateId            // 3d: cited mandate validated as a consent gate upstream (OffSessionChargeService); threaded to PSP
 ) {
     public PaymentRequest {
         if (amount <= 0) throw new IllegalArgumentException("amount must be positive");

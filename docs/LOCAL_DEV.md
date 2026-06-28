@@ -307,8 +307,10 @@ customer) and runs the **same** screening + idempotency + ledger + webhook path.
   an `sk_live_` key (or a LIVE `pm_` under `sk_test_`) is a **400**
   (`livemode_mismatch`). A test method can never be charged on a live key.
 * `Idempotency-Key` is honored exactly as on any create (no double-charge on
-  retry). `off_session` / `setup_future_usage` / `mandate_id` are optional charge
-  hints (`mandate_id` is a 3d placeholder, threaded through but unused).
+  retry). `off_session` / `setup_future_usage` are optional charge hints.
+  `mandate_id` is now a **validated consent gate** when cited (a null/absent
+  `mandate_id` stays the pass-through — the 3c behavior is unchanged). See the
+  TEST-3d mandate recipe below.
 
 TEST recipe (deterministic, via the 3b fixtures):
 
@@ -327,6 +329,59 @@ curl -X POST http://localhost:8090/v1/payments \
 # pm_card_visa  -> {"status":"succeeded", ...}  + payment.captured
 # pm_card_chargeDeclined -> {"status":"failed","error_code":"card_declined"} + payment.failed
 ```
+
+#### Recording a mandate (consent) and gating an off-session charge (TEST-3d)
+
+A **mandate** records a customer's stored consent to be charged off-session. It is
+the consent record an off-session charge's `mandate_id` references — once cited it
+is a **real consent gate**, not a dangling string. Mandates live under
+**`/v1/mandates`** and REUSE the `customers:read` / `customers:write` scopes (a
+mandate is part of the saved-credential consent cluster).
+
+A mandate is created **from a saved method** (`pm_…`): the `pm_` is resolved
+**tenant-scoped** (a foreign/missing one is a **404**, no oracle), its `livemode`
+must match the caller key mode (else **400** `livemode_mismatch`), and the
+mandate's `customer` is **derived from the `pm_`'s owner** (never client-supplied).
+A created mandate is **`ACTIVE`**. Endpoints: `POST /v1/mandates`,
+`GET /v1/mandates/{id}`, `GET /v1/mandates`, `POST /v1/mandates/{id}/revoke`
+(deactivate → `INACTIVE` + `revoked_at`; a revoked mandate **stays retrievable**).
+
+TEST recipe (create a customer → attach `pm_card_visa` → record a mandate →
+off-session charge citing it → succeeds):
+
+```bash
+# 1) record the mandate from a saved pm_ (status ACTIVE)
+curl -X POST http://localhost:8090/v1/mandates \
+  -H "Authorization: Bearer sk_test_..." \
+  -H "Content-Type: application/json" \
+  -d '{"payment_method":"pm_...","type":"MULTI_USE","scenario":"recurring"}'
+# -> {"id":"mandate_...","object":"mandate","status":"ACTIVE","customer":"cus_...","payment_method":"pm_..."}
+
+# 2) off-session charge CITING the mandate -> succeeds (the consent gate passes)
+curl -X POST http://localhost:8090/v1/payments \
+  -H "Authorization: Bearer sk_test_..." \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"amount":5000,"currency":"USD","payment_method":"pm_...","off_session":true,"mandate_id":"mandate_..."}'
+```
+
+When a `mandate_id` is cited the charge validates it, in order, against the
+**tenant-resolved** `pm_`:
+
+| cited mandate | charge result |
+| --- | --- |
+| ACTIVE + authorizes the charged `pm_` | proceeds (charges) |
+| foreign / missing | **404** (no oracle) — never charges |
+| revoked / INACTIVE | **400** `invalid_mandate` — never charges |
+| authorizes a different `pm_` | **400** `mandate_payment_method_mismatch` — never charges |
+| **no `mandate_id`** (null/absent) | unchanged pass-through (3c behavior) |
+
+> **`type` is a descriptive hint, not an enforced control (3d).** A `SINGLE_USE`
+> mandate is **not** self-consumed: it stays `ACTIVE` after a charge and the gate
+> checks only tenant + `ACTIVE` + matching `pm_` (it does **not** consider `type`),
+> so a `SINGLE_USE` mandate can be cited on **more than one** off-session charge.
+> Do not rely on single-use enforcement — **revoke** the mandate to stop further
+> use. (Single-use consumption is a deferred later increment.)
 
 ---
 
