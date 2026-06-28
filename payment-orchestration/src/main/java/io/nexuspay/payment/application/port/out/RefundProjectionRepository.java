@@ -41,4 +41,26 @@ public interface RefundProjectionRepository {
      */
     List<RefundProjectionRow> listByTenant(String tenantId, boolean livemode, String paymentFilter,
                                            String statusFilter, int limit, int offset);
+
+    /**
+     * GAP-077 (critique v3 F4): the TEST-mode refund ids for a tenant — {@code SELECT refund_id WHERE
+     * tenant_id = ? AND livemode = false}. BOTH predicates always present. Used by
+     * {@code SandboxResetService} to collect CONFIRMED-tenant refund ids BEFORE the delete so the in-memory
+     * mock refund map is cleared for exactly those ids. Live ids are NEVER returned.
+     *
+     * @param tenantId the caller's principal tenant
+     * @return the test-mode refund ids belonging to {@code tenantId} (possibly empty, never null)
+     */
+    List<String> findTestIds(String tenantId);
+
+    /**
+     * GAP-077 (critique v3 F4): hard-deletes the tenant's TEST refund rows — {@code DELETE WHERE tenant_id =
+     * ? AND livemode = false}. BOTH predicates inseparable; no half-scoped variant. Returns the deleted
+     * count. Deleted FIRST in the reset (logical child of payments). Must run inside the reset
+     * {@code @Transactional}.
+     *
+     * @param tenantId the caller's principal tenant
+     * @return the number of test refund rows deleted for {@code tenantId}
+     */
+    int deleteTestRows(String tenantId);
 }

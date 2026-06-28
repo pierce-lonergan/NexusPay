@@ -31,4 +31,16 @@ public interface PaymentMethodRepository {
      * resolves the customer tenant-scoped FIRST so a foreign customerId 404s (not an empty list).
      */
     List<PaymentMethod> findByCustomerAndTenant(String customerId, String tenantId, int limit, int offset);
+
+    /**
+     * GAP-077 (critique v3 F4): HARD-deletes the tenant's TEST payment methods — {@code DELETE WHERE
+     * tenant_id = ? AND livemode = false}. BOTH predicates inseparable; no half-scoped variant. Returns the
+     * deleted count. Hard delete ignores {@code deleted_at} (a detached test method is still tenant+test
+     * scoped and is purged). Deleted before customers (logical child), after mandates. Must run inside the
+     * reset {@code @Transactional}.
+     *
+     * @param tenantId the caller's principal tenant
+     * @return the number of test payment-method rows deleted for {@code tenantId}
+     */
+    int deleteTestRows(String tenantId);
 }

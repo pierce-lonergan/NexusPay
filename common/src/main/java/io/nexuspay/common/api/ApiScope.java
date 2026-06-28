@@ -39,7 +39,14 @@ public enum ApiScope {
     DISPUTES_READ("disputes:read"),
     DISPUTES_WRITE("disputes:write"),
     CUSTOMERS_READ("customers:read"),
-    CUSTOMERS_WRITE("customers:write");
+    CUSTOMERS_WRITE("customers:write"),
+    /**
+     * GAP-077/079 (critique v3 F4/F6): the DEDICATED least-privilege sandbox-control scope. Grants a key
+     * the test-mode-only operations (sandbox reset + idempotency-key inspect/clear) WITHOUT having to also
+     * grant {@code webhooks:write}/{@code payments:write}. Reachable only by a test key (the controllers are
+     * {@code CallerMode.isTest()}-gated to 404 a live key), so the scope can never widen a live capability.
+     */
+    TEST_WRITE("test:write");
 
     private final String value;
 

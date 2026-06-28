@@ -34,4 +34,18 @@ public interface MandateRepository {
      * tenant's mandates including revoked (INACTIVE) ones (no soft-delete exclusion).
      */
     List<Mandate> findByTenant(String tenantId, int limit, int offset);
+
+    /**
+     * GAP-077 (critique v3 F4): HARD-deletes the tenant's TEST mandates — {@code DELETE WHERE tenant_id = ?
+     * AND livemode = false}. BOTH predicates inseparable; no half-scoped variant. Returns the deleted count.
+     *
+     * <p>NOTE — unlike the read finder, which deliberately keeps revoked (INACTIVE) mandates retrievable,
+     * the reset deletes them too when {@code livemode=false}: a sandbox wipe purges ALL test mandates
+     * regardless of status. Deleted before payment_methods/customers (logical child referencing pm_ + cus_).
+     * Must run inside the reset {@code @Transactional}.</p>
+     *
+     * @param tenantId the caller's principal tenant
+     * @return the number of test mandate rows deleted for {@code tenantId}
+     */
+    int deleteTestRows(String tenantId);
 }

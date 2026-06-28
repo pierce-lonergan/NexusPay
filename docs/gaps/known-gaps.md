@@ -516,9 +516,15 @@ semi-orthogonal platform seam that is out of scope for a testability batch.
   semi-orthogonal platform feature, not a test seam. Deferred pending a product decision on a
   first-class list/read API.
 
-### GAP-077 (F4): No per-tenant test-data reset
+### GAP-077 (F4): No per-tenant test-data reset — ✅ DELIVERED 2026-06-28 (ADR-065)
 - **Identified**: TEST-6
-- **Status**: Deferred — P2 testability nicety (NOT a security/money gap)
+- **Status**: ✅ **DELIVERED** — `POST /v1/test/sandbox/reset` (test-mode-only 404-gate + `test:write`) hard-wipes the
+  caller tenant's TEST rows across the 5 provably-scopable tables (payments/refunds/customers/payment_methods/mandates),
+  each DELETE carrying the inseparable `tenant_id=? AND livemode=false`; one all-or-nothing tx; best-effort confirmed-
+  ids-only mock-map clear. The satellite/log tables (event_outbox, webhook_deliveries, payment_webhook_metadata,
+  payment_screening_origin) are deliberately EXCLUDED — they lack a livemode column so a tenant-scoped delete can't be
+  *proven* to spare LIVE audit rows. See ADR-065.
+- **Original status (superseded)**: Deferred — P2 testability nicety (NOT a security/money gap)
 - **What it is**: An integrator cannot reset (clear) the test payments/refunds they created so a
   fresh test run starts clean.
 - **Why deferred**: `MockPaymentGatewayPort` is a **global `@Component` singleton** with NO
@@ -541,9 +547,14 @@ semi-orthogonal platform seam that is out of scope for a testability batch.
   `Instant.now(clock)`, and add a test-mode control to advance/freeze it. A broad mechanical change
   with real regression surface — deferred.
 
-### GAP-079 (F6): No idempotency inspect / clear
+### GAP-079 (F6): No idempotency inspect / clear — ✅ DELIVERED 2026-06-28 (ADR-065)
 - **Identified**: TEST-6
-- **Status**: Deferred — P2 testability nicety (NOT a security/money gap)
+- **Status**: ✅ **DELIVERED** — `GET`/`DELETE /v1/test/idempotency-keys` (+ `DELETE /{key}`), test-mode-only 404-gate
+  + `test:write`. Keys are Redis `idempotency:{callerScope}:{key}` where `callerScope = sha256(Authorization)[:8]`, so
+  inspect/clear is IDOR-safe by construction (a caller can only ever match its own scope). Uses Redis SCAN (not KEYS);
+  the scope derivation is single-sourced (`gateway/util/IdempotencyScope`) shared with `IdempotencyFilter` so they
+  can't drift. See ADR-065.
+- **Original status (superseded)**: Deferred — P2 testability nicety (NOT a security/money gap)
 - **What it is**: No endpoint to inspect or clear a cached idempotency key during a test run (e.g.
   to re-send a "duplicate" without minting a new key).
 - **Why deferred**: the `IdempotencyFilter` caches caller-scoped responses in Valkey (GAP-010,

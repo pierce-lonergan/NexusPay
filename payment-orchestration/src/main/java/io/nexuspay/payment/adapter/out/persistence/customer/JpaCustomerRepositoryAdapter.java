@@ -7,6 +7,8 @@ import io.nexuspay.payment.application.port.out.CustomerRepository;
 import io.nexuspay.payment.domain.customer.Customer;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -52,6 +54,13 @@ public class JpaCustomerRepositoryAdapter implements CustomerRepository {
                 .findByTenantIdAndDeletedAtIsNullOrderByCreatedAtDesc(
                         tenantId, PageRequest.of(offset / limit, limit))
                 .stream().map(this::toDomain).toList();
+    }
+
+    @Override
+    public int deleteTestRows(String tenantId) {
+        // GAP-077: HARD delete WHERE tenant_id=? AND livemode=false (ignores deleted_at — a soft-deleted test
+        // customer is still tenant+test-scoped and is purged). Both predicates inseparable in the query.
+        return jpaCustomerRepo.deleteByTenantIdAndLivemodeFalse(tenantId);
     }
 
     // -- Entity <-> Domain mappers --
@@ -104,5 +113,10 @@ public class JpaCustomerRepositoryAdapter implements CustomerRepository {
 
         // SEC-26: tenant-scoped, soft-delete-aware enumeration for GET /v1/customers.
         List<CustomerEntity> findByTenantIdAndDeletedAtIsNullOrderByCreatedAtDesc(String tenantId, PageRequest page);
+
+        // GAP-077 sandbox reset: HARD delete, BOTH tenant_id AND livemode=false in one inseparable query.
+        @Modifying
+        @Query("delete from CustomerEntity e where e.tenantId = ?1 and e.livemode = false")
+        int deleteByTenantIdAndLivemodeFalse(String tenantId);
     }
 }
