@@ -1386,3 +1386,25 @@ DECISION (scout -> Blueprint -> Implement -> 5 lenses -> Fix):
    (CI-confirmed): event_outbox must be reachable from gateway-api's EntityManager for the native INSERT — low risk
    (shared monolith DB/EMF; DisputeOutboxAdapter precedent). CONSEQUENCES: TEST-4b = the nexus-pay CLI (trigger +
    listen) next; F1 deferred as a known-gap. CI is the oracle; node SDK DTS verified (SDK tests 5/5 local).
+
+## ADR-061 | 2026-06-27 | TEST-4b: nexuspay CLI (trigger + listen) in @nexus-pay/node (critique v3 D2/D3/D4)
+STATUS: Accepted (client-side TS tool; via PR). A `nexuspay` CLI so an integrator can fire a TEST webhook and run a
+local verifying receiver — the Stripe-CLI-like local webhook test loop. TS-only in the published @nexus-pay/node
+package (npm builds/tests LOCALLY, so the implement+fix agents verified end-to-end: 108 vitest tests green, tsup
+build clean, --help/--version/error smoke checks). ZERO new runtime deps (hand-rolled arg parsing, node:http,
+global fetch, the SDK's webhooks.ts verify).
+DECISION (Blueprint -> Implement -> 3 lenses [cli-security, dx-contract, test-fidelity] -> Fix):
+ - bin `nexuspay` -> dist/bin/nexuspay.cjs (tsup second entry, CJS, single shebang via banner.js; package.json bin;
+   NO version bump, stays 0.1.1 — TEST-5 bumps to 0.1.2). src/bin/{args,nexuspay,trigger,listen}.ts.
+ - trigger <event_type>: resolves key/base-url (+ NEXUSPAY_* env), REFUSES sk_live_ client-side fail-fast (a test
+   tool must not point at live), VALIDATES the type against WEBHOOK_EVENT_TYPES (Levenshtein 'did you mean'),
+   calls client.triggerTestEvent, prints {id,type,livemode}; the key NEVER leaks (asserted).
+ - listen: node:http bound to 127.0.0.1 ONLY (a non-loopback bind would expose the receiver), verifies each POST
+   via the SDK verifyWebhook/constructEvent (no hand-rolled HMAC — can't drift), 200/400/405, --forward-to relays
+   ONLY after a successful verify and ONLY to a loopback target unless --allow-remote (no open relay), clean SIGINT,
+   the secret NEVER printed.
+ - REVIEW (3 lenses, 4 actionable): trigger event-type validation added; the loopback-bind test was TAUTOLOGICAL
+   (asserted the constant, not the prod bind) -> rewrote to drive prod runListen via injected makeServer and PROVED
+   it by flipping LOOPBACK_HOST to 0.0.0.0 (test failed) then reverting; the open-relay refusal + main() dispatch
+   got real tests. CONSEQUENCES: TEST-4 substantially done (D1/D2/D3/D4 + F2); F1 (payment/refund list read-model)
+   remains the one deferred known-gap. TEST-5 (SDK 0.1.2 helpers) + TEST-6 (P2 fidelity) next. Locally verified.
