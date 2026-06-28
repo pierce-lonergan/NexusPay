@@ -149,6 +149,8 @@ class PaymentProjectionQueryServiceTest {
         return new PaymentProjectionRepository() {
             @Override public void upsert(PaymentProjectionRow row) { }
             @Override public void updateStatusIfExists(String id, String t, String s, boolean l) { }
+            @Override public List<String> findTestIds(String tenantId) { return List.of(); }
+            @Override public int deleteTestRows(String tenantId) { return 0; }
             @Override public List<PaymentProjectionRow> listByTenant(String tenantId, boolean livemode,
                     String statusFilter, String customerFilter, int limit, int offset) {
                 return all.stream()
