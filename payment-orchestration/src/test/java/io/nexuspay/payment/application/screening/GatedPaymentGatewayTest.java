@@ -59,7 +59,8 @@ class GatedPaymentGatewayTest {
         // collaborators are supplied but never invoked here. PaymentMode.clear() in tearDown guards against
         // any leakage from other tests on the same (reused) thread.
         gateway = new GatedPaymentGateway(delegate, mockDelegate, gate, holds, origins, webhookMetadata,
-                mockSynthesizer);
+                mockSynthesizer,
+                mock(io.nexuspay.payment.application.service.projection.PaymentProjectionService.class));
     }
 
     @org.junit.jupiter.api.AfterEach

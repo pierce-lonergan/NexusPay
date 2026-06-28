@@ -119,6 +119,69 @@ paths:
           description: Session expired (no content)
 
   /v1/payments:
+    get:
+      tags: [Payments]
+      summary: List payments (read-model projection)
+      description: >-
+        Roles: admin, operator, viewer. Scope: `payments:read`. Lists the
+        AUTHENTICATED tenant's payments from the durable READ-MODEL projection
+        (GAP-076) — never another tenant's (the tenant is derived from the key,
+        never an `X-Tenant-Id` header). Results are additionally scoped to the
+        key's mode: a test key (`sk_test_`) lists ONLY test payments and a live
+        key ONLY live payments. Optionally filter by `status` and/or
+        `customer_id`. `limit` is clamped to [1,100] server-side.
+
+
+        FORWARD-FILL CAVEAT (read-model semantics): this list enumerates only
+        payments CREATED AFTER the read-model shipped — older payments are absent
+        from the list but `GET /v1/payments/{id}` still serves them (it reads the
+        PSP/mock directly, unchanged). It is NOT data loss. The list may also LAG
+        a live async settlement by the webhook-delivery window: a live payment
+        shows `processing` until the HyperSwitch webhook lands and advances it to
+        `succeeded` (the `{id}` endpoint is always current). The projection is a
+        best-effort, read-only denormalization — never a source of truth.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+          description: >-
+            Optional status filter (e.g. `succeeded`, `failed`,
+            `requires_action`, `processing`, `requires_capture`).
+        - name: customer_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional customer id filter.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+          description: Page size; clamped to [1,100] server-side.
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: The caller tenant's payments (in the caller key's mode)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PaymentApiResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
     post:
       tags: [Payments]
       summary: Create a payment intent
@@ -312,6 +375,90 @@ paths:
                 $ref: '#/components/schemas/ApprovalResponse'
         '400':
           $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/refunds:
+    get:
+      tags: [Refunds]
+      summary: List refunds (read-model projection)
+      description: >-
+        Roles: admin, operator, viewer. Scope: `refunds:read`. Lists the
+        AUTHENTICATED tenant's refunds from the durable READ-MODEL projection
+        (GAP-076) — never another tenant's (the tenant is derived from the key,
+        never an `X-Tenant-Id` header). Results are additionally scoped to the
+        key's mode (a test key lists only test refunds, a live key only live).
+        Optionally filter by `payment` (parent payment id) and/or `status`.
+        `limit` is clamped to [1,100] server-side.
+
+
+        FORWARD-FILL CAVEAT (read-model semantics): enumerates only refunds
+        CREATED AFTER the read-model shipped; older refunds are absent from the
+        list but `GET /v1/refunds/{id}` still serves them (it reads the PSP/mock
+        directly). The list may also LAG a live async settlement by the
+        webhook-delivery window (a refund shows `pending` until the
+        `refund_succeeded` webhook advances it). The projection is best-effort,
+        read-only — never a source of truth.
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - name: payment
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional parent payment id filter.
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional status filter (`pending`, `succeeded`, `failed`).
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+          description: Page size; clamped to [1,100] server-side.
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: The caller tenant's refunds (in the caller key's mode)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RefundApiResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/refunds/{id}:
+    get:
+      tags: [Refunds]
+      summary: Retrieve a refund by id
+      description: >-
+        Roles: admin, operator, viewer. Scope: `refunds:read`. Reads the refund
+        directly from the PSP/mock (unaffected by the read-model forward-fill).
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: The refund
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundApiResponse'
         '404':
           $ref: '#/components/responses/NotFound'
 

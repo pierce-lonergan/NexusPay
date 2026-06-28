@@ -5,6 +5,7 @@ import io.nexuspay.common.mode.PaymentMode;
 import io.nexuspay.payment.adapter.out.hyperswitch.HyperSwitchPaymentAdapter;
 import io.nexuspay.payment.adapter.out.mock.MockPaymentGatewayPort;
 import io.nexuspay.payment.application.port.PaymentGatewayPort;
+import io.nexuspay.payment.application.service.projection.PaymentProjectionService;
 import io.nexuspay.payment.application.webhook.MockWebhookSynthesizer;
 import io.nexuspay.payment.application.webhook.WebhookMetadataService;
 import io.nexuspay.payment.domain.CaptureRequest;
@@ -65,6 +66,12 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
     private final WebhookMetadataService webhookMetadata;
     /** INT-3: writes the same OutboxEvent shape as the real webhook controller for terminal mock ops. */
     private final MockWebhookSynthesizer mockWebhookSynthesizer;
+    /**
+     * GAP-076 (critique v3 F1): BEST-EFFORT read-model writer. Every projection upsert below is swallowed
+     * by this service (try/catch/log) and runs in its own REQUIRES_NEW tx, so a projection write can NEVER
+     * fail/block/rollback a payment/refund op (the CARDINAL RULE). The projection is never read here.
+     */
+    private final PaymentProjectionService projection;
 
     public GatedPaymentGateway(HyperSwitchPaymentAdapter delegate,
                                MockPaymentGatewayPort mockDelegate,
@@ -72,7 +79,8 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
                                CaptureHoldService captureHolds,
                                ScreeningOriginService screeningOrigins,
                                WebhookMetadataService webhookMetadata,
-                               MockWebhookSynthesizer mockWebhookSynthesizer) {
+                               MockWebhookSynthesizer mockWebhookSynthesizer,
+                               PaymentProjectionService projection) {
         this.delegate = delegate;
         this.mockDelegate = mockDelegate;
         this.gate = gate;
@@ -80,6 +88,7 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
         this.screeningOrigins = screeningOrigins;
         this.webhookMetadata = webhookMetadata;
         this.mockWebhookSynthesizer = mockWebhookSynthesizer;
+        this.projection = projection;
     }
 
     /**
@@ -225,6 +234,10 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
                     mockWebhookSynthesizer.onTerminalFailure(response, tenantId, PaymentEvent.PAYMENT_FAILED);
                 }
             }
+            // GAP-076: best-effort read-model birth state (incl. requires_action/processing/requires_capture)
+            // for read-your-write on GET /v1/payments. Mock branch -> livemode=false (a test key's rows).
+            // Swallowed inside the service; can never fail the create.
+            projection.record(response, tenantId, false);
             return response;
         }
 
@@ -275,6 +288,10 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
             if (hold) {
                 captureHolds.hold(response.gatewayPaymentId(), tenantId, decision.fraudAssessmentId());
             }
+            // GAP-076: best-effort read-model birth state for the LIVE path -> livemode=true. A live create
+            // that returns requires_action/processing is captured here (the outbox only carries TERMINAL
+            // events, so an event-only projection would miss it). Swallowed; never fails the create.
+            projection.record(response, tenantId, true);
         }
         return response;
     }
@@ -303,7 +320,11 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
         // INT-3: a TEST key confirms against the mock and SKIPS the re-screen (no money-out, no PSP). The
         // id fail-safe also routes a pay_test_* confirm to the mock on any non-test-request thread.
         if (routeToMock() || isTestModeId(paymentId)) {
-            return mockDelegate.confirmPayment(paymentId, request);
+            PaymentResponse mockResp = mockDelegate.confirmPayment(paymentId, request);
+            // GAP-076: best-effort read-model update (captures requires_capture-after-confirm). Mock branch
+            // -> livemode=false; tenant from the server-owned origin store keyed by the payment id.
+            projection.record(mockResp, resolveTenant(paymentId), false);
+            return mockResp;
         }
         // ALWAYS screen on confirm (B2): sanctions is a hard block in every mode, and confirm is
         // the first point a real instrument may appear (a server intent created with no PM/BIN).
@@ -362,7 +383,11 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
             log.warn("Server-rail confirm (payment={}, mode={}) flagged {} by fraud — proceeding",
                     paymentId, mode, decision.fraudDecision());
         }
-        return delegate.confirmPayment(paymentId, request);
+        PaymentResponse confirmResp = delegate.confirmPayment(paymentId, request);
+        // GAP-076: best-effort read-model update on the LIVE confirm -> livemode=true. Captures
+        // requires_capture-after-confirm (no outbox event fires for it). tenant from the origin store.
+        projection.record(confirmResp, tenantId, true);
+        return confirmResp;
     }
 
     /**
@@ -392,14 +417,20 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
         // a pay_test_* capture to the mock on a non-test-request thread.
         if (routeToMock() || isTestModeId(paymentId)) {
             PaymentResponse r = mockDelegate.capturePayment(paymentId, request);
-            mockWebhookSynthesizer.onTerminal(r, resolveTenant(paymentId), PaymentEvent.PAYMENT_CAPTURED);
+            String tenant = resolveTenant(paymentId);
+            mockWebhookSynthesizer.onTerminal(r, tenant, PaymentEvent.PAYMENT_CAPTURED);
+            // GAP-076: best-effort read-model update (requires_capture -> succeeded). Mock -> livemode=false.
+            projection.record(r, tenant, false);
             return r;
         }
         if (captureHolds.isHeld(paymentId)) {
             log.warn("Capture refused for payment {} — held pending fraud review", paymentId);
             throw new PaymentException("Capture blocked pending fraud review", "capture_hold_review");
         }
-        return delegate.capturePayment(paymentId, request);
+        PaymentResponse r = delegate.capturePayment(paymentId, request);
+        // GAP-076: best-effort read-model update on the LIVE capture -> livemode=true.
+        projection.record(r, resolveTenant(paymentId), true);
+        return r;
     }
 
     @Override
@@ -409,10 +440,16 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
         // routes a pay_test_* void to the mock on a non-test-request thread.
         if (routeToMock() || isTestModeId(paymentId)) {
             PaymentResponse r = mockDelegate.voidPayment(paymentId, request);
-            mockWebhookSynthesizer.onTerminal(r, resolveTenant(paymentId), PaymentEvent.PAYMENT_VOIDED);
+            String tenant = resolveTenant(paymentId);
+            mockWebhookSynthesizer.onTerminal(r, tenant, PaymentEvent.PAYMENT_VOIDED);
+            // GAP-076: best-effort read-model update (-> cancelled). Mock -> livemode=false.
+            projection.record(r, tenant, false);
             return r;
         }
-        return delegate.voidPayment(paymentId, request); // free pre-capture compensation — no screen
+        PaymentResponse r = delegate.voidPayment(paymentId, request); // free pre-capture compensation — no screen
+        // GAP-076: best-effort read-model update on the LIVE void -> livemode=true.
+        projection.record(r, resolveTenant(paymentId), true);
+        return r;
     }
 
     @Override
@@ -445,9 +482,15 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
             } else {
                 mockWebhookSynthesizer.onRefundTerminal(r, tenant, PaymentEvent.REFUND_COMPLETED);
             }
+            // GAP-076: best-effort refund read-model birth state. Mock -> livemode=false.
+            projection.recordRefund(r, tenant, false);
             return r;
         }
-        return delegate.createRefund(request);
+        RefundResponse r = delegate.createRefund(request);
+        // GAP-076: best-effort refund read-model on the LIVE path -> livemode=true. tenant from the
+        // origin store keyed by the parent payment id (the same trusted source the webhook uses).
+        projection.recordRefund(r, resolveTenant(request.paymentId()), true);
+        return r;
     }
 
     @Override

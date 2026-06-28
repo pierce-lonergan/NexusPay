@@ -62,7 +62,8 @@ class PaymentControllerOffSessionTest {
         offSession = mock(OffSessionChargeService.class);
         var refundOrchestration = mock(RefundOrchestrationService.class);
         var screeningOrigins = mock(ScreeningOriginService.class);
-        controller = new PaymentController(gateway, refundOrchestration, screeningOrigins, offSession);
+        controller = new PaymentController(gateway, refundOrchestration, screeningOrigins, offSession,
+                mock(io.nexuspay.payment.application.service.projection.PaymentProjectionQueryService.class));
     }
 
     private static CreatePaymentRequest offSessionBody(String pm) {

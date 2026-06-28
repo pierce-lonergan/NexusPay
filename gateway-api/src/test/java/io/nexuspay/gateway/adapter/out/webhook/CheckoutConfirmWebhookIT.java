@@ -127,7 +127,8 @@ class CheckoutConfirmWebhookIT {
         var synthesizer = new MockWebhookSynthesizer(outboxRepository, objectMapper, origins);
 
         var gatedGateway = new GatedPaymentGateway(hyperSwitch, mockGateway, gate, captureHolds,
-                origins, webhookMetadata, synthesizer);
+                origins, webhookMetadata, synthesizer,
+                mock(io.nexuspay.payment.application.service.projection.PaymentProjectionService.class));
 
         var tokenizeUseCase = mock(TokenizePaymentMethodUseCase.class);
         controller = new CheckoutController(sessionService, tokenizeUseCase, paymentTokenRepository, gatedGateway);

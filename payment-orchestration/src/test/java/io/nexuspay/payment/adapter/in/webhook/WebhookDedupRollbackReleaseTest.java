@@ -109,7 +109,9 @@ class WebhookDedupRollbackReleaseTest {
         // dedup-release logic under test is actually reached.
         controller = new HyperSwitchWebhookController(
                 webhookRepository, outboxRepository, redisTemplate, new ObjectMapper(),
-                screeningOrigins, new SimpleMeterRegistry(), WEBHOOK_SECRET);
+                screeningOrigins,
+                mock(io.nexuspay.payment.application.service.projection.PaymentProjectionService.class),
+                new SimpleMeterRegistry(), WEBHOOK_SECRET);
     }
 
     @AfterEach

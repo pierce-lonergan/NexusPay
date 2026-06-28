@@ -1446,21 +1446,21 @@ DECISION (Blueprint -> Implement -> 2-finding review -> Fix):
    hardcoded id, L-071). ResponseMapper surfaces the TYPED domain field (NOT the INT-6 metadata path). SDK Payment
    gains status + next_action?. NON-TERMINAL: no webhook synthesized.
  - A4 processing: STATUS_PROCESSING (already existed) with NO terminal webhook; integrator advances to settled by
-   firing POST /v1/test/events payment.succeeded (the TEST-4a trigger) — documented as the catalog recipe. No new status.
- - A5 fraud_hold: chose OPTION (b) — return STATUS_REQUIRES_CAPTURE WITHOUT a payment_capture_hold row, documented
+   firing POST /v1/test/events payment.succeeded (the TEST-4a trigger) ï¿½ documented as the catalog recipe. No new status.
+ - A5 fraud_hold: chose OPTION (b) ï¿½ return STATUS_REQUIRES_CAPTURE WITHOUT a payment_capture_hold row, documented
    as a review-hold SIMULATION. Rejected option (a) (gate writes a real hold row): the mock path BYPASSES
    PreAuthorizationGate/CaptureHoldService by design (routeToMock), so a faithful fraud screen is genuinely not
    exercisable in test mode; threading a real hold row off a mock response would be a money-safety seam added for a
    test outcome. (b) gives a testable requires_capture->capture flow that the existing capture endpoint releases,
    with ZERO change to the real gate or capture-hold control. Least-invasive, fail-closed.
- - F3 request_id: VERIFIED already-closed — GlobalExceptionHandler.requestId() reads MDC (CorrelationIdFilter
+ - F3 request_id: VERIFIED already-closed ï¿½ GlobalExceptionHandler.requestId() reads MDC (CorrelationIdFilter
    set it) with a UUID fallback; ApiError serializes request_id (NON_NULL never drops it). Added
    ErrorEnvelopeRequestIdTest asserting error.request_id == X-Request-Id response header (inbound-echo + generated).
- - DEFER (known-gaps.md): F1=GAP-076 (payment/refund LIST — no read-model), F4=GAP-077 (per-tenant reset — mock is a
-   global singleton), F5=GAP-078 (test clocks — no injectable Clock; largest/lowest-value), F6=GAP-079 (idempotency
-   inspect/clear — niche). Each a P2 testability NICETY, not a security/money gap.
+ - DEFER (known-gaps.md): F1=GAP-076 (payment/refund LIST ï¿½ no read-model), F4=GAP-077 (per-tenant reset ï¿½ mock is a
+   global singleton), F5=GAP-078 (test clocks ï¿½ no injectable Clock; largest/lowest-value), F6=GAP-079 (idempotency
+   inspect/clear ï¿½ niche). Each a P2 testability NICETY, not a security/money gap.
  - REVIEW (2 SHOULD_FIX, both fixed): (1) next_action wire shape = FLAT {type,url}, a DELIBERATE deviation from the
-   blueprint's nested {type,redirect_to_url:{url}} — kept flat to match INT-6 ConfirmResponse.NextAction (already
+   blueprint's nested {type,redirect_to_url:{url}} ï¿½ kept flat to match INT-6 ConfirmResponse.NextAction (already
    shipped {type,url}) so the API exposes ONE next_action shape, not two; the deviation is now CALLED OUT explicitly
    at all 4 shape sites (domain NextAction, PaymentApiResponse.NextAction, SDK NextAction, LOCAL_DEV) + here, with
    the trade-off (a flat shape cannot carry a non-redirect action -> a future breaking reshape if ever needed). (2)
@@ -1470,3 +1470,43 @@ DECISION (Blueprint -> Implement -> 2-finding review -> Fix):
    payment.failed as the positive control, so a future synthesis-branch change can't silently violate A3/A4 green.
  - CONSEQUENCES: testability program A/B/C/D/E/F fully delivered-or-resolved. Only durable deferral = F1 read-model
    (+ its dependents F4/F5/F6). CI is the oracle (Gradle can't run locally); SDK verified locally.
+
+## ADR-064 | 2026-06-28 | GAP-076 (critique F1): durable payments/refunds read-model (projection) + list endpoints (T3 money-path)
+STATUS: Accepted (T3 â€” touches the money chokepoint, additive read-only; via PR). Owner asked to build the deferred
+F1. Delivers GET /v1/payments + GET /v1/refunds backed by a tenant-scoped PROJECTION (denormalized read view), with
+SDK 0.1.2 published already (additive client methods ride the next release; no re-bump).
+DECISION (scout -> Blueprint -> Implement -> 5 lenses -> Fix):
+ - CARDINAL RULE: the projection is BEST-EFFORT, READ-ONLY, and NEVER a source of truth â€” a projection write can
+   never fail/block/rollback a charge, and the projection is NEVER read to move money or reconcile the ledger (only
+   served by the GET endpoints). The double-entry ledger + the PSP/mock remain the sole truth.
+ - STRATEGY (a) SYNC-AT-EVERY-SITE (chosen over an event consumer): the outbox carries only TERMINAL events, so a
+   create returning requires_action/processing and a manual-capture requires_capture-after-confirm produce NO event
+   â€” an event-only updater would MISS those non-terminal rows. A best-effort PaymentProjectionService.record/
+   recordRefund/recordStatusUpdate is called from GatedPaymentGateway at all 6 sites (doCreate mock/live, doConfirm,
+   capturePayment, voidPayment, createRefund) for read-your-write + non-terminal capture, AND from
+   HyperSwitchWebhookController for the async-live settlement (the only processing->succeeded without a gateway
+   call). livemode = !mock at the exact routing branch (byte-aligned with webhookMetadata.record's live arg).
+ - THE NON-BLOCKING FIX (the BLOCKER the review caught + the subtle part): a @Transactional(REQUIRES_NEW) method with
+   an IN-METHOD try/catch still leaks the COMMIT-TIME failure (commit fires at the proxy boundary, after the catch
+   returns). Fixed by SPLITTING: PaymentProjectionTxWriter (a separate bean, @Transactional(REQUIRES_NEW) on each
+   upsert, allowed to throw) + a NON-transactional PaymentProjectionService whose try/catch wraps the CROSS-BEAN
+   writer call, so the catch covers the proxy flush/commit (DataIntegrityViolation/UnexpectedRollback) while
+   REQUIRES_NEW isolates the tx from the caller. Belt+suspenders: skip-upsert on null/blank tenant (live no-trusted-
+   tenant case; a null-tenant row violates NOT NULL + is unqueryable) and truncate error_code/message/reason to the
+   V4041 column caps. Proven by an app-module Testcontainers IT that forces a real NOT-NULL violation at the
+   REQUIRES_NEW commit and asserts record(...) does not throw + leaves no row.
+ - CORRECTNESS: ProjectionStatusPrecedence gives idempotent, MONOTONIC upserts (req_pm/conf < req_action/processing
+   < req_capture < terminal; refund pending < terminal; first terminal wins, never regresses) so a re-delivery or a
+   sync+webhook race never duplicates a row nor regresses a terminal one. V4041 payments+refunds tables (PK
+   payment_id/refund_id, tenant_id+livemode NOT NULL, status/amount/currency/..., dormant RLS, NO PAN/card/secret),
+   indexes (tenant_id,created_at desc)/(tenant_id,status)/(tenant_id,customer_id)/(payment_id). created_at from the
+   response, not now().
+ - TENANT+LIVEMODE: PaymentProjectionQueryService always uses the caller's principal tenant + key mode via the
+   scoped finder (NO unscoped finder), clamps limit->[1,100]/offset->>=0 (an improvement over the unclamped
+   customer/dispute lists). GET /v1/payments (payments:read) + GET /v1/refunds (refunds:read) in gateway-api delegate
+   to it, reuse ResponseMapper for the same DTO as GET/{id}. A proven cross-tenant IT + a no-Docker reflection
+   finder-contract test (drops a TenantId/Livemode scope -> red). FORWARD-FILL only (the list shows rows created
+   after this ships; GET/{id} still serves older; a live async settlement may lag by the webhook window) â€” documented
+   in OpenAPI. REVIEW: 5 lenses, 7 actionable (the REQUIRES_NEW commit-escape BLOCKER + a false-green non-blocking
+   test + offset/finder coverage gaps), all fixed. SDK listPayments/listRefunds local-green (133 tests). GAP-076
+   CLOSED in known-gaps.md. CI is the oracle; Flyway global max now V4041.
