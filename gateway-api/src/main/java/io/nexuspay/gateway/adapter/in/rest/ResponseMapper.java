@@ -44,10 +44,16 @@ final class ResponseMapper {
      */
     static PaymentApiResponse toPaymentResponse(PaymentResponse p, String mode) {
         Boolean livemode = (mode == null ? null : Boolean.valueOf("live".equals(mode)));
+        // TEST-6 (A3): surface the TYPED domain next_action directly (NOT the INT-6 nextActionFromMetadata
+        // confirm-result path — that reads metadata.next_action and is specific to toConfirmResponse). Null
+        // for non-action responses, so NON_NULL drops the field for success/decline.
+        PaymentApiResponse.NextAction nextAction = (p.nextAction() == null)
+                ? null
+                : new PaymentApiResponse.NextAction(p.nextAction().type(), p.nextAction().url());
         return new PaymentApiResponse(
                 p.gatewayPaymentId(), p.status(), p.amount(), p.currency(),
                 p.captureMethod(), p.customerId(), p.connectorName(),
-                p.errorCode(), p.errorMessage(), p.createdAt(), p.metadata(), mode, livemode
+                p.errorCode(), p.errorMessage(), p.createdAt(), p.metadata(), mode, livemode, nextAction
         );
     }
 

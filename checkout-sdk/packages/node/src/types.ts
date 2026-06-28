@@ -10,6 +10,24 @@
 export type CaptureMethod = 'automatic' | 'manual';
 export type Metadata = Record<string, unknown>;
 
+/**
+ * TEST-6 (A3): the 3DS/SCA next action to perform, surfaced on a `requires_action` {@link Payment}. Mirrors
+ * the gateway-api `next_action` wire shape (`{ type, url }`, snake-free single tokens — no transform). In
+ * TEST mode the `url` is a harmless stub under `test.nexuspay.local` (no real redirect target).
+ *
+ * DELIBERATE BLUEPRINT DEVIATION: this is the FLAT `{ type, url }` shape, NOT the blueprint's nested
+ * `{ type, redirect_to_url: { url } }`. It deliberately matches INT-6's already-shipped
+ * `ConfirmResponse.nextAction` (`{ type, url }`) so the SDK exposes ONE `next_action` shape, not two. A flat
+ * shape cannot represent a non-redirect next-action; should one ever be needed, that is a planned breaking
+ * reshape. See the Java `PaymentResponse.NextAction` for the full rationale + trade-off.
+ */
+export interface NextAction {
+  /** The next-action type, e.g. `"redirect_to_url"`. */
+  type: string;
+  /** The redirect URL the cardholder should be sent to (3DS/SCA). */
+  url?: string;
+}
+
 // ---- payment session ----
 export interface CreatePaymentSessionParams {
   amount: number;
@@ -84,6 +102,10 @@ export interface CreatePaymentParams {
  * {@link PaymentSession}: create one with
  * {@link NexusPay.createPaymentSession | createPaymentSession} and read
  * `PaymentSession.client_secret`. Do not look for a secret on this type.
+ *
+ * `status` is the gateway lifecycle status as a plain string (e.g. `succeeded`, `requires_capture`,
+ * `requires_action`, `processing`, `failed`). `next_action` is present ONLY when `status` is
+ * `requires_action` (3DS/SCA) — drive the cardholder redirect from it; it is absent (undefined) otherwise.
  */
 export interface Payment {
   id: string;
@@ -98,6 +120,8 @@ export interface Payment {
   created_at?: string;
   metadata?: Metadata;
   mode?: 'test' | 'live';
+  /** TEST-6 (A3): present ONLY for a `requires_action` payment (3DS/SCA); absent otherwise. */
+  next_action?: NextAction;
 }
 
 export interface ConfirmPaymentParams {

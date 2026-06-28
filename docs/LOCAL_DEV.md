@@ -224,9 +224,67 @@ curl -X POST http://localhost:8090/v1/payments \
 | `declined` | `failed` | `card_declined` | `payment.failed` |
 | `insufficient_funds` | `failed` | `insufficient_funds` | `payment.failed` |
 | `expired_card` | `failed` | `expired_card` | `payment.failed` |
+| `requires_action` | `requires_action` (+ `next_action`) | — | *none* (non-terminal) |
+| `processing` | `processing` | — | *none* (non-terminal — settle via test event, below) |
+| `fraud_hold` | `requires_capture` (review-hold simulation) | — | *none* (release via capture, below) |
 
 > An **unknown** value is intentionally treated as success (logged at debug), so a
 > typo can never silently break a happy-path test.
+
+#### TEST-6 non-failure outcomes — SCA, async settle, review hold
+
+The three non-failure outcomes above let an integrator exercise the *non-terminal*
+flows without a real card. They are **TEST-MODE-only**: like every forced outcome
+they are honored only by the in-process mock, reachable only for `sk_test_` keys —
+an `sk_live_` key can never reach them, so a real payment can **never** be forced
+into `requires_action` / `processing` / a review hold (no real money moves, no PSP
+is touched). None of them synthesizes a terminal webhook (the gateway synthesizes
+only on a terminal success/failure).
+
+- **`requires_action` (A3 — 3DS/SCA).** The create returns status `requires_action`
+  and a `next_action` stub on the payment so you can drive your SCA/redirect
+  handling:
+
+  ```json
+  "next_action": { "type": "redirect_to_url",
+                   "url": "https://test.nexuspay.local/3ds/pay_test_…" }
+  ```
+
+  The URL is a harmless stub (no real redirect target). The intent is non-terminal,
+  so **no webhook fires**. The `next_action` shape is the **flat `{ type, url }`** —
+  the SAME shape the INT-6 `confirm()` result already returns, so there is exactly
+  one `next_action` shape to code against on both the payment and confirm paths.
+
+- **`processing` (A4 — async settle).** The create returns status `processing` with
+  no `next_action` and **no terminal webhook**. To advance the intent to *settled*,
+  fire the **TEST-4a** webhook trigger so your receiver observes settlement:
+
+  ```bash
+  curl -X POST http://localhost:8090/v1/test/events \
+    -H "Authorization: Bearer sk_test_..." \
+    -H "Content-Type: application/json" \
+    -d '{"type":"payment.succeeded","id":"pay_test_..."}'
+  ```
+
+  This synthesizes + delivers a signed `payment.succeeded` webhook to your own
+  tenant's endpoints (the existing `POST /v1/test/events` trigger and the
+  `payment.succeeded` type both already exist).
+
+- **`fraud_hold` (A5 — review-hold simulation).** The create returns status
+  `requires_capture` so you can exercise a **hold → capture** flow. Release it with
+  the existing capture endpoint:
+
+  ```bash
+  curl -X POST http://localhost:8090/v1/payments/pay_test_.../capture \
+    -H "Authorization: Bearer sk_test_..."
+  ```
+
+  > **Simulation note.** This is a `requires_capture`-shaped *simulation* of a
+  > review hold, **not** a faithful fraud screen. The real `PreAuthorizationGate` /
+  > capture-hold control is a money-out safety that the mock bypasses by design
+  > (`routeToMock`), so it is genuinely not exercisable in test mode. No
+  > `payment_capture_hold` row is written — the outcome is purely a manual-capture
+  > shape that the capture endpoint releases to `succeeded`.
 
 **Forcing a failed refund.** `RefundRequest` carries no metadata, so a forced
 refund failure uses a documented **magic amount**: a refund whose minor-units
@@ -241,6 +299,21 @@ curl -X POST http://localhost:8090/v1/refunds \
   -H "Content-Type: application/json" \
   -d '{"payment_id":"pay_test_...","amount":1066,"currency":"USD"}'
 ```
+
+### Correlating a failure — `request_id` (TEST-6 F3)
+
+Every request gets an **`X-Request-Id`** correlation id (generated, or echoed from
+an inbound `X-Request-Id` header) — returned on the **response header** for every
+request. For body-only correlation, the **error envelope also carries it** in the
+body so you can correlate a failure from the JSON alone:
+
+```json
+{ "error": { "type": "payment_error", "code": "payment_not_found",
+             "message": "...", "request_id": "0f1e2d3c-..." } }
+```
+
+`error.request_id` equals the `X-Request-Id` response header value (both source the
+same correlation id). Quote it when reporting an issue.
 
 ### Saved payment-method test fixtures (TEST-MODE ONLY) — TEST-3b
 

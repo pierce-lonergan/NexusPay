@@ -1,6 +1,6 @@
 # NexusPay Known Gaps Analysis
 
-Last updated: 2026-03-27 (Sprint 4.3 — B2B Payments)
+Last updated: 2026-06-27 (TEST-6 — Testability Program close-out)
 
 This document tracks known gaps, technical debt, and deferred decisions in the NexusPay system. Each gap is categorized by severity, the sprint it was identified, and the planned resolution timeline.
 
@@ -483,6 +483,70 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Description**: Only unit tests and `@WebMvcTest` controller tests exist. No end-to-end integration tests with PostgreSQL, Kafka, and Flyway. Testcontainers-based integration tests needed to verify RLS policies, JSONB serialization of graph data, outbox relay, version snapshot roundtrips, and full request lifecycle.
 - **Risk**: RLS policy correctness, Flyway migration execution, JSONB ↔ domain graph mapping, and cross-module wiring are untested.
 - **Resolution**: Phase 5 — add Testcontainers-based integration tests.
+
+---
+
+## Testability Program (P2 nicety) — Deferred
+
+The TEST-1..6 testability program added forced outcomes, a webhook test-event trigger,
+delivery-body/signature visibility, a connectivity ping, dispute/customer/payment-method/
+mandate test fixtures, the 3DS/async/review-hold non-failure outcomes (TEST-6 A3/A4/A5),
+and `request_id` in the error envelope (TEST-6 F3). The items below were considered and
+**deliberately deferred**. Every one is a **P2 testability NICETY — NOT a security or
+money-safety gap**: nothing here weakens the gate, the capture-hold control, a tenant/PCI
+boundary, or any production correctness. They were deferred because each needs a
+semi-orthogonal platform seam that is out of scope for a testability batch.
+
+### GAP-076 (F1): No payments / refunds LIST (read-model)
+- **Identified**: TEST-4 (re-confirmed TEST-6)
+- **Status**: Deferred — P2 testability nicety (NOT a security/money gap)
+- **What it is**: There is no `GET /v1/payments` / `GET /v1/refunds` list endpoint. An integrator
+  cannot enumerate the payments/refunds they created in a test session.
+- **Why deferred**: No payment/refund **read-model** exists. Live state lives inside HyperSwitch;
+  test state lives only in the in-memory singleton `MockPaymentGatewayPort` maps (`payments` /
+  `refunds` `ConcurrentHashMap`s), which are neither durable nor queryable across instances. A
+  by-id `getPayment`/`getRefund` works, but a *list* has no backing store.
+- **What it would take**: a durable **projection table** populated from the payment/refund
+  lifecycle (created/succeeded/failed/refunded events) with tenant scoping + pagination — a
+  semi-orthogonal platform feature, not a test seam. Deferred pending a product decision on a
+  first-class list/read API.
+
+### GAP-077 (F4): No per-tenant test-data reset
+- **Identified**: TEST-6
+- **Status**: Deferred — P2 testability nicety (NOT a security/money gap)
+- **What it is**: An integrator cannot reset (clear) the test payments/refunds they created so a
+  fresh test run starts clean.
+- **Why deferred**: `MockPaymentGatewayPort` is a **global `@Component` singleton** with NO
+  per-tenant partitioning of its maps. A tenant-scoped reset is impossible (and unsafe — it would
+  clear other tenants' test data) until the mock is made **tenant-aware** first. This is the **same
+  blocker as F1/GAP-076**.
+- **What it would take**: partition the mock's stores by tenant (keyed maps or a per-tenant store)
+  — then a tenant-scoped reset endpoint becomes safe. Deferred behind the tenant-aware-mock work.
+
+### GAP-078 (F5): No test clocks (control "now")
+- **Identified**: TEST-6
+- **Status**: Deferred — P2 testability nicety (NOT a security/money gap)
+- **What it is**: No way to control the platform's notion of "now" to exercise time-dependent flows
+  (expiry windows, dunning schedules, mandate/age checks) deterministically in test mode.
+- **Why deferred**: the platform calls `Instant.now()` **directly** throughout (e.g. mock
+  `createPayment`, `CaptureHoldService`, session/key expiry) with **no injectable `Clock` bean**. A
+  test clock needs an invasive `Clock` retrofit across many call sites. This is the **largest item
+  and the lowest P2 value** of the set.
+- **What it would take**: introduce a `Clock` bean, replace `Instant.now()` call sites with
+  `Instant.now(clock)`, and add a test-mode control to advance/freeze it. A broad mechanical change
+  with real regression surface — deferred.
+
+### GAP-079 (F6): No idempotency inspect / clear
+- **Identified**: TEST-6
+- **Status**: Deferred — P2 testability nicety (NOT a security/money gap)
+- **What it is**: No endpoint to inspect or clear a cached idempotency key during a test run (e.g.
+  to re-send a "duplicate" without minting a new key).
+- **Why deferred**: the `IdempotencyFilter` caches caller-scoped responses in Valkey (GAP-010,
+  `SET NX EX 60` + 24h response cache). An inspect/clear test endpoint is **feasible but niche** and
+  not trivially in scope for TEST-6.
+- **What it would take**: a small test-mode-only endpoint that reads/deletes the caller-scoped
+  Valkey idempotency entries. Low effort but low demand — deferred unless it becomes trivially in
+  scope.
 
 ---
 
