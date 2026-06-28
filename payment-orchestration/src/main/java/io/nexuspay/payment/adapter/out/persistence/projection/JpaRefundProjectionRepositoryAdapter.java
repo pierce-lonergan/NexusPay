@@ -6,6 +6,8 @@ import io.nexuspay.payment.domain.projection.RefundProjectionRow;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
@@ -84,6 +86,18 @@ public class JpaRefundProjectionRepositoryAdapter implements RefundProjectionRep
         return rows.stream().map(JpaRefundProjectionRepositoryAdapter::toDomain).toList();
     }
 
+    @Override
+    public List<String> findTestIds(String tenantId) {
+        // GAP-077: tenant + livemode=false scoped — every refund id is CONFIRMED tenant+test for the mock clear.
+        return repo.findTestRefundIds(tenantId);
+    }
+
+    @Override
+    public int deleteTestRows(String tenantId) {
+        // GAP-077: DELETE WHERE tenant_id=? AND livemode=false — both predicates inseparable in the query.
+        return repo.deleteByTenantIdAndLivemodeFalse(tenantId);
+    }
+
     // -- Entity <-> Domain mappers --
 
     private static RefundProjectionEntity toNewEntity(RefundProjectionRow r) {
@@ -126,5 +140,17 @@ public class JpaRefundProjectionRepositoryAdapter implements RefundProjectionRep
 
         List<RefundProjectionEntity> findByTenantIdAndLivemodeAndPaymentIdAndStatusOrderByCreatedAtDesc(
                 String tenantId, boolean livemode, String paymentId, String status, Pageable page);
+
+        // -- GAP-077 sandbox reset: BOTH tenant_id AND livemode=false in one inseparable query string --
+
+        /** Test-mode refund ids for the tenant (confirms tenant+test for the mock refund-map clear). */
+        @Query("select e.refundId from RefundProjectionEntity e "
+                + "where e.tenantId = ?1 and e.livemode = false")
+        List<String> findTestRefundIds(String tenantId);
+
+        /** Hard-deletes the tenant's test refund rows; returns the deleted count. NO half-scoped variant. */
+        @Modifying
+        @Query("delete from RefundProjectionEntity e where e.tenantId = ?1 and e.livemode = false")
+        int deleteByTenantIdAndLivemodeFalse(String tenantId);
     }
 }

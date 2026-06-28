@@ -7,6 +7,8 @@ import io.nexuspay.payment.application.port.out.MandateRepository;
 import io.nexuspay.payment.domain.mandate.Mandate;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -58,6 +60,13 @@ public class JpaMandateRepositoryAdapter implements MandateRepository {
         return jpaMandateRepo
                 .findByTenantIdOrderByCreatedAtDesc(tenantId, PageRequest.of(safeOffset / pageSize, pageSize))
                 .stream().map(this::toDomain).toList();
+    }
+
+    @Override
+    public int deleteTestRows(String tenantId) {
+        // GAP-077: HARD delete WHERE tenant_id=? AND livemode=false. Deletes revoked (INACTIVE) test mandates
+        // too (a sandbox wipe purges all test mandates regardless of status). Both predicates inseparable.
+        return jpaMandateRepo.deleteByTenantIdAndLivemodeFalse(tenantId);
     }
 
     // -- Entity <-> Domain mappers --
@@ -116,5 +125,10 @@ public class JpaMandateRepositoryAdapter implements MandateRepository {
 
         // SEC-26: tenant-scoped enumeration of a tenant's mandates, newest first.
         List<MandateEntity> findByTenantIdOrderByCreatedAtDesc(String tenantId, PageRequest page);
+
+        // GAP-077 sandbox reset: HARD delete, BOTH tenant_id AND livemode=false in one inseparable query.
+        @Modifying
+        @Query("delete from MandateEntity e where e.tenantId = ?1 and e.livemode = false")
+        int deleteByTenantIdAndLivemodeFalse(String tenantId);
     }
 }

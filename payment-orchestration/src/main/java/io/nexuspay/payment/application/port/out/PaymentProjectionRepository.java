@@ -57,4 +57,28 @@ public interface PaymentProjectionRepository {
      */
     List<PaymentProjectionRow> listByTenant(String tenantId, boolean livemode, String statusFilter,
                                             String customerFilter, int limit, int offset);
+
+    /**
+     * GAP-077 (critique v3 F4): the TEST-mode payment ids for a tenant — {@code SELECT payment_id WHERE
+     * tenant_id = ? AND livemode = false}. BOTH predicates always present (there is NO tenant-only or
+     * livemode-only variant). Used by {@code SandboxResetService} to collect the CONFIRMED-tenant test ids
+     * BEFORE the delete, so the in-memory mock map can be cleared for exactly those ids and never another
+     * tenant's. Live (livemode=true) ids are NEVER returned.
+     *
+     * @param tenantId the caller's principal tenant — the only tenant ever queried
+     * @return the test-mode payment ids belonging to {@code tenantId} (possibly empty, never null)
+     */
+    List<String> findTestIds(String tenantId);
+
+    /**
+     * GAP-077 (critique v3 F4): hard-deletes the tenant's TEST rows — {@code DELETE WHERE tenant_id = ? AND
+     * livemode = false}. BOTH predicates are inseparable in the single underlying query; there is NO
+     * tenant-only delete (would hit LIVE) and NO livemode-only delete (would cross tenants). Returns the
+     * deleted row count for the per-table reset summary. Must run inside the caller's reset
+     * {@code @Transactional} (all-or-nothing).
+     *
+     * @param tenantId the caller's principal tenant
+     * @return the number of test rows deleted for {@code tenantId}
+     */
+    int deleteTestRows(String tenantId);
 }

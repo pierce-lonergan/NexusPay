@@ -6,6 +6,8 @@ import io.nexuspay.payment.domain.projection.ProjectionStatusPrecedence;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
@@ -99,6 +101,19 @@ public class JpaPaymentProjectionRepositoryAdapter implements PaymentProjectionR
         return rows.stream().map(JpaPaymentProjectionRepositoryAdapter::toDomain).toList();
     }
 
+    @Override
+    public List<String> findTestIds(String tenantId) {
+        // GAP-077: tenant + livemode=false scoped — every id returned is CONFIRMED to belong to the caller's
+        // tenant and is test-mode. Feeds the mock-map clear (never another tenant's id).
+        return repo.findTestPaymentIds(tenantId);
+    }
+
+    @Override
+    public int deleteTestRows(String tenantId) {
+        // GAP-077: DELETE WHERE tenant_id=? AND livemode=false — both predicates inseparable in the query.
+        return repo.deleteByTenantIdAndLivemodeFalse(tenantId);
+    }
+
     // -- Entity <-> Domain mappers --
 
     private static PaymentProjectionEntity toNewEntity(PaymentProjectionRow r) {
@@ -142,5 +157,17 @@ public class JpaPaymentProjectionRepositoryAdapter implements PaymentProjectionR
 
         List<PaymentProjectionEntity> findByTenantIdAndLivemodeAndStatusAndCustomerIdOrderByCreatedAtDesc(
                 String tenantId, boolean livemode, String status, String customerId, Pageable page);
+
+        // -- GAP-077 sandbox reset: BOTH tenant_id AND livemode=false in one inseparable query string --
+
+        /** Test-mode payment ids for the tenant (confirms tenant+test for the mock-map clear). */
+        @Query("select e.paymentId from PaymentProjectionEntity e "
+                + "where e.tenantId = ?1 and e.livemode = false")
+        List<String> findTestPaymentIds(String tenantId);
+
+        /** Hard-deletes the tenant's test rows; returns the deleted count. NO half-scoped variant exists. */
+        @Modifying
+        @Query("delete from PaymentProjectionEntity e where e.tenantId = ?1 and e.livemode = false")
+        int deleteByTenantIdAndLivemodeFalse(String tenantId);
     }
 }

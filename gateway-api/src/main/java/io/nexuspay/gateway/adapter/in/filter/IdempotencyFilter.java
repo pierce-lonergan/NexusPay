@@ -1,6 +1,7 @@
 package io.nexuspay.gateway.adapter.in.filter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.nexuspay.gateway.util.IdempotencyScope;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -14,11 +15,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingResponseWrapper;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
-import java.util.HexFormat;
 import java.util.concurrent.locks.LockSupport;
 
 /**
@@ -63,8 +60,9 @@ public class IdempotencyFilter extends OncePerRequestFilter {
 
         // Scope the key to the caller's credential. Without this, two different
         // merchants reusing a common Idempotency-Key (e.g. "order-1") collide and
-        // merchant B receives merchant A's cached response body.
-        String redisKey = "idempotency:" + callerScope(request) + ":" + idempotencyKey;
+        // merchant B receives merchant A's cached response body. The scope derivation is single-sourced in
+        // IdempotencyScope so the test-mode inspect/clear controller can never look at a different scope.
+        String redisKey = IdempotencyScope.keyPrefix(request) + idempotencyKey;
 
         try {
             // Try to acquire processing lock
@@ -126,25 +124,6 @@ public class IdempotencyFilter extends OncePerRequestFilter {
             // On error, delete the lock so retries can proceed
             redisTemplate.delete(redisKey);
             throw e;
-        }
-    }
-
-    /**
-     * Derives a stable per-caller scope from the Authorization header (API key
-     * or bearer token), hashed so the raw secret never lands in Valkey. Falls
-     * back to a shared anonymous scope when unauthenticated.
-     */
-    private String callerScope(HttpServletRequest request) {
-        String auth = request.getHeader("Authorization");
-        if (auth == null || auth.isBlank()) {
-            return "anon";
-        }
-        try {
-            MessageDigest sha = MessageDigest.getInstance("SHA-256");
-            byte[] digest = sha.digest(auth.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest, 0, 8);
-        } catch (NoSuchAlgorithmException e) {
-            return "anon";
         }
     }
 

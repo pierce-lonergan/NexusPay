@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -226,6 +227,32 @@ public class MockPaymentGatewayPort implements PaymentGatewayPort {
 
     public MockPaymentGatewayPort() {
         // No collaborators — see class javadoc (synthesis is driven by the gateway).
+    }
+
+    /**
+     * GAP-077 (critique v3 F4): best-effort clear of the in-memory test artifacts for EXACTLY the supplied
+     * payment/refund ids, called by {@code SandboxResetService} AFTER it has hard-deleted the tenant's test
+     * DB rows. The ids are collected from the tenant + {@code livemode=false}-scoped projection BEFORE the
+     * delete, so every id is CONFIRMED to belong to the caller's tenant and is test-mode.
+     *
+     * <p><b>Removes ONLY those exact keys</b> — it NEVER calls {@code payments.clear()}/{@code
+     * refunds.clear()}. The maps are GLOBAL and keyed by id only (not tenant-keyed); a blanket clear would
+     * wipe other tenants' test artifacts sharing the same map. A {@code null} collection is treated as empty.</p>
+     *
+     * <p><b>Caveat (multi-instance):</b> only THIS JVM's maps are cleared. In a multi-instance deployment
+     * another instance's maps are untouched — but the maps are ephemeral (reset on restart) and are NEVER a
+     * source of truth (the DB is), so a stale id on another instance simply ages out harmlessly.</p>
+     *
+     * @param payIds confirmed-tenant test payment ids to forget (nullable == none)
+     * @param refIds confirmed-tenant test refund ids to forget (nullable == none)
+     */
+    public void forgetTestArtifacts(Collection<String> payIds, Collection<String> refIds) {
+        if (payIds != null) {
+            payIds.forEach(payments.keySet()::remove);
+        }
+        if (refIds != null) {
+            refIds.forEach(refunds.keySet()::remove);
+        }
     }
 
     private static String uuid() {

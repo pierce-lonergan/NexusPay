@@ -1510,3 +1510,40 @@ DECISION (scout -> Blueprint -> Implement -> 5 lenses -> Fix):
    in OpenAPI. REVIEW: 5 lenses, 7 actionable (the REQUIRES_NEW commit-escape BLOCKER + a false-green non-blocking
    test + offset/finder coverage gaps), all fixed. SDK listPayments/listRefunds local-green (133 tests). GAP-076
    CLOSED in known-gaps.md. CI is the oracle; Flyway global max now V4041.
+
+## ADR-065 | 2026-06-28 | GAP-077 (F4) test-data reset + GAP-079 (F6) idempotency inspect/clear (T3 destructive)
+STATUS: Accepted (T3 — GAP-077 is DESTRUCTIVE; via PR, full security rigor). Both are test-mode-only + tenant-scoped
+DX endpoints (the last-but-one critique-v3 P2 testability cluster).
+DECISION (scout -> Blueprint -> Implement -> 5 lenses -> Fix):
+ - GATE (mirrors TestEventController exactly): `if (!CallerMode.isTest()) return 404` (no-oracle — an sk_live_ key
+   learns nothing) THEN `CallerTenant.require()` (principal tenant, never a header/body) + @PreAuthorize role +
+   @scopeAuth.has('test:write'). NEW least-privilege scope `ApiScope.TEST_WRITE` (a key can be granted sandbox-
+   control without webhooks:write); ApiScopeTest exact-set drift guard updated (recurs every scope add).
+ - GAP-077 PROVABLE-SAFETY (the core): the reset DELETEs from ONLY the 5 tables carrying BOTH tenant_id NOT NULL AND
+   livemode NOT NULL — payments/refunds (V4041), customers (V4038), payment_methods (V4039), mandates (V4040). Each
+   deleteTestRows resolves to a single @Modifying @Query whose predicate is the INSEPARABLE literal
+   `where e.tenantId = ?1 and e.livemode = false` — there is NO tenant-only variant (would hit LIVE) and NO
+   livemode-only variant (would cross tenants), so a half-scoped delete is structurally impossible. One @Transactional,
+   child->parent order (refunds, payments, mandates, payment_methods, customers), per-table count summary. EXCLUDED
+   (never touched; documented in the service javadoc + known-gaps): event_outbox, webhook_deliveries (gateway-module
+   V4031, different module), payment_webhook_metadata (V4030), payment_screening_origin (V4022) — NO livemode column,
+   so a tenant-scoped delete could NOT be PROVEN to spare LIVE audit rows; the mandate forbids a destructive op on a
+   store it cannot prove it is scoping. They are append-only logs that age out. MOCK MAPS:
+   MockPaymentGatewayPort.forgetTestArtifacts(payIds, refIds) removes ONLY the exact ids collected BEFORE the deletes
+   from the tenant+livemode-scoped projection (confirmed the caller's) — NEVER a blanket clear() (maps are global,
+   id-keyed, shared across tenants); best-effort try/catch so a mock hiccup never rolls back the committed DB deletes;
+   multi-instance/ephemeral caveat documented.
+ - GAP-079 IDOR-SAFE-BY-CONSTRUCTION: idempotency keys live in Redis as `idempotency:{callerScope}:{key}` where
+   callerScope = first-8-bytes SHA-256(Authorization) hex. Extracted that derivation into a SINGLE shared
+   `gateway/util/IdempotencyScope` used by BOTH IdempotencyFilter (refactored, byte-identical key) and the new
+   TestIdempotencyController — they can never drift. GET/DELETE /v1/test/idempotency-keys (+ /{key}) use Redis SCAN
+   (cursor), NOT KEYS (O(N) blocking); a caller can only ever match its OWN scope (cannot compute another tenant's auth
+   hash). Returns key + status(processing|cached) + http_status + ttl_seconds.
+ - REVIEW: 5 lenses, 3 actionable — ALL test-strengthening, ZERO production bugs (the scoping was already correct):
+   (1&2) the idempotency endpoints needed a real Spring-Security-pipeline @WebMvcTest proving live->404 /
+   no-test:write->403 / unrestricted->pass across all 3 handlers; (3) the livemode-survival IT proved `livemode=false`
+   for only 2 of 5 delete queries -> strengthened to seed a FULL live graph (all 5 entities) + assert all 5 live rows
+   survive (a copy-paste slip dropping `and livemode=false` from any of the 5 now reds CI). Mandatory tests:
+   cross-tenant reset isolation (A resets, B intact) + livemode isolation (live survives) via Testcontainers; mock
+   forget confirmed-ids-only; both gates via @WebMvcTest. NO migration (delete/Redis only) — Flyway max stays V4041.
+   No SDK change. GAP-077 + GAP-079 CLOSED in known-gaps.md. CI is the oracle.

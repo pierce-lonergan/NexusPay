@@ -32,4 +32,19 @@ public interface CustomerRepository {
      * live (non-soft-deleted) customers, newest first, paginated by {@code limit}/{@code offset}.
      */
     List<Customer> findByTenant(String tenantId, int limit, int offset);
+
+    /**
+     * GAP-077 (critique v3 F4): HARD-deletes the tenant's TEST customers — {@code DELETE WHERE tenant_id = ?
+     * AND livemode = false}. BOTH predicates inseparable in the single underlying query; no tenant-only
+     * (would hit LIVE) or livemode-only (would cross tenants) variant. Returns the deleted count.
+     *
+     * <p>NOTE — this is a HARD delete, NOT the soft-delete convention used by {@link #findByIdAndTenantId}:
+     * it ignores {@code deleted_at} and purges already-soft-deleted test rows too. That is the intended
+     * sandbox-wipe semantics (a soft-deleted test customer is still tenant+test-scoped). Deleted LAST in the
+     * reset (parent of payment_methods + mandates). Must run inside the reset {@code @Transactional}.</p>
+     *
+     * @param tenantId the caller's principal tenant
+     * @return the number of test customer rows deleted for {@code tenantId}
+     */
+    int deleteTestRows(String tenantId);
 }

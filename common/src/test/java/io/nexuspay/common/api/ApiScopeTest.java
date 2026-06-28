@@ -25,7 +25,8 @@ class ApiScopeTest {
                 "keys:write",
                 "vault:read", "vault:write",
                 "disputes:read", "disputes:write",
-                "customers:read", "customers:write");
+                "customers:read", "customers:write",
+                "test:write");
     }
 
     @Test
