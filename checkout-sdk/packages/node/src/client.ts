@@ -37,6 +37,8 @@ import type {
   Payment,
   PaymentMethod,
   PaymentSession,
+  PingResponse,
+  PingResult,
   RequestOptions,
   RevokedMandate,
   SimulateDisputeParams,
@@ -576,6 +578,21 @@ export class NexusPay {
       undefined,
       opts,
     );
+  }
+
+  /**
+   * TEST-5 (E3): a lightweight AUTHENTICATED connectivity + credentials check
+   * (`GET /v1/ping`). A successful resolve confirms the `baseUrl` is reachable AND
+   * the API key is valid; a bad/missing key rejects with a `NexusPayError`
+   * (401/403). The returned `livemode` reflects the AUTHENTICATED KEY'S MODE (test
+   * key -> `false`, live key -> `true`), so you can confirm you are pointed at
+   * test vs live. The response carries NO tenant or anything sensitive.
+   *
+   * Maps the wire `api_version` (snake_case) to `apiVersion` (camelCase).
+   */
+  async ping(opts?: RequestOptions): Promise<PingResult> {
+    const res = await this.request<PingResponse>('GET', '/v1/ping', undefined, opts);
+    return { ok: res.ok, livemode: res.livemode, apiVersion: res.api_version };
   }
 
   private async request<T>(

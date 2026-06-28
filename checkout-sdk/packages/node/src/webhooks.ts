@@ -98,6 +98,108 @@ export function verifyWebhook(
   }
 }
 
+// ---- TEST-5 (E1): generate a valid signature header for handler unit tests ----
+
+/** The full header bag a `constructEvent(body, headers, secret)` call consumes. */
+export interface TestWebhookHeaders {
+  'x-nexuspay-signature': string;
+  'x-nexuspay-timestamp': string;
+}
+
+export interface GenerateTestHeaderOptions {
+  /**
+   * The webhook body. If a `string` (or `Buffer`), it is signed EXACTLY as given
+   * — POST those same bytes. If an object, it is `JSON.stringify`-ed ONCE and the
+   * resulting string is signed; see {@link GenerateTestHeaderResult.body} — POST
+   * that canonical string, NOT a re-`JSON.stringify` of the object, or the bytes
+   * (and the signature) will differ.
+   */
+  payload: string | Buffer | object;
+  /** The endpoint signing secret (`whsec_…`). */
+  secret: string;
+  /**
+   * Epoch SECONDS for the `x-nexuspay-timestamp` header. Defaults to "now" so a
+   * fresh `unsafeHeaderToleranceSeconds` window in `constructEvent` passes.
+   */
+  timestamp?: number;
+}
+
+export interface GenerateTestHeaderResult extends TestWebhookHeaders {
+  /**
+   * The EXACT body bytes that were signed. When `payload` was an object this is
+   * the canonical `JSON.stringify(payload)` string — feed THIS to your handler /
+   * `constructEvent`, not a re-serialization of the object.
+   */
+  body: string;
+}
+
+/** True for a Node `Buffer` without assuming `Buffer` typings on the caller. */
+function isBuffer(v: unknown): v is Buffer {
+  return typeof Buffer !== 'undefined' && Buffer.isBuffer(v);
+}
+
+/**
+ * Canonicalizes a `GenerateTestHeaderOptions.payload` into the exact bytes to
+ * sign + send. A string passes through verbatim; a Buffer is decoded to its UTF-8
+ * string; an object is `JSON.stringify`-ed ONCE.
+ */
+function canonicalBody(payload: string | Buffer | object): string {
+  if (typeof payload === 'string') return payload;
+  if (isBuffer(payload)) return payload.toString('utf8');
+  return JSON.stringify(payload);
+}
+
+/**
+ * TEST-5 (E1): generates a VALID webhook signature for `payload`, so an
+ * integrator can unit-test their webhook handler WITHOUT a live delivery.
+ *
+ * Single-sourced HMAC: this calls the SAME module-private {@link computeSignature}
+ * that {@link verifyWebhook} uses, so the generated signature is guaranteed to be
+ * the one the verify path expects (no forked algorithm). The signature is bare
+ * lowercase hex (no `sha256=` prefix), which `verifyWebhook` / `constructEvent`
+ * accept.
+ *
+ * Returns the full header bag keyed exactly as `constructEvent(body, headers,
+ * secret)` reads (`x-nexuspay-signature` / `x-nexuspay-timestamp`) plus the
+ * canonical `body` that was signed. Round-trips:
+ *   const { body, ...headers } = generateTestHeaderString({ payload, secret });
+ *   constructEvent(body, headers, secret);                       // succeeds
+ *   verifyWebhook(body, headers['x-nexuspay-signature'], secret); // true
+ *
+ * @example
+ * const { body, ...headers } = generateTestHeaderString({
+ *   payload: buildTestEvent('payment.succeeded'),
+ *   secret: 'whsec_test',
+ * });
+ * const event = constructEvent(body, headers, secret); // your handler under test
+ */
+export function generateTestHeaderString(
+  opts: GenerateTestHeaderOptions,
+): GenerateTestHeaderResult {
+  const body = canonicalBody(opts.payload);
+  const epochSeconds =
+    opts.timestamp ?? Math.floor(Date.now() / 1000);
+  return {
+    'x-nexuspay-signature': computeSignature(body, opts.secret),
+    'x-nexuspay-timestamp': new Date(epochSeconds * 1000).toISOString(),
+    body,
+  };
+}
+
+/**
+ * TEST-5 (E1): thin companion to {@link generateTestHeaderString} that returns
+ * ONLY the bare-hex signature string — for the `verifyWebhook(rawBody, sig,
+ * secret)` boolean path. Sign the EXACT bytes you will pass as `rawBody` (if you
+ * pass an object here it is `JSON.stringify`-ed once, like the header helper).
+ * Single-sourced HMAC via {@link computeSignature}.
+ */
+export function generateTestSignature(
+  payload: string | Buffer | object,
+  secret: string,
+): string {
+  return computeSignature(canonicalBody(payload), secret);
+}
+
 export interface ConstructEventOptions {
   /**
    * ✅ CANONICAL replay window. HARDENED window (seconds) anchored on the SIGNED

@@ -1,5 +1,35 @@
 # Changelog — @nexus-pay/node
 
+## 0.1.2
+
+Backward-compatible patch release. Adds test-ergonomics helpers so you can
+unit-test your webhook handler and SDK-using code WITHOUT a live delivery or a
+network. No removals; nothing existing changes.
+
+### Added
+
+- **`generateTestHeaderString({ payload, secret, timestamp? })`** — generates a
+  VALID webhook signature header bag (`x-nexuspay-signature` /
+  `x-nexuspay-timestamp`) plus the canonical `body` that was signed, so you can
+  drive `constructEvent(body, headers, secret)` / `verifyWebhook(body, sig,
+  secret)` in a unit test. Single-sourced HMAC (reuses the same signer the verify
+  path uses). A thin companion `generateTestSignature(payload, secret)` returns
+  just the bare-hex signature.
+- **`testFixtures` + `buildTestEvent(type, overrides?)`** — typed, ready-made
+  sample `WebhookEvent`s, one per `WEBHOOK_EVENT_TYPES`, for handler tests.
+  `buildTestEvent` clones a fixture and shallow-merges overrides; everything is
+  typed so a wrong field is a compile error.
+- **`client.ping(opts?)`** — a lightweight authenticated connectivity +
+  credentials check (`GET /v1/ping`). Resolves `{ ok, livemode, apiVersion }`;
+  `livemode` reflects the authenticated KEY's mode so you can confirm
+  test-vs-live. Carries no tenant or anything sensitive.
+- **`createTestTransport(handlers, options?)`** — a typed, `typeof fetch`-
+  compatible fake transport for the existing injectable `fetch` option. Maps
+  `"<METHOD> <path>"` to a canned `Response`, records every call on `.calls`, and
+  returns the INT-2 error envelope for non-2xx so `NexusPayError` maps it.
+  Unit-test SDK-using code with no network: `new NexusPay({ apiKey, baseUrl,
+  fetch: createTestTransport({...}) })`.
+
 ## 0.1.1
 
 Backward-compatible patch release. No removals; new behavior is additive or
