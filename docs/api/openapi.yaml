@@ -1274,6 +1274,85 @@ paths:
         '404':
           description: Endpoint not reachable with this key (live key in test-only surface)
 
+  /v1/test/clock:
+    put:
+      tags: [Test Helpers]
+      summary: Freeze the test clock (TEST MODE ONLY)
+      description: >-
+        TEST-MODE ONLY. Reachable ONLY with an `sk_test_` key — a LIVE key gets
+        404 (no oracle). Scope: `test:write`. Freezes the caller tenant's TEST
+        clock at `now` (an ISO-8601 instant), so the `created_at` stamped on
+        subsequently TEST-created payment/refund artifacts is DETERMINISTIC.
+        That frozen `created_at` is CONSISTENT across every read of the same
+        artifact: the create response, the `GET /v1/payments` | `/v1/refunds`
+        LIST (and its ordering), AND the `GET /v1/payments/{id}` | `/v1/refunds/{id}`
+        single-retrieve — there is no real-time split between them.
+        HONEST SCOPE: this controls ONLY that `created_at` (and, because the
+        read-model inherits it, the `GET /v1/payments` | `/v1/refunds` LIST
+        ORDERING). It does NOT control mandate expiry, idempotency-key TTL,
+        webhook-delivery retry/backoff, api-key expiry, the read-model
+        `updated_at`, the synthesized webhook envelope timestamp, or ANY
+        live-rail behaviour — a LIVE charge's timestamp is unaffected. An
+        unparseable/missing `now` is rejected `400`; a far-future instant is
+        allowed (test freedom). Per-tenant: a tenant can set/read/clear ONLY its
+        own clock.
+      security:
+        - apiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TestClockRequest'
+      responses:
+        '200':
+          description: The clock was frozen for the caller tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TestClockResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          description: Endpoint not reachable with this key (live key in test-only surface)
+    get:
+      tags: [Test Helpers]
+      summary: Read the test-clock state (TEST MODE ONLY)
+      description: >-
+        TEST-MODE ONLY (`sk_test_`; LIVE -> 404). Scope: `test:write`. Returns
+        the caller tenant's clock state: `now` is the frozen instant if set, else
+        real time; `frozen` is true when a clock is set. Same HONEST SCOPE caveat
+        as `PUT` — controls ONLY artifact `created_at`, not expiry/TTL/retry/live.
+      security:
+        - apiKey: []
+      responses:
+        '200':
+          description: The caller tenant's clock state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TestClockResponse'
+        '404':
+          description: Endpoint not reachable with this key (live key in test-only surface)
+    delete:
+      tags: [Test Helpers]
+      summary: Clear the test clock -> revert to real time (TEST MODE ONLY)
+      description: >-
+        TEST-MODE ONLY (`sk_test_`; LIVE -> 404). Scope: `test:write`. Clears the
+        caller tenant's clock so subsequently TEST-created artifacts are stamped
+        with real time again. Returns `{ now: <real time>, frozen: false }`.
+      security:
+        - apiKey: []
+      responses:
+        '200':
+          description: The clock was cleared; reverted to real time
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TestClockResponse'
+        '404':
+          description: Endpoint not reachable with this key (live key in test-only surface)
+
   /v1/ping:
     get:
       tags: [Connectivity]
@@ -2443,6 +2522,42 @@ components:
           type: object
           additionalProperties: true
           description: The synthesized `data.object` delivered in the webhook body.
+
+    TestClockRequest:
+      type: object
+      required: [now]
+      description: Body for freezing the test clock (`PUT /v1/test/clock`).
+      properties:
+        now:
+          type: string
+          format: date-time
+          description: >-
+            The ISO-8601 instant to freeze the clock at. Stamped as the
+            `created_at` on subsequently TEST-created payment/refund artifacts. An
+            unparseable/missing value is rejected `400`; a far-future instant is
+            allowed.
+          example: '2026-01-01T00:00:00Z'
+
+    TestClockResponse:
+      type: object
+      description: >-
+        The caller tenant's test-clock state. A frozen clock controls ONLY the
+        `created_at` on TEST-created payment/refund artifacts (and their list
+        ordering) — NOT expiry, idempotency TTL, webhook retry/backoff,
+        `updated_at`, the webhook envelope timestamp, or any live-rail behaviour.
+      required: [now, frozen]
+      properties:
+        now:
+          type: string
+          format: date-time
+          description: >-
+            The instant the clock resolves to now — the frozen instant if frozen,
+            else real time.
+          example: '2026-01-01T00:00:00Z'
+        frozen:
+          type: boolean
+          description: True when a frozen clock is set for the tenant; false = real time.
+          example: true
 
     PingResponse:
       type: object

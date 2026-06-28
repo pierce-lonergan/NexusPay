@@ -255,6 +255,32 @@ public class MockPaymentGatewayPort implements PaymentGatewayPort {
         }
     }
 
+    /**
+     * GAP-078 (critique v3 F5): re-stamp the {@code createdAt} of an ALREADY-STORED mock artifact so that a
+     * later SINGLE-RETRIEVE ({@code getPayment}/{@code getRefund}) returns the SAME frozen instant as the
+     * create response + the GAP-076 list — closing the read-path divergence where the gateway only re-stamped
+     * the RETURNED response local while the mock store still held the original {@code Instant.now()} value.
+     *
+     * <p><b>Mock-rail only.</b> Called EXCLUSIVELY by {@code GatedPaymentGateway}'s {@code routeToMock}
+     * (TEST-rail) create/refund branches, AFTER the gateway has re-stamped the returned response with the
+     * per-tenant TEST CLOCK's instant — so the stored copy and the returned copy carry the same createdAt.
+     * The mock holds NO live artifacts (a live charge goes through the HyperSwitch delegate and is never put
+     * here), so this can NEVER touch a live timestamp (LIVE ISOLATION). It mutates ONLY the {@code createdAt}
+     * of the matching id, preserving every other field (uses {@link PaymentResponse#withCreatedAt}); a missing
+     * id or null instant is a no-op (defensive — the gateway never calls it with those).</p>
+     *
+     * @param id      a {@code pay_test_*} or {@code re_test_*} id already present in the mock store
+     * @param instant the frozen instant to stamp (the SAME value the gateway stamped on the returned response)
+     */
+    public void restampCreatedAt(String id, Instant instant) {
+        if (id == null || instant == null) {
+            return;
+        }
+        // computeIfPresent: only touch an id we actually minted/stored; never resurrect a forgotten key.
+        payments.computeIfPresent(id, (k, existing) -> existing.withCreatedAt(instant));
+        refunds.computeIfPresent(id, (k, existing) -> existing.withCreatedAt(instant));
+    }
+
     private static String uuid() {
         return UUID.randomUUID().toString().replace("-", "");
     }

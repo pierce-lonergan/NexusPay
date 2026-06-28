@@ -116,4 +116,18 @@ public record PaymentResponse(
                 gatewayPaymentId, status, amount, currency, captureMethod, customerId, connectorName,
                 connectorTransactionId, errorCode, errorMessage, createdAt, metadata, nextAction);
     }
+
+    /**
+     * GAP-078 (critique v3 F5): returns a copy of this response with {@code createdAt} replaced, preserving
+     * EVERY other field — including {@link #nextAction} (uses the full 13-arg constructor, NOT the 12-arg
+     * compat ctor, so a {@code requires_action} 3DS stub is not lost). Used by {@code GatedPaymentGateway}'s
+     * mock branches to re-stamp the mock's createdAt with the per-tenant TEST CLOCK's frozen instant, so the
+     * GAP-076 projection (which inherits created_at from the response) and its list ordering become
+     * deterministic. Touches ONLY the createdAt — never any live-rail timestamp.
+     */
+    public PaymentResponse withCreatedAt(Instant createdAt) {
+        return new PaymentResponse(
+                gatewayPaymentId, status, amount, currency, captureMethod, customerId, connectorName,
+                connectorTransactionId, errorCode, errorMessage, createdAt, metadata, nextAction);
+    }
 }

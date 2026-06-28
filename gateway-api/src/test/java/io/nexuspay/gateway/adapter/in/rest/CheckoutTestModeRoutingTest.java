@@ -96,7 +96,9 @@ class CheckoutTestModeRoutingTest {
         lenient().when(origins.find(any())).thenReturn(Optional.empty());
         gateway = new GatedPaymentGateway(hyperSwitch, mockDelegate, gate, holds, origins,
                 webhookMetadata, synthesizer,
-                mock(io.nexuspay.payment.application.service.projection.PaymentProjectionService.class));
+                mock(io.nexuspay.payment.application.service.projection.PaymentProjectionService.class),
+                new io.nexuspay.payment.application.service.clock.TestClockService(
+                        mock(io.nexuspay.payment.application.port.out.TestClockRepository.class)));
 
         PaymentMode.clear();
         RequestContextHolder.resetRequestAttributes();

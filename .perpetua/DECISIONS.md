@@ -1547,3 +1547,38 @@ DECISION (scout -> Blueprint -> Implement -> 5 lenses -> Fix):
    cross-tenant reset isolation (A resets, B intact) + livemode isolation (live survives) via Testcontainers; mock
    forget confirmed-ids-only; both gates via @WebMvcTest. NO migration (delete/Redis only) — Flyway max stays V4041.
    No SDK change. GAP-077 + GAP-079 CLOSED in known-gaps.md. CI is the oracle.
+
+## ADR-066 | 2026-06-28 | GAP-078 (F5) test clock — honest-narrow, live-rail-isolated (T3)
+STATUS: Accepted (the LAST critique-v3 gap). A per-tenant TEST CLOCK so an integrator can make the timestamp on
+TEST-created artifacts deterministic (set now, create, assert created_at + the GAP-076 list ordering).
+DECISION (scout -> Blueprint -> Implement -> 5 lenses -> Fix):
+ - HONEST-NARROW SCOPE (a deliberate non-over-build, same 'no fake fidelity' principle as TEST-6 A5): the codebase has
+   ~500 raw Instant.now() sites and NO java.time.Clock abstraction; a full retrofit is invasive and a partial one
+   would FAKE time-control where it doesn't hold. So the clock controls ONLY the creation timestamp on test-created
+   artifacts (payment/refund createdAt -> which the GAP-076 projection inherits for list ordering, AND the stored mock
+   artifact so single GET /{id} matches too). It does NOT alter mandate expiry / idempotency TTL / webhook retry /
+   updated_at / the synthesized-webhook envelope timestamp — and the TestClockService javadoc + OpenAPI state that
+   plainly (no misleading half-truth).
+ - LIVE-RAIL ISOLATION (the safety invariant, verified): testClock.nowFor + the mock restampCreatedAt are referenced
+   ONLY inside GatedPaymentGateway's two routeToMock mock branches (payment doCreate ~243/249, refund ~514/519). The
+   live delegate branches (delegate.createPayment ~303, delegate.createRefund ~532) are byte-identical and never
+   reference the clock — a LIVE charge's timestamp is physically unreachable by it. routeToMock resolves true ONLY for
+   a TEST key (or a fail-closed thread); an affirmatively-LIVE key always reaches HyperSwitch. Proven by a test: with
+   a tenant clock SET, a live-key charge's createdAt is real time, not the fixed instant.
+ - SEAM: re-stamp at the GATEWAY (not the mock) because PaymentRequest scrubs authority markers (B-029) and the mock
+   has no trusted tenant in hand; threading tenant into the mock would widen its authority surface. The gateway mock
+   branch has both the trusted tenant (CallContext for create; the server-owned resolveTenant for refund) and the
+   just-built response. PaymentResponse/RefundResponse gained a withCreatedAt(Instant) copy helper; MockPaymentGateway
+   Port gained a mock-rail-only restampCreatedAt(id, instant) (computeIfPresent — never resurrects a forgotten key).
+   testClock.nowFor falls back to Instant.now() when tenant is null/blank, so the no-clock path is byte-identical.
+ - STORE: V4042 test_clocks (tenant_id PK, fixed_at TIMESTAMPTZ NOT NULL, dormant RLS; NO livemode column — the clock
+   is read only on the test rail, rationale documented). TestClockService nowFor/set/clear/get; tenant-scoped repo
+   (findByTenantId, no unscoped finder). PUT/GET/DELETE /v1/test/clock — isTest()->404 no-oracle on all 3 handlers +
+   role + @scopeAuth.has('test:write') (REUSES the GAP-077 scope — NO new ApiScope, NO ApiScopeTest change);
+   unparseable/missing now -> 400.
+ - REVIEW: 5 lenses, 1 actionable (HONEST-SCOPE: single GET /{id} returned real time while create+list returned
+   frozen -> fixed toward FULL determinism by re-stamping the stored mock artifact too, still mock-rail-only, rather
+   than a doc carve-out); the 2 live-isolation findings were NITPICKs (no BLOCKER). Tests: created_at determinism +
+   LIVE isolation (a live charge ignores the clock) + tenant isolation (A's clock doesn't bleed to B) + clear/get +
+   400 + gate (live->404, no-test:write->403, unrestricted->pass). Flyway global max now V4042. No SDK change.
+   GAP-078 CLOSED -> critique-v3 is now FULLY delivered (GAP-076..079 all shipped). CI is the oracle.

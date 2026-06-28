@@ -5,6 +5,7 @@ import io.nexuspay.common.mode.PaymentMode;
 import io.nexuspay.payment.adapter.out.hyperswitch.HyperSwitchPaymentAdapter;
 import io.nexuspay.payment.adapter.out.mock.MockPaymentGatewayPort;
 import io.nexuspay.payment.application.port.PaymentGatewayPort;
+import io.nexuspay.payment.application.service.clock.TestClockService;
 import io.nexuspay.payment.application.service.projection.PaymentProjectionService;
 import io.nexuspay.payment.application.webhook.MockWebhookSynthesizer;
 import io.nexuspay.payment.application.webhook.WebhookMetadataService;
@@ -22,6 +23,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -72,6 +74,14 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
      * fail/block/rollback a payment/refund op (the CARDINAL RULE). The projection is never read here.
      */
     private final PaymentProjectionService projection;
+    /**
+     * GAP-078 (critique v3 F5): the per-tenant TEST CLOCK. Consulted ONLY inside the {@code routeToMock}
+     * (mock/test rail) branches below to re-stamp the mock-synthesized {@code createdAt} on TEST-created
+     * payment/refund artifacts with the tenant's frozen instant. It is NEVER consulted on a live delegate
+     * branch — so a LIVE charge's timestamp is physically unable to be touched by it (LIVE ISOLATION). It
+     * controls ONLY that createdAt (see {@link TestClockService}'s non-scope javadoc); not expiry/TTL/retry.
+     */
+    private final TestClockService testClock;
 
     public GatedPaymentGateway(HyperSwitchPaymentAdapter delegate,
                                MockPaymentGatewayPort mockDelegate,
@@ -80,7 +90,8 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
                                ScreeningOriginService screeningOrigins,
                                WebhookMetadataService webhookMetadata,
                                MockWebhookSynthesizer mockWebhookSynthesizer,
-                               PaymentProjectionService projection) {
+                               PaymentProjectionService projection,
+                               TestClockService testClock) {
         this.delegate = delegate;
         this.mockDelegate = mockDelegate;
         this.gate = gate;
@@ -89,6 +100,7 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
         this.webhookMetadata = webhookMetadata;
         this.mockWebhookSynthesizer = mockWebhookSynthesizer;
         this.projection = projection;
+        this.testClock = testClock;
     }
 
     /**
@@ -218,6 +230,24 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
         // LIVE. ctx.live()==FALSE forces the mock; ==null preserves the pre-DX-5a heuristic.
         if (routeToMock(ctxLive)) {
             PaymentResponse response = mockDelegate.createPayment(request);
+            // GAP-078: re-stamp the mock-synthesized createdAt with the per-tenant TEST CLOCK's frozen
+            // instant. This is the ONE consult point right after the mock returns, so it covers EVERY mock
+            // outcome (forced FAILURE, requires_action/processing/fraud_hold, and success). withCreatedAt
+            // preserves nextAction (full 13-arg copy). The re-stamped `response` then flows into the
+            // origin/metadata/synthesizer/projection writes below, so the GAP-076 projection's created_at
+            // (taken FROM response.createdAt) is the frozen instant and the list orders by it. A null/blank
+            // tenant -> nowFor falls back to Instant.now(), making the no-trusted-tenant path byte-identical
+            // to before. This is a MOCK-ONLY branch; the live delegate branch never reaches here (LIVE
+            // ISOLATION). It controls ONLY createdAt — NOT mandate expiry/idempotency TTL/retry/updated_at.
+            if (response != null && tenantId != null && !tenantId.isBlank()) {
+                Instant frozen = testClock.nowFor(tenantId);
+                response = response.withCreatedAt(frozen);
+                // SHOULD_FIX (read-path consistency): also re-stamp the MOCK STORE so a later single-retrieve
+                // GET /v1/payments/{id} (served from the mock store, not the projection) returns the SAME
+                // createdAt as this response + the GAP-076 list — no undocumented real-time split. Mock-rail
+                // only (the mock holds no live artifact), so this can never touch a live timestamp.
+                mockDelegate.restampCreatedAt(response.gatewayPaymentId(), frozen);
+            }
             if (response != null && response.gatewayPaymentId() != null) {
                 screeningOrigins.record(response.gatewayPaymentId(), new CallContext(tenantId, mode));
                 // live=false: the V4030 __livemode marker drives the delivered webhook's top-level livemode.
@@ -475,6 +505,19 @@ public class GatedPaymentGateway implements PaymentGatewayPort {
         if (routeToMock() || isTestModeId(request != null ? request.paymentId() : null)) {
             RefundResponse r = mockDelegate.createRefund(request);
             String tenant = resolveTenant(request.paymentId());
+            // GAP-078: re-stamp the mock refund's createdAt with the per-tenant TEST CLOCK's frozen instant
+            // (covers BOTH the forced-failure and the success branch below). The re-stamped `r` flows into
+            // recordRefund, so the GAP-076 refund projection inherits the frozen created_at. tenant comes
+            // from the server-owned origin store (resolveTenant), never client input — no authority widening.
+            // MOCK-ONLY branch; the live delegate refund never reaches here (LIVE ISOLATION). createdAt only.
+            if (r != null && tenant != null && !tenant.isBlank()) {
+                Instant frozen = testClock.nowFor(tenant);
+                r = r.withCreatedAt(frozen);
+                // SHOULD_FIX (read-path consistency): re-stamp the MOCK STORE so a later single-retrieve
+                // GET /v1/refunds/{id} (served from the mock store) agrees with this response + the GAP-076
+                // list. Mock-rail only — never touches a live refund's timestamp.
+                mockDelegate.restampCreatedAt(r.gatewayRefundId(), frozen);
+            }
             if (r != null && !r.isSuccessful()) {
                 // TEST-1: a forced refund failure (magic-amount sentinel) -> canonical payment.refund.failed.
                 // Mock-only path; no real refund is ever skipped/cancelled by this.
