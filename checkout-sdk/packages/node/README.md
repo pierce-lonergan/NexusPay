@@ -111,3 +111,78 @@ There are two replay-window options, and they are **not** equivalent:
   captures a valid delivery can replay the exact body + signature while
   rewriting that header to "now", and the check (and signature) will still pass.
   Treat it as a coarse freshness hint, not a security control.
+
+## `nexuspay` CLI
+
+Installing the package adds a `nexuspay` command — a Stripe-CLI-style local
+webhook test loop. Run `nexuspay listen` in one terminal to receive + verify
+webhooks locally (and optionally forward them to your app), and
+`nexuspay trigger <event_type>` in another to fire a TEST-MODE event through the
+platform's signed delivery pipeline.
+
+```bash
+# Terminal A — receive, verify, and forward to your running app:
+nexuspay listen --forward-to http://localhost:3000/webhooks/nexuspay
+
+# Terminal B — fire a signed test event to your tenant's endpoints:
+nexuspay trigger payment.succeeded
+```
+
+See [`docs/LOCAL_DEV.md`](./docs/LOCAL_DEV.md) for the full walkthrough.
+
+### `nexuspay trigger <event_type>`
+
+Fires a TEST-MODE webhook (`POST /v1/test/events`) to your tenant's endpoints.
+
+| Flag | Env | Description |
+| --- | --- | --- |
+| `--key` | `NEXUSPAY_SECRET_KEY` (alias `NEXUSPAY_API_KEY`) | Test secret key (`sk_test_…`) |
+| `--base-url` | `NEXUSPAY_BASE_URL` (alias `NEXUSPAY_API_URL`) | API base URL, e.g. `http://localhost:8090` |
+| `--id` | — | Optional test aggregate id |
+| `--data` | — | Optional JSON object merged onto `data.object` |
+
+```bash
+NEXUSPAY_SECRET_KEY=sk_test_… NEXUSPAY_BASE_URL=http://localhost:8090 \
+  nexuspay trigger payment.succeeded --data '{"amount":1000}'
+# -> {"id":"evt_…","type":"payment.succeeded","livemode":false}
+```
+
+A **live key (`sk_live_`) is refused** client-side — the trigger is test-mode
+only. The API key is never printed, even on error.
+
+The `<event_type>` is validated client-side against the canonical
+`WEBHOOK_EVENT_TYPES` list, so a typo (e.g. `payment.succeded`) fails fast with a
+"did you mean" suggestion instead of a slow, opaque server error after a network
+round-trip.
+
+### `nexuspay listen`
+
+Starts a local HTTP server **bound to `127.0.0.1` only** (loopback — it must not
+be reachable from the network), verifies each incoming POST with the SDK's
+`verifyWebhook`/`constructEvent`, prints a concise per-event line plus the pretty
+body, and responds `200` on a good signature / `400` on a bad one.
+
+| Flag | Env | Description |
+| --- | --- | --- |
+| `--port` | — | Port to listen on (default `4242`) |
+| `--secret` | `NEXUSPAY_WEBHOOK_SECRET` | Endpoint signing secret (`whsec_…`) |
+| `--forward-to` | — | Relay verified deliveries to a local app URL |
+| `--allow-remote` | — | Allow a non-loopback `--forward-to` target (open-relay risk) |
+
+```bash
+NEXUSPAY_WEBHOOK_SECRET=whsec_… \
+  nexuspay listen --port 4242 --forward-to http://localhost:3000/webhooks/nexuspay
+```
+
+Security stance:
+
+- **Loopback-only bind.** The receiver never listens on `0.0.0.0`.
+- **The signing secret and API key are never printed** — not on success, not on
+  error, not in any verbose path.
+- **Signature verification reuses the SDK** (`verifyWebhook`, constant-time) — the
+  CLI does not hand-roll HMAC, so it can't drift from the platform signer.
+- **`--forward-to` relays ONLY after a successful verify**, and refuses a
+  non-loopback target unless you pass `--allow-remote` (so it can't become an
+  open relay).
+
+`Ctrl-C` (SIGINT) shuts the server down cleanly.
