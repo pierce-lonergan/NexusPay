@@ -13,6 +13,8 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
+import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 
@@ -58,10 +60,32 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2
+                        // sk_/pk_ API-key tokens are authenticated by ApiKeyAuthenticationFilter (which runs
+                        // first). Without this, the JWT resource-server's default resolver ALSO grabs the
+                        // "Bearer sk_..." token, fails to decode it as a JWT, CLEARS the already-set api-key
+                        // authentication, and 401s — so every api-key request died after authenticating.
+                        // Skip api-key tokens here so the api-key auth stands; only real JWTs reach the decoder.
+                        .bearerTokenResolver(apiKeyAwareBearerTokenResolver())
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(keycloakJwtConverter()))
                 );
 
         return http.build();
+    }
+
+    /**
+     * A {@link BearerTokenResolver} that returns {@code null} for API-key tokens (sk_/pk_ prefix) so the
+     * OAuth2 resource server (JWT) leaves them alone — they are handled by {@link ApiKeyAuthenticationFilter}.
+     * Any other Bearer token is resolved normally and validated as a Keycloak JWT.
+     */
+    private BearerTokenResolver apiKeyAwareBearerTokenResolver() {
+        DefaultBearerTokenResolver delegate = new DefaultBearerTokenResolver();
+        return request -> {
+            String token = delegate.resolve(request);
+            if (token != null && (token.startsWith("sk_") || token.startsWith("pk_"))) {
+                return null; // API-key token — not a JWT; ApiKeyAuthenticationFilter owns it.
+            }
+            return token;
+        };
     }
 
     /**
@@ -84,8 +108,11 @@ public class SecurityConfig {
             var principal = new NexusPayPrincipal(userId, tenantId, primaryRole,
                     NexusPayPrincipal.AuthMethod.JWT);
 
+            // Lowercase to match the case-sensitive hasRole('admin'|'operator'|...) used by every
+            // @PreAuthorize (Spring checks the literal authority "ROLE_admin"). toUpperCase produced
+            // "ROLE_ADMIN", which never matched → 403 for every real Keycloak admin/operator principal.
             Collection<SimpleGrantedAuthority> authorities = roles.stream()
-                    .map(role -> new SimpleGrantedAuthority("ROLE_" + role.toUpperCase()))
+                    .map(role -> new SimpleGrantedAuthority("ROLE_" + role.toLowerCase()))
                     .collect(Collectors.toList());
 
             return new UsernamePasswordAuthenticationToken(principal, jwt, authorities);

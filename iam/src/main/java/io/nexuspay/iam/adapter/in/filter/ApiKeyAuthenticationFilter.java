@@ -69,7 +69,12 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
                     try {
                         NexusPayPrincipal principal = apiKeyService.authenticate(token);
                         if (principal != null) {
-                            var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + principal.role().toUpperCase()));
+                            // Roles are stored/checked lowercase (DB chk_api_key_role + every @PreAuthorize
+                            // uses hasRole('admin'|'operator'|...) → Spring expects the case-sensitive
+                            // authority "ROLE_admin"). Normalize to lowercase so a real key actually
+                            // authorizes (toUpperCase produced "ROLE_ADMIN", which hasRole('admin') never
+                            // matched → 403 on every role-gated endpoint).
+                            var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + principal.role().toLowerCase()));
                             var authentication = new UsernamePasswordAuthenticationToken(principal, null, authorities);
                             SecurityContextHolder.getContext().setAuthentication(authentication);
                             // INT-3: stamp the SERVER-DERIVED mode from the authenticated key's is_live. A
