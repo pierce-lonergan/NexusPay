@@ -1,399 +1,131 @@
-# NexusPay Competitive Positioning Analysis
+# NexusPay: A Competitive Assessment
 
-Last updated: 2026-03-15
+*An engineering/analyst evaluation of NexusPay against proprietary and open-source payment systems — with a plain answer to "would you actually adopt it?"*
 
-## Executive Summary
-
-NexusPay occupies a unique position: the first open-source enterprise payment platform that combines payment orchestration, double-entry ledger, IAM, and event streaming in a single deployable unit. This document maps NexusPay's current and planned capabilities against every major competitor across 7 market categories and identifies the 10 critical gaps that determine enterprise readiness.
+*Assessment date: 2026-07-01. This document supersedes the earlier (2026-03) positioning draft, which framed NexusPay as an enterprise-platform competitor without the orchestration/reference framing, the license blocker, or the maturity caveats. Repo claims below were verified against the source tree; competitor facts are cited inline with access dates. Where a figure could not be independently sourced, it is stated qualitatively rather than with a false-precision number.*
 
 ---
 
-## 1. Market Categories Where NexusPay Competes
+## 1. TL;DR verdict
 
-### Category 1: Payment Orchestration Platforms (Primary Market)
-
-**Market size**: $2.65B (2025) → $7.27B (2031), 18.31% CAGR
-
-| Competitor | Pricing | Key Differentiator | NexusPay Advantage | NexusPay Gap |
-|------------|---------|-------------------|-------------------|-------------|
-| **Spreedly** | From $2K/mo, median $130K/yr | Universal card vault, 220+ gateways | Self-hosted, zero platform fees | No portable vault (GAP-V1) |
-| **Primer.io** | Custom enterprise, $94M+ raised | No-code workflow builder | Open-source, self-hosted | No visual workflow builder yet (Phase 4) |
-| **Gr4vy** | SaaS + revenue share | Dedicated cloud per merchant | K8s = dedicated by default | No client SDK (GAP-V2) |
-| **ProcessOut** | ~1¢/transaction | Telescope audit tool | No per-tx fees | No analytics platform yet (Phase 3) |
-| **IXOPAY** | $50K-500K+/yr | Enterprise SaaS | $0 licensing | No compliance certifications (GAP-V7) |
-
-**NexusPay's structural advantage**: Self-hosting eliminates $24K-$200K+/year in orchestration fees.
-
-### Category 2: Payment Ledger / Financial Infrastructure
-
-| Competitor | Pricing | Key Differentiator | NexusPay Status |
-|------------|---------|-------------------|----------------|
-| **Modern Treasury** | Usage-based, $5B+/mo reconciled | Payments + ledgers + reconciliation | Ledger complete, reconciliation Phase 2 |
-| **Open Ledger** | Early-stage | "Stripe for Accounting" | Ledger more payment-focused |
-| **Custom-built** | $300K-800K engineering cost | Full control | NexusPay provides this out-of-box |
-
-**NexusPay's position**: Double-entry ledger is a completed Phase 1 capability. Reconciliation engine in Phase 2 closes the gap with Modern Treasury.
-
-### Category 3: Reconciliation Tools
-
-| Competitor | Pricing | NexusPay Timeline |
-|------------|---------|-------------------|
-| **ReconArt/Blackline/Trintech** | $50K-500K+/yr | Phase 2 Sprint 2.3 |
-| **Manual (spreadsheets)** | 30% of finance team time | Phase 2 replaces entirely |
-| **PSP-native (Stripe/Adyen)** | Free but single-provider | Phase 2 crosses PSPs |
-
-### Category 4: Dispute/Chargeback Management
-
-| Competitor | Pricing | NexusPay Timeline |
-|------------|---------|-------------------|
-| **Chargeflow** | 25% of recovered amount | Phase 2 Sprint 2.4 |
-| **Midigator (Equifax)** | Enterprise SaaS | Phase 2 Sprint 2.4 |
-| **Stripe Smart Disputes** | Included in Stripe | Phase 3 (AI-powered) |
-
-### Category 5: Subscription Billing
-
-| Competitor | Pricing | NexusPay Timeline |
-|------------|---------|-------------------|
-| **Stripe Billing** | 0.5-0.8% of volume | Phase 2 Sprint 2.5a/2.5b (basic subscription billing) |
-| **Chargebee** | From $249/mo | Phase 2 Sprint 2.5 |
-| **Recurly** | From $249/mo | Phase 2 Sprint 2.5 |
-| **Zuora** | Enterprise ($100K+/yr) | Phase 4 (advanced features) |
-
-### Category 6: Payment Analytics / Observability
-
-| Competitor | Pricing | NexusPay Timeline |
-|------------|---------|-------------------|
-| **Pagos** | Enterprise | Phase 3 Sprint 3.6 |
-| **Datadog (custom)** | $50K-200K+/yr | Phase 3 Sprint 3.6 (built-in) |
-
-### Category 7: Fraud Prevention
-
-| Competitor | Pricing | NexusPay Approach |
-|------------|---------|-------------------|
-| **Stripe Radar** | $0.05/screening | Phase 3: native rules engine + FRM integration |
-| **Sift** | Volume-based | Integration via connector, not replacement |
-| **Riskified/Signifyd/Forter** | Guarantee model | Partner integration, not replacement |
-
-**Strategic decision**: NexusPay builds a native rules engine and device fingerprinting (table-stakes fraud prevention) but integrates with specialized FRM providers for ML-based fraud scoring. We don't compete with Sift/Forter's models — we orchestrate them.
+NexusPay is a genuinely rigorous, security-first **payment-orchestration and reference/ledger layer built on top of HyperSwitch** — not a payment processor, not an acquirer, and not a Stripe/Adyen competitor. Judged against its *actual* peer group (open-source orchestration/ledger/billing: HyperSwitch, Kill Bill, Lago, Formance, Medusa), it stands out on two axes that are real and hard to fake: **unusually strict zero-trust multi-tenancy** and **Stripe-test-mode-class developer experience**. But it is a **solo, v0.x portfolio project** that has never moved real money, carries no external attestation, and — decisively — ships under a **PolyForm Noncommercial license** that forbids the commercial use its target adopters would need. For essentially every for-profit team, the honest recommendation is to use HyperSwitch (or Kill Bill/Lago/Formance) directly; NexusPay is best understood as a *reference architecture and hardened starting scaffold*, not a production dependency you'd pick over the tools it wraps.
 
 ---
 
-## 2. Total Cost of Ownership Comparison
+## 2. What NexusPay actually is
 
-### Mid-Size E-Commerce ($5M-$50M Annual Volume)
+NexusPay does **not hold an acquiring license, does not settle funds, and moves no real money.** In test mode it runs an in-process mock gateway; in production it routes to HyperSwitch, which in turn routes to real processors. Its ledger is a *parallel accounting/operations record*, not the banking source of truth for funds.
 
-| Cost Category | Current (Multi-Vendor) | NexusPay (Self-Hosted) | Savings |
-|--------------|----------------------|----------------------|---------|
-| Payment orchestration | $50K-200K/yr | $0 | $50K-200K |
-| Smart routing savings | N/A (single PSP) | 0.5-2% of volume | $25K-$1M |
-| Payment ledger | $50K-300K/yr | $0 | $50K-300K |
-| Reconciliation | $60K-200K/yr | $0 | $60K-200K |
-| Dispute management | $10K-100K/yr | $0 | $10K-100K |
-| Payment analytics | $20K-100K/yr | $0 | $20K-100K |
-| **NexusPay infra** | N/A | **$6K-24K/yr** | — |
-| **NexusPay engineering** | N/A | **$30K-60K/yr** | — |
-| **Net savings** | | | **$124K-$1.3M/yr** |
+That places it firmly in the **orchestration + reference-architecture/ops-ledger tier that sits *above* processors** — the same category boundary as HyperSwitch, Kill Bill, Lago, and Formance, and explicitly *not* the licensed-acquirer tier occupied by Stripe, Adyen, Braintree, Checkout.com, and Square.
 
-### Enterprise ($50M-$500M Annual Volume)
+Concretely, NexusPay is an opinionated, security-hardened **Spring Modulith** reference application wrapped around HyperSwitch (Apache-2.0), adding a CFO/ops-facing layer:
 
-| Cost Category | Current | NexusPay | Savings |
-|--------------|---------|---------|---------|
-| Orchestration | $200K-500K/yr | $0 | $200K-500K |
-| Smart routing | N/A | 1-2% of volume | $500K-$10M |
-| Ledger + recon | $200K-500K/yr | $0 | $200K-500K |
-| Total platform | $600K-1.5M/yr | $100K-200K/yr (infra+eng) | **$500K-$1.3M/yr** |
+- a **double-entry ledger** (per-currency zero-sum, FX gain/loss),
+- **maker-checker refunds** and **dispute-to-ledger** postings,
+- **fraud/sanctions screening** hooks,
+- **subscription billing / dunning**,
+- **zero-trust multi-tenancy**, and
+- a **Stripe-test-mode-class developer harness** (mock gateway, forced outcomes, test clocks, sandbox reset, idempotency-key inspection, typed SDK fixtures, a `nexuspay` CLI).
+
+> **Framing that matters:** "NexusPay vs Stripe on features" is a category error. The incumbents win money movement, external PCI Level 1 attestation, and cross-merchant fraud-ML *by definition*, and NexusPay does not try to occupy that tier. The **one** dimension where a comparison to the incumbents is fair — and where NexusPay deliberately competes — is **developer experience / test tooling**, where Stripe is the explicit gold standard it emulates.
 
 ---
 
-## 3. The 10 Critical Gaps — Priority Ranked
+## 3. Comparison matrix
 
-These gaps determine whether NexusPay can replace commercial orchestration platforms. Ordered by impact on competitive positioning:
-
-### GAP-V1: Universal Portable Card Vault (CRITICAL — Phase 4)
-
-**Without this, NexusPay doesn't solve PSP lock-in.**
-
-- Spreedly's actual moat: 220+ gateway connections with portable card vault
-- Current state: HyperSwitch's Tartarus or PSP-native tokenization (non-portable)
-- A Stripe `pm_` token is useless at Adyen
-- Merchants switching PSPs must re-collect every stored card
-
-**Resolution**: Phase 4 Sprint 4.1 — Extend Tartarus with NexusPay token namespace (`tok_` prefix), add PSP token mapping table, build token import/export APIs for migration.
-
-**Impact**: Existential — this is the #1 reason enterprises choose Spreedly.
-
-### GAP-V2: Client-Side Unified Checkout SDK (CRITICAL — Phase 4)
-
-**Without this, "single integration" is only half-delivered.**
-
-- Primer's Universal Checkout: single component, any PSP, any payment method
-- Current state: Merchants must integrate each PSP's client-side SDK separately
-- Three PSPs = three different card forms, three different Apple Pay integrations
-
-**Resolution**: Phase 4 Sprint 4.2 — `@nexus-pay/js` and `@nexus-pay/react`. PCI-compliant iframe, dynamic payment method rendering, Apple Pay/Google Pay.
-
-**Impact**: Developer experience — this is what converts "backend optimization" into "true payment platform."
-
-### GAP-V3: Network Tokenization (HIGH — Phase 3)
-
-**Direct, measurable revenue impact: 2-6% auth rate lift.**
-
-- Spreedly has 100M+ network tokens enrolled
-- Visa offers 0.10% interchange savings for CNP transactions with network tokens
-- Current state: Not implemented
-
-**Resolution**: Phase 3 Sprint 3.3 — Visa VTS/Mastercard MDES integration, token lifecycle management, cryptogram generation.
-
-**Impact**: $300K recovered revenue per $10M volume. Justifies migration effort alone.
-
-### GAP-V4: Marketplace / Split Payments (HIGH — Phase 4)
-
-**Opens entirely new market: platforms and marketplaces.**
-
-- Stripe Connect processes billions in marketplace payments
-- Current state: No sub-merchant support, no split rules, no payouts
-
-**Resolution**: Phase 4 Sprint 4.3 — Connected accounts, split rules, payout scheduling.
-
-**Impact**: Unlocks the platform/marketplace market (Shopify, Uber, Airbnb pattern).
-
-### GAP-V5: Compliance Toolkit (HIGH — Phase 5)
-
-**Enterprise adoption gate.**
-
-- Every Fortune 2000 procurement asks: "Where is the SOC 2?"
-- "It's open-source, audit it yourself" is a non-starter for enterprise
-- Current state: No compliance documentation, no pen test, no hardening guide
-
-**Resolution**: Phase 5 Sprint 5.6 — PCI DSS 4.0 deployment templates, SOC 2 evidence scripts, published pen test, SBOM.
-
-**Impact**: Converts "developer project" into "enterprise-adoptable platform."
-
-### GAP-V6: Subscription Billing Engine (HIGH — Phase 2)
-
-**Every SaaS company needs this.**
-
-- No subscription state machine, no dunning, no proration
-- 61% of SaaS companies have usage-based elements
-- Current state: Not implemented
-
-**Resolution**: Phase 2 Sprint 2.5 — Subscription lifecycle, dunning, proration, product catalog.
-
-**Impact**: Broadens addressable market from "payment processors" to "all recurring businesses."
-
-### GAP-V7: Fraud Rules Engine (HIGH — Phase 3)
-
-**Table-stakes for any payment platform.**
-
-- Card testing attacks generate thousands of authorization fees
-- Without velocity checks, merchants are defenseless
-- Current state: Zero native fraud capability
-
-**Resolution**: Phase 3 Sprint 3.1 — Configurable rules engine, velocity checks, device fingerprinting.
-
-**Impact**: Prevents the most common fraud attack vector.
-
-### GAP-V8: Alternative Payment Method Lifecycle (MEDIUM — Phase 3)
-
-**Required for non-US markets.**
-
-- Cards are losing share globally (49% of e-commerce is digital wallets)
-- iDEAL, Pix, UPI, BNPL all have fundamentally different lifecycles
-- Current state: Payment methods treated as a type field, no APM-specific flows
-
-**Resolution**: Phase 3 Sprint 3.4 — APM lifecycle abstraction, redirect/QR/push flows.
-
-**Impact**: Opens European, LATAM, and APAC markets.
-
-### GAP-V9: ML Data Cold-Start (MEDIUM — Phase 3)
-
-**What makes smart routing actually smart.**
-
-- Primer's routing engine learns from thousands of merchants
-- NexusPay starts with zero data — ML models have nothing to train on
-- Current state: HyperSwitch's built-in Multi-Armed Bandit only
-
-**Resolution**: Phase 3 Sprint 3.2 — Rule-based routing with data collection first, then gradual ML introduction. Anonymized data cooperative design (Phase 4+).
-
-**Impact**: Without this, "smart routing" is marketing, not technology.
-
-### GAP-V10: Multi-Merchant / SaaS Platform Model (MEDIUM — Phase 4)
-
-**Enables NexusPay to power payment infrastructure companies.**
-
-- Spreedly/Primer designed for multi-merchant central management
-- Current state: Single-merchant deployment model
-
-**Resolution**: Phase 4 Sprint 4.6 + Phase 2 multi-tenancy foundation.
-
-**Impact**: Opens the "payments-as-a-service" market.
+| Dimension | **NexusPay** | **Proprietary leaders** (Stripe, Adyen, Braintree, Checkout.com, Square) | **OSS leaders** (HyperSwitch, Kill Bill, Lago, Formance, Medusa) |
+|---|---|---|---|
+| **What it is** | Orchestration + reference-architecture/ops-ledger layer *wrapping* HyperSwitch. A v0.x Spring Modulith reference app, not a product/service. | Licensed processors/acquirers that *are* the PSP; full-stack money movement + adjacent products (fraud, billing, marketplaces). | HyperSwitch = the actual OSS orchestration engine (Rust); Kill Bill = OSS billing+payments; Formance = OSS ledger; Lago = OSS metering/billing; Medusa = commerce w/ payment module. |
+| **Money movement & settlement** | Moves **no real money**; mock gateway in test, routes to HyperSwitch→processors in prod. Never processed a real transaction. | Real settlement and regulatory liability; Adyen and Checkout.com are directly-licensed acquirers ([adyen.com](https://www.adyen.com/), [checkout.com](https://www.checkout.com/); accessed 2026-07-01). | Also **not** acquirers — HyperSwitch/Kill Bill route to real processors; Formance/Lago delegate money movement to PSPs. Same category boundary as NexusPay ([github.com/juspay/hyperswitch](https://github.com/juspay/hyperswitch)). |
+| **Security & tenant isolation** | **Genuine delta.** Zero `X-Tenant-Id` trust (tenant-from-principal), per-API-key scopes, HMAC-signed + replay-deduped webhooks, idempotency across capture/void/refund, maker-checker refunds, outbox, SSRF-guarded egress, and **8 cross-tenant/IDOR redteam tests** in the gate. **Caveat:** Postgres RLS is implemented but **dormant** (`NEXUSPAY_RLS_ENFORCE:false`); isolation is application-layer (but *tested*) until a human-gated cutover. | Card data never touches merchant servers; isolation is the vendor's externally-attested problem. Not adopter-auditable, but battle-tested at scale ([docs.stripe.com/security](https://docs.stripe.com/security)). | Mature but do **not** ship NexusPay's opinionated zero-trust tenancy scaffold — with raw HyperSwitch "the surrounding tenant/webhook-security scaffolding is left to you." This is NexusPay's real value-add. |
+| **PCI / compliance posture** | **Not** PCI-attested (software can't be — PCI attests an *environment*). PCI-safe design (never-store-raw-PAN, AES-256-GCM, tokenized/hosted flows) can help an *adopter* shrink scope toward SAQ A/A-EP. No SOC 2, no external pentest, no bug bounty ([PCI SAQ reference](https://www.pcisecuritystandards.org/)). | Externally-attested PCI DSS Level 1 Service Providers + SOC 1/2/3, attested by QSAs — not aspirational ([docs.stripe.com/security](https://docs.stripe.com/security)). | HyperSwitch ships a PCI-compliant hosted SDK and inherits a PCI DSS v4.0 posture; adopter still owns environment attestation. Kill Bill/Formance carry no processor attestation ([hyperswitch.io](https://hyperswitch.io/)). |
+| **Test-mode / developer experience** | **Genuine strength, ~Stripe-test-mode parity.** In-process mock gateway (`sk_test_` never hits HyperSwitch), forced decline/3DS/processing outcomes, per-tenant test clocks, sandbox reset, idempotency-key inspect, typed SDK fixtures, `nexuspay` CLI — delivered with no security boundary weakened. | Stripe is the DX gold standard (documented test cards, idempotency keys, test clocks, typed SDKs); Braintree/Adyen capable but trail it ([docs.stripe.com/testing](https://docs.stripe.com/testing)). | A weak spot for the field — Kill Bill's test ergonomics are dated relative to Stripe-style sandboxes; Medusa's payment module is a thin abstraction. **NexusPay is arguably ahead of its OSS peers here.** |
+| **Feature breadth** (billing/ledger/disputes/payouts) | Broad but **shallow vs specialists**: correct-but-light double-entry ledger (per-currency zero-sum, FX gain/loss); solid subscription reference (5 pricing models, proration, dunning) but **no usage-metering/tax/entitlements**; disputes-to-ledger present; **marketplace/split-payments & payout execution are stubs/deferred.** | Deep first-party breadth: Stripe Billing/Connect/Tax/Issuing/Radar; Adyen unified online+POS+risk+settlement. Turnkey ([stripe.com](https://stripe.com/), [adyen.com](https://www.adyen.com/)). | Specialists out-mature it per lane: Lago (usage metering at high throughput), Kill Bill (decade-proven full billing), Formance / TigerBeetle (programmable / high-throughput ledger of record) — you'd put Formance/TigerBeetle *under* a NexusPay-shaped layer ([getlago.com](https://www.getlago.com/), [github.com/formancehq/ledger](https://github.com/formancehq/ledger), [tigerbeetle.com](https://tigerbeetle.com/)). |
+| **Observability / reconciliation depth** | Ships real `analytics/`, `observability/`, and `reconciliation/` modules, but reconciliation is **partial** and unproven at scale — no evidence of large-volume recon against external truth. | Rich vendor dashboards, financial reports, and reconciliation tooling as a first-class product surface (Stripe/Adyen dashboards). | Reconciliation/ledger correctness is a **core differentiator** here — Formance (and, in the proprietary-adjacent space, Modern Treasury) lead on programmable recon; NexusPay's modules exist but are materially shallower. |
+| **Extensibility & architecture** | Clean hexagonal **Spring Modulith**: ~16 modules, build-time boundary verification, ports/adapters, transactional outbox + Debezium CDC, resilience4j circuit breaker on the HyperSwitch adapter (making it swappable). Genuinely legible. **But** deep Spring coupling; single shared Flyway schema. | Closed SaaS — extend via API/webhooks only; no source, no self-host, no data-plane ownership; you inherit their ledger model and roadmap ([stripe.com/pricing](https://stripe.com/pricing)). | HyperSwitch (Rust, plugin connectors), Kill Bill (mature plugin ecosystem), Medusa (MIT modular TS) are all extensible and forkable; HyperSwitch is *lower-level* than NexusPay's opinionated full reference app. |
+| **Operational burden** | Self-host stack (Postgres/Kafka/Valkey/Keycloak/Temporal + HyperSwitch). A **Helm chart exists** (`nexuspay-helm/`, per-env values), **but production hygiene is thin**: no TLS/mTLS between services, no backup/PITR, no autoscaling/ingress hardening by default, and no on-call runbooks beyond the RLS cutover. Boots in ~5 min locally; production-readiness unproven. | Zero infra/maintenance/bus-factor burden; live in hours; vendor runs everything at high availability ([stripe.com](https://stripe.com/)). | Self-hosting shifts maintenance/upgrades/PCI-scope onto *your* team for all of them; HyperSwitch is operationally heavy to self-host; Kill Bill has a reputation for operational complexity ([killbill.io](https://killbill.io/)). |
+| **Maturity / support / bus factor** | **Weakest axis.** Solo portfolio project, **bus factor of one**, v0.x, never real money, no external audit/SOC 2/PCI/bug-bounty, community-only support. Internal rigor is real (extensive tests, adversarial `LESSONS.md`) but is an *engineering standard, not external validation*. | Organizational continuity + 24/7 SRE/support + SLAs; large engineering orgs operating at scale with very high uptime ([stripe.com](https://stripe.com/), [adyen.com](https://www.adyen.com/)). | Real bus factor: HyperSwitch is Juspay-backed and venture-funded with production users; Kill Bill has ~15 years invoicing at scale; Lago is YC-backed with a SOC 2 program; Formance is venture-funded ([juspay.io](https://juspay.io/), [killbill.io](https://killbill.io/), [getlago.com](https://www.getlago.com/), [formance.com](https://www.formance.com/)). |
+| **License & cost** | **Decisive blocker: PolyForm Noncommercial 1.0.0** — any for-profit production use needs a separate commercial grant that does not exist today; not OSI-approved; fails most corporate legal intake. No per-tx take-rate (moves no money). Browser SDKs `@nexus-pay/{js,react,node}` are separately **MIT**. | Take-rate, never self-hostable: Stripe/Braintree/Square ~2.6–2.9% + fixed fee; Adyen/Checkout.com interchange++ with a smaller markup, cheaper at volume ([stripe.com/pricing](https://stripe.com/pricing), [adyen.com/pricing](https://www.adyen.com/pricing), [squareup.com](https://squareup.com/)). | All permit **commercial** use, unlike NexusPay: HyperSwitch/Kill Bill **Apache-2.0**, Formance/Medusa **MIT**, Lago **AGPL-3.0** (copyleft but commercial-OK), Invoice Ninja **Elastic-2.0**. NexusPay is the **only noncommercial option** in its category ([SPDX](https://spdx.org/licenses/), [polyformproject.org](https://polyformproject.org/licenses/noncommercial/1.0.0/)). |
 
 ---
 
-## 4. Feature Parity Matrix
+## 4. Where it genuinely shines
 
-### Payment Orchestration Features
+Credited accurately, not inflated:
 
-| Feature | Stripe | Spreedly | Primer | HyperSwitch | NexusPay Phase | Status |
-|---------|--------|----------|--------|-------------|---------------|--------|
-| Multi-PSP routing | N/A | Yes | Yes | Yes | 1 | Done (via HS) |
-| Smart routing (ML) | Yes | No | Yes | Basic MAB | 3 | Planned |
-| Universal card vault | N/A | Yes | No | Partial | 4 | Planned |
-| Client-side SDK | Elements | No | Universal Checkout | Yes | 4 | Planned |
-| Webhook delivery | Yes | Yes | Yes | Yes | 1 | Done |
-| Idempotency | Yes | Yes | Yes | Yes | 1 | Done |
-| Rate limiting | Yes | Yes | Yes | No | 1 | Done |
-| API versioning | Date-based | Yes | Yes | Semver | 1 | Done (header) |
+1. **Zero-trust multi-tenancy that most OSS payments projects simply don't ship.** Tenant-from-principal (never trust a client-supplied `X-Tenant-Id`), per-API-key scopes, HMAC-signed + replay-deduped webhooks, idempotency across capture/void/refund, maker-checker refunds, outbox, SSRF-guarded egress — and, importantly, **application-layer isolation is exercised by 8 cross-tenant/IDOR redteam tests**. Dormant Postgres RLS is designed as *defense-in-depth on top of that*, not the sole mechanism. Assembling this yourself on raw HyperSwitch is real work.
 
-### Enterprise Features
+2. **Stripe-test-mode-class developer experience** — forced decline/3DS/processing outcomes, per-tenant test clocks, sandbox reset, idempotency-key inspection, typed SDK fixtures, and a `nexuspay` CLI — delivered *without weakening any security boundary*. This is an area where NexusPay is **arguably ahead of its OSS peers** and approaches the incumbent gold standard.
 
-| Feature | Stripe | Modern Treasury | NexusPay Phase | Status |
-|---------|--------|----------------|---------------|--------|
-| Double-entry ledger | No | Yes | 1 | Done |
-| Reconciliation | Basic | Yes | 2 | Planned |
-| Dispute management | Yes | No | 2 | Planned |
-| Subscription billing | Yes (Billing) | No | 2 | Planned |
-| Maker-checker approvals | No | Yes | 1 | Done |
-| Audit logging | Basic | Yes | 1 | Done |
-| RBAC (3+ roles) | Yes | Yes | 1 | Done |
-| Multi-tenancy (RLS) | N/A | Yes | 2 | Planned |
-| SSO (OIDC) | Yes | Yes | 1 | Done (Keycloak) |
+3. **Legible, well-bounded architecture.** Clean hexagonal Spring Modulith with build-time boundary verification, ports/adapters, outbox + CDC, and a circuit-breakered (hence swappable) HyperSwitch adapter. As a *reference* for how to build a hardened multi-tenant payments backend, it is unusually readable and disciplined.
 
-### Global Capabilities
-
-| Feature | Stripe | Adyen | NexusPay Phase | Status |
-|---------|--------|-------|---------------|--------|
-| Network tokenization | Yes | Yes | 3 | Planned |
-| Local acquiring | No | Yes (21+ countries) | 3 | Planned |
-| Multi-currency pricing | Yes (Adaptive) | Yes | 3 | Planned |
-| SEPA DD / Open Banking | Yes | Yes | 3-5 | Planned |
-| FedNow / RTP | No | No | 5 | Planned |
-| Stablecoin payments | Yes (USDC) | No | 5 | Planned |
+4. **PCI-safe-by-design data handling** (never-store-raw-PAN, AES-256-GCM, tokenized/hosted flows) that can help an *adopter* shrink their own PCI scope — the correct, honest framing (software cannot itself be "PCI certified").
 
 ---
 
-## 5. Competitive Moat Strategy
+## 5. Where it falls short / why you'd pass
 
-NexusPay's long-term moats are structural, not feature-based:
+1. **License is a hard stop.** PolyForm-NC forbids commercial production use without a separate paid grant that does not exist today. This is strictly worse than *every* OSS peer and removes NexusPay from most shortlists **regardless of technical merit**.
 
-### Moat 1: Self-Hosting Economics
-- Zero per-transaction fees at any volume
-- At $10M+ volume, self-hosting saves $50K-500K/year minimum
-- Scales without renegotiating contracts
+2. **Bus factor of one.** A solo v0.x portfolio project with no company backing, no SLA, no support escalation. "Who maintains this if the author is unavailable?" has no acceptable enterprise answer — versus Juspay-backed HyperSwitch or a ~15-year Kill Bill.
 
-### Moat 2: Data Sovereignty
-- Payment data never leaves merchant's infrastructure
-- Compliance with data localization (India RBI, GDPR, China PIPL) is architectural, not contractual
-- No vendor has access to transaction patterns
+3. **No production track record, no external validation.** Never processed real money; no external pentest, SOC 2, PCI attestation, or bug bounty. The security posture is a rigorous *internal* engineering standard and aspiration — **"battle-hardened / non-hackable" is not an externally-proven fact.**
 
-### Moat 3: Open-Source Network Effect
-- Community contributions accelerate feature development
-- PSP connectors contributed by merchants using those PSPs
-- Shared fraud intelligence across deployments (opt-in data cooperative)
+4. **Tenant isolation is application-layer in practice.** Postgres RLS is implemented but **dormant** (`NEXUSPAY_RLS_ENFORCE:false`) with a human-gated cutover. The app layer *is* tested (see §4), but for a real multi-tenant deployment processing others' money, an enterprise will expect the database-level flip proven in prod.
 
-### Moat 4: HyperSwitch Foundation
-- 50+ PSP connectors inherited from HyperSwitch (40K GitHub stars)
-- PCI DSS v4.0 certification inherited
-- Rust performance for payment processing core
-- Active open-source community contributing connectors
+5. **It doesn't move money and isn't a Stripe/Adyen replacement.** Early-stage or low-volume merchants should just buy a hosted processor — live in hours, PCI/fraud/settlement/liability outsourced. Adopting NexusPay adds operational, license, and bus-factor cost for capabilities a hosted PSP already provides.
 
-### Moat 5: Composability
-- Spring Modulith = deploy as monolith or extract modules to microservices
-- Each module independently replaceable
-- Enterprises can adopt incrementally (start with orchestration, add ledger later)
+6. **Key breadth items are stubs/deferred.** No portable card vault (the Spreedly moat), marketplace/split-payments and payout *execution* are stubs, reconciliation is partial, HSM is unimplemented (software AES-GCM only), and ML fraud/routing carry cold-start problems. By the owner's own roadmap it is well over a year from the parity it aspires to.
 
 ---
 
-## 6. Developer Relations & Community Strategy
+## 6. "Why not just use HyperSwitch / Kill Bill / Lago directly?"
 
-Building a developer community is critical for NexusPay's open-source moat. This section defines the community engagement strategy.
+**Honest answer: for a commercial team, you probably should — and NexusPay does not clearly beat that choice today.**
 
-### GitHub Discussions
+HyperSwitch already gives you the Apache-2.0, permissively-licensed, Juspay-backed, multi-connector orchestration engine — routing, retries, revenue recovery, vault, reconciliation, a PCI-compliant hosted SDK — for free, commercially usable, with real bus factor and production users. NexusPay's value-add is **not** more connectors or better routing (it inherits both from HyperSwitch). Its genuine delta is the **opinionated reference scaffold layered on top**:
 
-- Enable GitHub Discussions as the primary community forum
-- Categories: Q&A, Ideas/Feature Requests, Show & Tell, Announcements
-- Triage community questions within 48 hours
-- Promote high-quality community answers to documentation
+1. strict **zero-trust multi-tenancy** (tenant-from-principal; per-API-key scopes; dormant RLS + cutover runbook),
+2. a **CFO-facing ops/ledger layer** HyperSwitch is thinner on (double-entry ledger with FX gain/loss, maker-checker refunds, dispute-to-ledger postings, subscription dunning),
+3. **HMAC-signed + replay-deduped webhooks** and idempotency across capture/void/refund with an outbox pattern, and
+4. a **Stripe-test-mode-class developer harness** plus clean Spring Modulith boundaries.
 
-### Discord / Slack Community
-
-- Launch a public Discord server organized by topic: #general, #deployment-help, #connector-development, #billing, #architecture
-- Provide a #contributors channel for coordinating pull requests and design discussions
-- Weekly "office hours" for live Q&A (async-friendly with recorded summaries)
-
-### Blog Posts on Architectural Decisions
-
-- Publish technical blog posts explaining key architectural decisions (ADRs as blog content)
-- Topics: why Spring Modulith over microservices, polling outbox vs. CDC tradeoffs, double-entry ledger design, HyperSwitch integration patterns
-- Target 1-2 posts per sprint during active development
-- Cross-post to dev.to, Hashnode, and Medium for reach
-
-### Conference Submissions
-
-- Submit talks to relevant conferences: QCon, Devoxx, Spring I/O, KubeCon, Money 20/20, FinTech DevCon
-- Talk topics: building an open-source payment platform, event-driven architecture for financial systems, self-hosted vs. SaaS payment infrastructure
-- Target first conference talk by Phase 3 completion
-
-### Documentation-First Approach
-
-- All features documented before or alongside implementation (not after)
-- Interactive API documentation (Redocly) available from Phase 2
-- Architecture decision records (ADRs) published in the repository
-- Deployment guides for common scenarios (AWS EKS, GCP GKE, bare metal)
-- Migration guides from competing platforms (Spreedly, Stripe, Primer) starting Phase 4
+That delta is real, well-engineered, and would take a competent team meaningful effort to assemble on raw HyperSwitch. **But it rarely outweighs three costs for a real company:** the PolyForm-NC license (HyperSwitch is Apache-2.0), bus-factor-of-one, and zero real-money track record. So the delta is worth it mainly as a **reference/learning architecture or a hardened starting scaffold** — not as a production dependency you'd choose over HyperSwitch itself. The same logic applies to Kill Bill (billing), Lago (metering), and Formance (ledger of record): each is permissively licensed, funded, and battle-tested in its lane.
 
 ---
 
-## 7. Go-To-Market Positioning
+## 7. Who should adopt it — and who shouldn't
 
-### Tagline Options
-1. "The open-source payment platform that replaces six-figure SaaS contracts"
-2. "Self-hosted payment orchestration with enterprise ledger and compliance"
-3. "Everything between your app and your payment processors — open source"
+**Choose NexusPay if:**
 
-### Target Segments (by phase)
+- You want a **legible, security-first reference architecture** for building a hardened multi-tenant payments backend on HyperSwitch — the zero-trust tenancy, HMAC+replay webhooks, idempotency, maker-checker, outbox, and dormant-RLS-with-runbook are genuinely more rigorous than most OSS payments projects ship.
+- **Developer experience / test tooling is a top priority** and you value Stripe-test-mode-class affordances delivered without weakening any security boundary — where NexusPay is arguably ahead of its OSS peers.
+- **You fit the license:** researchers, students, nonprofits, government/educational institutions, or teams evaluating the *patterns* — anyone who can legally use PolyForm-NC without a grant.
+- You specifically want **this integrated ops/ledger delta** over raw HyperSwitch inside one cleanly-bounded Spring Modulith platform under a single zero-trust security model — **and** you are willing to negotiate a commercial license and accept single-maintainer risk.
 
-| Phase | Primary Segment | Why |
-|-------|----------------|-----|
-| 1-2 | Engineering-led startups ($1M-$10M volume) | Self-serve, Docker Compose, developer-first |
-| 2-3 | Mid-market SaaS ($10M-$50M volume) | Cost savings justify migration, subscription billing |
-| 3-4 | Enterprise ($50M-$500M volume) | Compliance toolkit, multi-tenancy, marketplace |
-| 4-5 | Platform companies / PSPs | Multi-merchant, white-label, embedded finance |
+**Pass on NexusPay if:**
 
-### Competitive Messaging by Audience
-
-**To developers**: "One `docker compose up` away from a payment platform. No sales call required."
-
-**To CFOs**: "Replace $150K/year in Spreedly + Modern Treasury + Chargeflow fees with $30K/year in hosting."
-
-**To CTOs**: "Full source code, full data sovereignty, no per-transaction tax on growth."
-
-**To compliance**: "PCI DSS 4.0 hardened deployment templates. SOC 2 evidence automation. Self-host in your own VPC."
+- You're an **early-stage / low-volume merchant** — just buy Stripe/Square; live in hours, compliance and liability outsourced.
+- You're **any commercial team that would otherwise reach for HyperSwitch, Kill Bill, Lago, or Formance** — those are permissively licensed, funded, community-backed, and battle-tested, making NexusPay's license + bus-factor + zero-track-record premium impossible to justify for production today.
+- You need **external attestation** (SOC 2 / PCI Level 1 / pentest) or a **support SLA** now.
 
 ---
 
-## 8. Risk Assessment
+## 8. What it would take to become commercially adoptable
 
-| Risk | Probability | Impact | Mitigation |
-|------|------------|--------|-----------|
-| HyperSwitch changes license | Low | Critical | PaymentGatewayPort abstraction enables connector swap |
-| Regulatory change (PCI DSS 5.0) | Medium | High | Modular compliance — update compliance module only |
-| ML cold-start prevents routing value | High | Medium | Start with rules-based, graduate to ML with data |
-| PCI scope expansion from vault | Medium | High | Extend Tartarus first, standalone vault only if needed |
-| Spreedly/Primer open-source response | Low | Medium | Community moat, feature velocity |
-| Enterprise security review rejection | High (now) | High | Priority on compliance toolkit (Phase 5 or accelerate) |
+The path from impressive portfolio project to adoptable product is concrete:
+
+1. **Relicense.** Move to **Apache-2.0 / MIT** for real uptake, or **AGPL open-core** if a commercial-grant business model is intended. As it stands, PolyForm-NC is the single biggest adoption blocker and undoes every technical strength for for-profit users.
+2. **External security validation.** A real **third-party pentest** and, ideally, a **bug bounty** — so "hardened" stops being a self-assessment and becomes evidence.
+3. **Activate RLS in production.** Flip `NEXUSPAY_RLS_ENFORCE` on behind the documented cutover and prove database-level isolation in a live deployment, turning app-layer-only isolation into true defense-in-depth.
+4. **Earn a real-money track record.** At least one production deployment routing real traffic through HyperSwitch, with reconciliation proven against external truth at non-trivial volume.
+5. **Reduce bus factor.** Additional maintainers, an org/backing, and a support story — the axis on which every funded OSS peer beats it today.
+6. **Fill the deferred breadth** where it claims to compete: portable card vault, marketplace/split-payments + payout execution, and reconciliation depth (or an explicit "bring Formance/TigerBeetle for the ledger of record" posture).
 
 ---
 
-## 9. Timeline to Feature Parity
+### One-line, honest claim
 
-| Competitor | Feature Parity Phase | Key Blocker |
-|------------|---------------------|-------------|
-| Modern Treasury (ledger + recon) | Phase 2 (6 months) | Reconciliation engine |
-| Chargeflow (disputes) | Phase 2 (6 months) | Dispute module |
-| Basic Spreedly (orchestration) | Phase 3 (12 months) | Network tokenization |
-| Full Spreedly (vault + routing) | Phase 4 (18 months) | Universal card vault |
-| Primer (workflow + checkout) | Phase 4 (18 months) | Workflow builder + SDK |
-| Stripe (full platform) | Phase 5+ (24+ months) | Embedded finance, POS |
+> **"Unusually rigorous security + Stripe-test-mode-class developer experience for an OSS payments *reference* built on HyperSwitch"** — *not* "a production-ready Stripe or HyperSwitch replacement."
 
-**Realistic assessment**: NexusPay reaches "Spreedly replacement" status at Phase 4 completion (~18 months). "Stripe alternative for self-hosted" requires Phase 5 (~24 months). Full feature parity with Stripe is likely never achieved (and not necessary — Stripe serves a different deployment model).
+NexusPay makes the right architectural decisions and is a credible engineering artifact. It is a **reference architecture and portfolio-grade exemplar**, not a production product — and its own license currently forbids the commercial use its target adopters would need. That gap, not any technical shortfall, is what keeps it off real shortlists today.

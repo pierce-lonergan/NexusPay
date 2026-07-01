@@ -75,6 +75,7 @@ HashiCorp Vault, Debezium.
 - [OpenAPI spec](docs/api/openapi.yaml) — curated merchant surface (the live `GET /v1/api-docs` is the complete authoritative spec).
 - [SDK publishing](checkout-sdk/PUBLISHING.md) — release runbook for the three npm packages.
 - [Architecture overview](docs/architecture/system-overview.md) — modules, data flows, decision records.
+- [Competitive assessment](docs/strategy/competitive-positioning.md) — an honest, sourced comparison vs proprietary (Stripe/Adyen) and open-source (HyperSwitch/Kill Bill/Lago) systems: what it is, where it wins, and who should (and shouldn't) adopt it.
 
 ## Authentication
 

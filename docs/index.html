@@ -298,6 +298,30 @@
   .arch-caption span { color: var(--muted); font-size: 14.5px; }
   .arch-caption .hint { color: var(--faint); font-size: 13.5px; font-style: italic; }
 
+  /* ---------- comparison / where-it-fits ---------- */
+  .cmp-wrap { margin-top: 30px; overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.004)); -webkit-overflow-scrolling: touch; }
+  .cmp-table { width: 100%; border-collapse: collapse; min-width: 720px; }
+  .cmp-table th, .cmp-table td { text-align: left; padding: 15px 18px; vertical-align: top; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .cmp-table thead th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .09em; color: var(--faint); font-weight: 700; background: rgba(255,255,255,.03); }
+  .cmp-table tbody tr:last-child td { border-bottom: 0; }
+  .cmp-table td.dim, .cmp-table th.dim { color: var(--text); font-weight: 600; width: 17%; }
+  .cmp-table td { color: var(--muted); }
+  .cmp-table .nx { color: var(--text); background: linear-gradient(180deg, rgba(52,211,153,.07), rgba(52,211,153,.015)); box-shadow: inset 1px 0 0 rgba(52,211,153,.22), inset -1px 0 0 rgba(52,211,153,.22); }
+  .cmp-table thead th.nx { color: var(--emerald); }
+  .cmp-note { margin-top: 16px; font-size: 13px; color: var(--faint); }
+  .cmp-note a { color: var(--cyan); }
+
+  .fit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 34px; }
+  .fit { padding: 24px 26px; border-radius: var(--radius); border: 1px solid var(--line); background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.006)); }
+  .fit.yes { border-color: rgba(52,211,153,.22); background: linear-gradient(180deg, rgba(52,211,153,.05), rgba(255,255,255,.008)); }
+  .fit h3 { font-size: 16px; }
+  .fit ul { margin: 16px 0 0; padding: 0; list-style: none; display: grid; gap: 11px; }
+  .fit li { font-size: 14px; color: var(--muted); padding-left: 24px; position: relative; }
+  .fit li strong { color: var(--text); font-weight: 600; }
+  .fit li::before { position: absolute; left: 0; font-weight: 700; }
+  .fit.yes li::before { content: "\2713"; color: var(--emerald); }
+  .fit.no li::before { content: "\2715"; color: var(--faint); }
+
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
     *, *::before, *::after { animation: none !important; transition-duration: .001ms !important; }
@@ -309,6 +333,7 @@
     .hero-inner { grid-template-columns: 1fr; gap: 40px; }
     .feat-grid, .sdk-grid, .contact-grid { grid-template-columns: 1fr 1fr; }
     .sec-grid { grid-template-columns: 1fr; }
+    .fit-grid { grid-template-columns: 1fr; }
     .qs { grid-template-columns: 1fr; }
     .steps { grid-template-columns: 1fr 1fr; }
     .foot-grid { grid-template-columns: 1fr 1fr; }
@@ -343,6 +368,7 @@
       <a href="#architecture">Architecture</a>
       <a href="#quickstart">Get started</a>
       <a href="#security">Security</a>
+      <a href="#compare">Compare</a>
       <a href="#contribute">Contribute</a>
       <a href="#contact">Contact</a>
       <a class="nav-cta" href="https://github.com/pierce-lonergan/NexusPay" target="_blank" rel="noopener">
@@ -646,6 +672,59 @@ docker run --rm \
       <div class="sec-card reveal"><div class="shield"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M2 12h20M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg></div><div><h3>SSRF-pinned webhooks</h3><p>Outbound delivery resolves and pins the IP, refuses redirects and private ranges, and validates at registration and delivery. HMAC-SHA256 signed; verifiable offline.</p></div></div>
       <div class="sec-card reveal"><div class="shield"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg></div><div><h3>Idempotent money moves</h3><p>Capture, void and refund take an idempotency key; webhooks dedupe before commit; the ledger never double-posts and payouts never double-pay.</p></div></div>
       <div class="sec-card reveal"><div class="shield"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></svg></div><div><h3>Maker-checker on big refunds</h3><p>Refunds above a threshold require approval and execute exactly once — across every path, including the off-request settlement route.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= WHERE IT FITS ================= -->
+<section id="compare" style="background:linear-gradient(180deg, transparent, rgba(251,191,36,.04), transparent)">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow" style="color:var(--amber)">Where it fits</span>
+      <h2>An orchestration layer, <span class="grad-text">honestly positioned.</span></h2>
+      <p>NexusPay is a security-first orchestration and reference layer built <em>on top of</em> HyperSwitch — not a payment processor, and not a Stripe or Adyen replacement. Here is how it actually stacks up against the proprietary incumbents and its open-source peers — strengths and gaps alike. Full sourced analysis: <a href="https://github.com/pierce-lonergan/NexusPay/blob/main/docs/strategy/competitive-positioning.md" target="_blank" rel="noopener" style="color:var(--cyan)">the competitive assessment</a>.</p>
+    </div>
+    <div class="cmp-wrap reveal">
+      <table class="cmp-table">
+        <thead>
+          <tr>
+            <th class="dim">Dimension</th>
+            <th class="nx">NexusPay</th>
+            <th>Proprietary (Stripe, Adyen…)</th>
+            <th>Open-source (HyperSwitch, Kill Bill, Lago…)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="dim">What it is</td><td class="nx">Orchestration + reference/ops-ledger layer wrapping HyperSwitch</td><td>Licensed processors that <em>are</em> the PSP</td><td>The actual OSS orchestration / billing / ledger engines</td></tr>
+          <tr><td class="dim">Money movement</td><td class="nx">None — routes to HyperSwitch → processors; never moved real money</td><td>Real settlement + regulatory liability</td><td>Also route to processors — same category boundary</td></tr>
+          <tr><td class="dim">Security &amp; tenancy</td><td class="nx">Zero-trust tenancy, per-key scopes, HMAC+replay webhooks, 8 IDOR redteam tests <em>(RLS dormant)</em></td><td>Vendor-attested, battle-tested at scale</td><td>Mature, but don't ship this opinionated scaffold</td></tr>
+          <tr><td class="dim">Test-mode DX</td><td class="nx">~Stripe-test-mode parity: forced outcomes, test clocks, sandbox reset, idempotency inspect</td><td>Stripe is the gold standard</td><td>A weak spot for the field — NexusPay leads its peers here</td></tr>
+          <tr><td class="dim">Compliance</td><td class="nx">PCI-safe design (helps <em>your</em> scope); not itself attested</td><td>PCI DSS Level 1 + SOC 2, QSA-attested</td><td>HyperSwitch ships a PCI-compliant hosted SDK</td></tr>
+          <tr><td class="dim">Maturity &amp; support</td><td class="nx">Solo v0.x project, bus factor of one, no SLA / attestation</td><td>Org continuity, 24/7 SRE, SLAs</td><td>Funded &amp; community-backed (Juspay, Kill Bill, Lago, Formance)</td></tr>
+          <tr><td class="dim">License</td><td class="nx">PolyForm Noncommercial — commercial use needs a grant</td><td>Proprietary, take-rate, never self-hostable</td><td>Apache-2.0 / MIT / AGPL — all commercial-OK</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="cmp-note">Competitor facts are sourced inline in <a href="https://github.com/pierce-lonergan/NexusPay/blob/main/docs/strategy/competitive-positioning.md" target="_blank" rel="noopener">the full assessment</a> (accessed 2026-07-01).</p>
+    <div class="fit-grid">
+      <div class="fit yes reveal">
+        <h3>Genuinely built for</h3>
+        <ul>
+          <li>A legible, security-first <strong>reference architecture</strong> for a hardened multi-tenant payments backend on HyperSwitch.</li>
+          <li>Teams for whom <strong>test-mode developer experience</strong> is a priority — arguably ahead of its OSS peers.</li>
+          <li>Researchers, students, nonprofits, or anyone evaluating the <strong>patterns</strong> under the noncommercial license.</li>
+          <li>Studying zero-trust tenancy, HMAC+replay webhooks, idempotency, maker-checker and outbox done right.</li>
+        </ul>
+      </div>
+      <div class="fit no reveal">
+        <h3>Not the right fit if</h3>
+        <ul>
+          <li>You're an early-stage or low-volume merchant — <strong>buy a hosted processor</strong> (Stripe/Square) and ship in hours.</li>
+          <li>You're a commercial team that would otherwise reach for HyperSwitch, Kill Bill, Lago or Formance — those are <strong>permissively licensed and funded</strong>.</li>
+          <li>You need <strong>external attestation</strong> (SOC 2 / PCI Level 1 / pentest) or a support SLA today.</li>
+          <li>You expect it to <strong>move money</strong> — it orchestrates and records; it does not settle funds.</li>
+        </ul>
+      </div>
     </div>
   </div>
 </section>
