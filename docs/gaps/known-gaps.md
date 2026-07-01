@@ -51,12 +51,14 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Status**: Resolved
 - **Description**: `OutboxRelay` now acquires a Valkey distributed lock (`outbox:relay:leader` with 5s TTL) before polling. Only one instance relays events at a time. Fails open if Valkey is unavailable (single instance safe).
 
-### GAP-008: No Dead Letter Queue Reprocessing UI
+### GAP-008: No Dead Letter Queue Reprocessing UI — PARTIAL (register corrected 2026-07-01 audit)
 - **Identified**: Sprint 1.2 (DLT publishing resolved in 1.4)
-- **Status**: Partially resolved — DLT publishing works, reprocessing not yet available
-- **Description**: `DefaultErrorHandler` with `DeadLetterPublishingRecoverer` now publishes failed messages to `.DLT` topics after 3 retries. However, there is no consumer, dashboard, or retry-from-DLT API to reprocess failed messages.
-- **Risk**: Failed messages are retained in DLT for 30 days but require manual Kafka tooling to inspect.
-- **Resolution**: Phase 2 — add DLT monitoring dashboard and retry-from-DLT capability.
+- **Status**: **PARTIAL** — the register was stale: reprocessing IS now available. `DeadLetterQueueConsumer` persists
+  `.DLT` messages to the `dead_letter_queue` table and `DeadLetterController` provides the full admin API
+  (`GET/POST /v1/admin/dead-letters` with retry/discard/stats). Remaining: a Grafana DLQ dashboard
+  (`docker/config/grafana/dashboards/` has 5 dashboards, none for dead letters) — scheduled in the 2026-07
+  enhancement wave (observability slot).
+- **Risk (remaining)**: DLQ health is API-visible but not dashboard-visible.
 
 ### ~~GAP-009: No Rate Limiting Implementation~~ (RESOLVED Sprint 1.6)
 - **Identified**: Sprint 1.2
@@ -89,12 +91,13 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Status**: Resolved
 - **Description**: `KeycloakHealthIndicator` implemented. Calls Keycloak realm endpoint, reports UP/DOWN to `/actuator/health`.
 
-### GAP-026: No API Key Expiration or Rotation
+### ~~GAP-026: No API Key Expiration or Rotation~~ — ✅ DELIVERED (DX-5c, register corrected 2026-07-01 audit)
 - **Identified**: Sprint 1.5
-- **Status**: Open
-- **Description**: API keys have no expiration date. The only way to invalidate a key is manual revocation. No built-in rotation mechanism (must create new key, update clients, then revoke old key).
-- **Risk**: Long-lived keys increase the blast radius of a compromised key.
-- **Resolution**: Phase 2 — add optional TTL on API keys, rotation API that creates new key and schedules old key revocation.
+- **Status**: ✅ **DELIVERED** — the register was stale. The DX-5c wave shipped the full lifecycle: `ApiKey` carries
+  `expiresAt`/`lastUsedAt`/`replacedBy`; `ApiKeyService.createApiKey()` validates `expiresAt` fail-closed,
+  `authenticate()` rejects expired keys fail-closed, and `rotateApiKey()` mints a replacement with inherited expiry
+  plus an overlap deadline that shortens (never extends) the old key's life. Per-key scopes landed in DX-5c-ii.
+- **Original description (superseded)**: API keys have no expiration date; no built-in rotation mechanism.
 
 ### GAP-027: No Audit Log Retention Policy
 - **Identified**: Sprint 1.5
@@ -115,12 +118,14 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Status**: Resolved
 - **Description**: `OutboxRelay` now has `@PreDestroy` shutdown hook that sets `shuttingDown` flag and waits up to 5 seconds for the in-flight relay cycle to complete. Also releases the Valkey leader lock on shutdown.
 
-### GAP-015: No Webhook Retry / Reprocessing
+### GAP-015: No Webhook Retry / Reprocessing — PARTIAL (register corrected 2026-07-01 audit)
 - **Identified**: Sprint 1.2
-- **Status**: Open
-- **Description**: If a webhook fails after HMAC verification (e.g., DB write fails), there's no mechanism to request HyperSwitch resend it. The raw payload is persisted, but there's no reprocessing API.
-- **Risk**: Missed events if processing fails post-persist.
-- **Resolution**: Phase 2 — add `POST /internal/webhooks/reprocess/{id}` endpoint that reads from `inbound_webhooks` and re-inserts into outbox.
+- **Status**: **PARTIAL** — the register was stale. The INT wave delivered most of this: outbound webhook retry with
+  exponential backoff + DLQ + admin replay exists (`POST /v1/webhook-deliveries/{id}/replay`), and inbound
+  HyperSwitch webhooks are persisted to `inbound_webhooks` with Valkey replay-dedup. The ONLY remaining piece is an
+  inbound reprocess endpoint (`POST /internal/webhooks/reprocess/{id}`) to re-inject a FAILED inbound webhook into
+  `event_outbox` — scheduled in the 2026-07 enhancement wave (slot 5).
+- **Risk (remaining)**: a FAILED inbound webhook currently requires manual-SQL recovery.
 
 ### ~~GAP-016: No API Versioning Implementation~~ (RESOLVED Sprint 1.6)
 - **Identified**: Sprint 1.2
