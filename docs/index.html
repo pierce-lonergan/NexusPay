@@ -391,7 +391,7 @@
     <div>
       <div class="badge-row">
         <span class="pill"><span class="dot" style="background:var(--emerald)"></span>Source-available · PolyForm-NC</span>
-        <span class="pill"><span class="dot" style="background:var(--cyan)"></span>SDKs live on npm 0.1.1</span>
+        <span class="pill"><span class="dot" style="background:var(--cyan)"></span>SDKs live on npm 0.1.2</span>
         <span class="pill"><span class="dot" style="background:var(--amber)"></span>Built on HyperSwitch</span>
       </div>
       <h1>Payment orchestration that is<br /><span class="grad-text">CFO-ready by design.</span></h1>
@@ -454,6 +454,9 @@
       <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="url(#lg)" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div><h3>Refunds &amp; maker-checker</h3><p>Within-threshold refunds are created directly; large refunds return a pending approval — execute-once and idempotent.</p></div>
       <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="url(#lg)" stroke-width="2"><path d="M3 3v18h18M7 14l3-3 3 3 5-6"/></svg></div><h3>Fraud, sanctions &amp; disputes</h3><p>A fraud-rules engine + FRM, cross-border &amp; sanctions screening at the payment boundary, and a full dispute/chargeback lifecycle.</p></div>
       <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="url(#lg)" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.2-8.6M21 4v5h-5"/></svg></div><h3>Subscription billing</h3><p>Multiple pricing models, smart-retry dunning, invoicing and proration — with durable test/live routing on every system thread.</p></div>
+      <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="url(#lg)" stroke-width="2"><path d="M2 8a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8Z"/><path d="M2 11h20M6 15h4"/></svg></div><h3>Customers &amp; saved cards</h3><p>Save cards as <code>pm_</code> vault references on a <code>cus_</code> customer, charge off-session against a mandate, and reuse them — raw PAN is never stored.</p></div>
+      <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="url(#lg)" stroke-width="2"><path d="M9 3h6M10 3v5.5L5.6 16.4A2 2 0 0 0 7.3 20h9.4a2 2 0 0 0 1.7-3.6L14 8.5V3"/><path d="M8.5 14h7"/></svg></div><h3>Test-mode toolkit</h3><p>Force declines, 3DS, processing and fraud-holds; freeze the clock; reset a tenant's sandbox; inspect idempotency keys; trigger events — driven from a <code>nexuspay</code> CLI.</p></div>
+      <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="url(#lg)" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></div><h3>List &amp; query everything</h3><p>Paginated <code>GET /v1/payments</code> and <code>/v1/refunds</code>, webhook-delivery bodies &amp; signatures, and a queryable ledger — all tenant-scoped, no cross-tenant leak.</p></div>
     </div>
   </div>
 </section>
@@ -738,9 +741,9 @@ docker run --rm \
       <p>MIT-licensed, published from CI with Sigstore provenance. camelCase in, snake_case on the wire — automatically.</p>
     </div>
     <div class="sdk-grid">
-      <a class="sdk reveal" href="https://www.npmjs.com/package/@nexus-pay/node" target="_blank" rel="noopener"><div><span class="pkg grad-text">@nexus-pay/node</span><span class="ver">0.1.1</span></div><p>Server SDK: payments, refunds, sessions, typed errors, retries, and offline webhook verification.</p><div class="inst">npm i @nexus-pay/node <span style="color:var(--faint)">↗</span></div></a>
-      <a class="sdk reveal" href="https://www.npmjs.com/package/@nexus-pay/js" target="_blank" rel="noopener"><div><span class="pkg grad-text">@nexus-pay/js</span><span class="ver">0.1.1</span></div><p>Browser SDK: mount hosted checkout from a payment-session <code>client_secret</code>, themeable elements.</p><div class="inst">npm i @nexus-pay/js <span style="color:var(--faint)">↗</span></div></a>
-      <a class="sdk reveal" href="https://www.npmjs.com/package/@nexus-pay/react" target="_blank" rel="noopener"><div><span class="pkg grad-text">@nexus-pay/react</span><span class="ver">0.1.1</span></div><p>React bindings: hooks and components over the browser SDK for drop-in checkout.</p><div class="inst">npm i @nexus-pay/react <span style="color:var(--faint)">↗</span></div></a>
+      <a class="sdk reveal" href="https://www.npmjs.com/package/@nexus-pay/node" target="_blank" rel="noopener"><div><span class="pkg grad-text">@nexus-pay/node</span><span class="ver">0.1.2</span></div><p>Server SDK: payments, refunds, customers &amp; saved methods, disputes, list endpoints, typed errors, retries and offline webhook verification — plus test fixtures and a <code>nexuspay</code> CLI.</p><div class="inst">npm i @nexus-pay/node <span style="color:var(--faint)">↗</span></div></a>
+      <a class="sdk reveal" href="https://www.npmjs.com/package/@nexus-pay/js" target="_blank" rel="noopener"><div><span class="pkg grad-text">@nexus-pay/js</span><span class="ver">0.1.2</span></div><p>Browser SDK: mount hosted checkout from a payment-session <code>client_secret</code>, themeable elements.</p><div class="inst">npm i @nexus-pay/js <span style="color:var(--faint)">↗</span></div></a>
+      <a class="sdk reveal" href="https://www.npmjs.com/package/@nexus-pay/react" target="_blank" rel="noopener"><div><span class="pkg grad-text">@nexus-pay/react</span><span class="ver">0.1.2</span></div><p>React bindings: hooks and components over the browser SDK for drop-in checkout.</p><div class="inst">npm i @nexus-pay/react <span style="color:var(--faint)">↗</span></div></a>
     </div>
   </div>
 </section>
