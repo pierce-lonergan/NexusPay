@@ -238,7 +238,7 @@ public class WebhookDeliveryService {
         // (aggregate_id) and to build the canonical envelope. A malformed body is not deliverable.
         JsonNode outbox;
         try {
-            outbox = objectMapper.readTree(record.value());
+            outbox = objectMapper.readTree(valueAsJson(record));
         } catch (Exception e) {
             log.debug("Skipping event with unparseable payload: {}", e.getMessage());
             return;
@@ -556,12 +556,33 @@ public class WebhookDeliveryService {
         return events.contains("*") || events.contains(eventType);
     }
 
+    /**
+     * Normalize the Kafka record value to a JSON String, tolerating BOTH a raw JSON String
+     * (StringDeserializer) AND an already-deserialized Map/Object (a JSON-typed deserializer). The listener
+     * is declared {@code <String,String>}, but the configured value deserializer hands back a LinkedHashMap;
+     * reading {@code record.value()} directly then throws a ClassCastException (the synthetic String cast),
+     * which the callers caught and skipped — so EVERY event was dropped and NO webhook was ever delivered.
+     * Re-serializing the Map here is safe: the signed/delivered canonical_body is the REBUILT envelope (from
+     * this node + metadata), never the raw Kafka bytes, so key-order/whitespace of the re-serialization
+     * cannot change what is signed.
+     */
+    private String valueAsJson(ConsumerRecord<?, ?> record) {
+        Object value = record.value();
+        if (value == null) return "null";
+        if (value instanceof String s) return s;
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            return null; // unparseable → caller's readTree throws → skipped (unchanged behavior)
+        }
+    }
+
     private String extractEventType(ConsumerRecord<String, String> record) {
         var header = record.headers().lastHeader(EVENT_TYPE_HEADER);
         if (header == null) {
             // Try parsing from payload
             try {
-                JsonNode node = objectMapper.readTree(record.value());
+                JsonNode node = objectMapper.readTree(valueAsJson(record));
                 return node.path("event_type").asText(null);
             } catch (Exception e) {
                 return null;
