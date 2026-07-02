@@ -63,6 +63,10 @@ public class PurchaseOrderEntity {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    /** GAP-068 (V4043): creating principal, nullable for legacy rows. */
+    @Column(name = "created_by", length = 64)
+    private String createdBy;
+
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
     public String getTenantId() { return tenantId; }
@@ -91,4 +95,6 @@ public class PurchaseOrderEntity {
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
+    public String getCreatedBy() { return createdBy; }
+    public void setCreatedBy(String createdBy) { this.createdBy = createdBy; }
 }

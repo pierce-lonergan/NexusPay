@@ -2,7 +2,9 @@ package io.nexuspay.b2b.application.service;
 
 import io.nexuspay.b2b.application.port.out.B2bEventPublisher;
 import io.nexuspay.b2b.application.port.out.B2bRepository;
+import io.nexuspay.b2b.application.port.out.LedgerPort;
 import io.nexuspay.b2b.domain.*;
+import io.nexuspay.common.exception.LedgerException;
 import io.nexuspay.common.exception.ResourceNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -15,11 +17,15 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
- * Unit tests for {@link B2bInvoiceService}.
+ * Unit tests for {@link B2bInvoiceService} — GAP-069: markInvoicePaid books DR accounts payable /
+ * CR cash clearing atomically with the transition.
  *
  * @since 0.4.2 (Sprint 4.3)
  */
@@ -28,12 +34,13 @@ class B2bInvoiceServiceTest {
 
     @Mock private B2bRepository repository;
     @Mock private B2bEventPublisher eventPublisher;
+    @Mock private LedgerPort ledgerPort;
 
     private B2bInvoiceService service;
 
     @BeforeEach
     void setUp() {
-        service = new B2bInvoiceService(repository, eventPublisher);
+        service = new B2bInvoiceService(repository, eventPublisher, ledgerPort);
     }
 
     @Test
@@ -121,6 +128,100 @@ class B2bInvoiceServiceTest {
         assertNotNull(result.paidAt());
         assertEquals(PurchaseOrderStatus.PAID, po.getStatus());
         verify(eventPublisher).publishEvent(eq("B2bInvoice"), any(), eq("InvoicePaid"), any(), eq("tenant-1"));
+
+        // GAP-069: exactly ONE entry — the invoice payment (amount 50000 + tax 5000), and NO PO-side
+        // entry despite the PO markPaid cascade (the invoice entry IS the money record). livemode
+        // defaults true off an empty security context (CallerMode fail-closed default).
+        verify(ledgerPort, times(1)).postInvoicePaid("tenant-1", invoice.getId(), 55_000L, "USD", true);
+        verifyNoMoreInteractions(ledgerPort);
+    }
+
+    @Test
+    void markInvoicePaid_zeroTotalInvoice_succeedsWithoutAnyPosting() {
+        // WAVE1 review fix: a zero-total invoice (PO with no line items, tax 0) is reachable and was
+        // payable before this wave. Zero money moved = nothing to book — the transition succeeds and
+        // the ledger is never called (a 0-amount posting line would throw deep in the tx as a 500).
+        B2bInvoice invoice = B2bInvoice.create("tenant-1", null, "buyer-1", "seller-1",
+                "INV-ZERO", 0, 0, "USD", PaymentTerms.NET_30, LocalDate.now().plusDays(30));
+        invoice.send();
+        when(repository.findInvoiceById(invoice.getId(), "tenant-1")).thenReturn(Optional.of(invoice));
+        when(repository.saveInvoice(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        var result = service.markInvoicePaid(invoice.getId(), "tenant-1");
+
+        assertEquals(InvoiceStatus.PAID, result.status());
+        verifyNoInteractions(ledgerPort);
+        verify(eventPublisher).publishEvent(eq("B2bInvoice"), any(), eq("InvoicePaid"), any(), eq("tenant-1"));
+    }
+
+    @Test
+    void sendInvoice_onPaidInvoice_throws_cannotReopenTheMarkPaidDoor() {
+        // WAVE1 review fix: PAID -> send() -> SENT would let markPaid pass its state guard a second
+        // time, leaving no-double-book to the V4028 backstop (opaque 500 + wedged invoice). The
+        // domain guard keeps the state machine the PRIMARY layer.
+        B2bInvoice invoice = B2bInvoice.create("tenant-1", null, "buyer-1", "seller-1",
+                "INV-PAID", 50000, 0, "USD", PaymentTerms.NET_30, LocalDate.now().plusDays(30));
+        invoice.send();
+        invoice.markPaid();
+        when(repository.findInvoiceById(invoice.getId(), "tenant-1")).thenReturn(Optional.of(invoice));
+
+        assertThrows(IllegalStateException.class, () -> service.sendInvoice(invoice.getId(), "tenant-1"));
+
+        assertEquals(InvoiceStatus.PAID, invoice.getStatus());
+        verify(repository, never()).saveInvoice(any());
+    }
+
+    @Test
+    void invoiceStateMachine_sendAndOverdueGuards() {
+        B2bInvoice invoice = B2bInvoice.create("tenant-1", null, "buyer-1", "seller-1",
+                "INV-SM", 1000, 0, "USD", PaymentTerms.NET_30, LocalDate.now().plusDays(30));
+
+        // markOverdue only from SENT.
+        assertThrows(IllegalStateException.class, invoice::markOverdue); // DRAFT
+        invoice.send();
+        invoice.markOverdue(); // SENT -> OVERDUE ok
+        assertEquals(InvoiceStatus.OVERDUE, invoice.getStatus());
+        // A late payment is still a payment; and a PAID invoice can never go overdue or be re-sent.
+        invoice.markPaid();
+        assertThrows(IllegalStateException.class, invoice::markOverdue);
+        assertThrows(IllegalStateException.class, invoice::send);
+    }
+
+    @Test
+    void markInvoicePaid_ledgerFailure_propagates_notSwallowed() {
+        // GAP-069 ANTI-BEST-EFFORT PIN (unit level): a posting failure must propagate out of
+        // markInvoicePaid — in the real @Transactional the invoice/PO transition rolls back with it
+        // (proven end-to-end by LedgerPostingAtomicityIT).
+        B2bInvoice invoice = B2bInvoice.create("tenant-1", null, "buyer-1", "seller-1",
+                "INV-LEDGER", 50000, 5000, "USD", PaymentTerms.NET_30, LocalDate.now().plusDays(30));
+        invoice.send();
+        when(repository.findInvoiceById(invoice.getId(), "tenant-1")).thenReturn(Optional.of(invoice));
+        when(repository.saveInvoice(any())).thenAnswer(inv -> inv.getArgument(0));
+        doThrow(LedgerException.accountNotFound("la_accounts_payable_usd"))
+                .when(ledgerPort).postInvoicePaid(anyString(), anyString(), anyLong(), anyString(), anyBoolean());
+
+        assertThrows(LedgerException.class, () -> service.markInvoicePaid(invoice.getId(), "tenant-1"));
+
+        // The InvoicePaid event is never published past the failed posting.
+        verify(eventPublisher, never()).publishEvent(any(), any(), eq("InvoicePaid"), any(), any());
+    }
+
+    @Test
+    void markInvoicePaid_replay_throwsViaDomainGuard_noSecondPosting() {
+        // NO-DOUBLE-BOOK: the new B2bInvoice.markPaid state guard fails a replay BEFORE any posting
+        // (the V4028 unique journal index is only the concurrency backstop).
+        B2bInvoice invoice = B2bInvoice.create("tenant-1", null, "buyer-1", "seller-1",
+                "INV-REPLAY", 50000, 0, "USD", PaymentTerms.NET_30, LocalDate.now().plusDays(30));
+        invoice.send();
+        when(repository.findInvoiceById(invoice.getId(), "tenant-1")).thenReturn(Optional.of(invoice));
+        when(repository.saveInvoice(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.markInvoicePaid(invoice.getId(), "tenant-1");
+        // The same (now PAID) domain object is re-served by the mocked finder — the replay.
+        assertThrows(IllegalStateException.class,
+                () -> service.markInvoicePaid(invoice.getId(), "tenant-1"));
+
+        verify(ledgerPort, times(1)).postInvoicePaid(anyString(), anyString(), anyLong(), anyString(), anyBoolean());
     }
 
     @Test

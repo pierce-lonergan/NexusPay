@@ -17,6 +17,17 @@ public interface JpaPendingApprovalRepository extends JpaRepository<PendingAppro
     List<PendingApprovalEntity> findAllByStatusAndTenantId(String status, String tenantId);
 
     /**
+     * WAVE1 (GAP-068 review fix): the idempotent-re-request lookup. A repeated/retried maker call
+     * for the same (action, resource, tenant) must return the EXISTING pending approval instead of
+     * minting a duplicate row — duplicates become permanently-stuck poison rows once one approval
+     * executes (every review attempt claims, fails the domain state guard, and rolls back to
+     * PENDING forever). Oldest-first so concurrent duplicates that slipped the check-then-act
+     * still converge on one canonical row.
+     */
+    Optional<PendingApprovalEntity> findFirstByActionAndResourceIdAndTenantIdAndStatusOrderByCreatedAtAsc(
+            String action, String resourceId, String tenantId, String status);
+
+    /**
      * Atomically claims a PENDING approval, moving it to {@code newStatus} only if
      * it is still PENDING and belongs to the tenant. Returns rows affected (1 = this
      * caller won the transition, 0 = already processed / wrong tenant). This makes

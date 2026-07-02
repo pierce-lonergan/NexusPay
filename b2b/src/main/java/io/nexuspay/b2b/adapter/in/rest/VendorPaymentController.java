@@ -1,17 +1,21 @@
 package io.nexuspay.b2b.adapter.in.rest;
 
+import io.nexuspay.b2b.adapter.in.rest.dto.B2bApprovalPendingResponse;
 import io.nexuspay.b2b.adapter.in.rest.dto.CreateVendorPaymentRequest;
 import io.nexuspay.b2b.adapter.in.rest.dto.VendorPaymentResponse;
 import io.nexuspay.b2b.application.port.in.ManageVendorPaymentUseCase;
+import io.nexuspay.b2b.application.service.VendorPaymentService;
 import io.nexuspay.b2b.config.B2bProperties;
 import io.nexuspay.b2b.domain.VendorPaymentMethod;
 import io.nexuspay.common.tenant.CallerTenant;
+import io.nexuspay.iam.domain.NexusPayPrincipal;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -52,9 +56,13 @@ public class VendorPaymentController {
     @PostMapping
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<VendorPaymentResponse> createPayment(
-            @Valid @RequestBody CreateVendorPaymentRequest request) {
+            @Valid @RequestBody CreateVendorPaymentRequest request,
+            @AuthenticationPrincipal NexusPayPrincipal principal) {
 
-        var result = vendorPaymentUseCase.createVendorPayment(toCommand(request, CallerTenant.require()));
+        // GAP-068: stamp the creating principal (nullable-lenient for create — a non-NexusPayPrincipal
+        // auth simply records no creator; the fail-closed side lives on the approve/review path).
+        var result = vendorPaymentUseCase.createVendorPayment(
+                toCommand(request, CallerTenant.require(), principal != null ? principal.userId() : null));
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(result));
     }
 
@@ -69,11 +77,28 @@ public class VendorPaymentController {
 
     @PostMapping("/{paymentId}/approve")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
-    public ResponseEntity<VendorPaymentResponse> approvePayment(
-            @PathVariable String paymentId) {
+    public ResponseEntity<?> approvePayment(
+            @PathVariable String paymentId,
+            @AuthenticationPrincipal NexusPayPrincipal principal) {
 
-        var result = vendorPaymentUseCase.approveVendorPayment(paymentId, CallerTenant.require());
-        return ResponseEntity.ok(toResponse(result));
+        // GAP-068 FAIL-CLOSED: approving MOVES MONEY (below threshold it executes + books ledger
+        // entries), so the maker identity must be attributable — an auth without a NexusPayPrincipal
+        // (no userId) is refused rather than approved anonymously.
+        if (principal == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "approval requires an identifiable principal");
+        }
+
+        var outcome = vendorPaymentUseCase.approveVendorPayment(
+                paymentId, CallerTenant.require(), principal.userId());
+        if (outcome.requiresApproval()) {
+            // INT-2 refund-contract mirror: 202 + requires_approval=true + approval id + threshold.
+            return ResponseEntity.status(HttpStatus.ACCEPTED).body(new B2bApprovalPendingResponse(
+                    Boolean.TRUE, outcome.pendingApprovalId(), "pending_approval",
+                    VendorPaymentService.ACTION_VENDOR_PAYMENT_APPROVE, paymentId,
+                    b2bProperties.getApprovalThreshold()));
+        }
+        return ResponseEntity.ok(toResponse(outcome.payment()));
     }
 
     @PostMapping("/batch")
@@ -85,7 +110,8 @@ public class VendorPaymentController {
             // @NotEmpty keeps a no-op empty batch out; @Valid still cascades per-element field validation.
             @NotEmpty
             @Size(max = MAX_BATCH_SIZE, message = "batch size must not exceed " + MAX_BATCH_SIZE)
-            @Valid @RequestBody List<CreateVendorPaymentRequest> requests) {
+            @Valid @RequestBody List<CreateVendorPaymentRequest> requests,
+            @AuthenticationPrincipal NexusPayPrincipal principal) {
 
         // SEC-28: enforce the CONFIGURABLE operational cap (nexuspay.b2b.vendor-payment.batch-max-size)
         // BEFORE any DB work, clamped to MAX_BATCH_SIZE so a misconfigured property can never widen the
@@ -99,28 +125,30 @@ public class VendorPaymentController {
         }
 
         String tenantId = CallerTenant.require();
+        String createdBy = principal != null ? principal.userId() : null;
         List<ManageVendorPaymentUseCase.CreateVendorPaymentCommand> commands = requests.stream()
-                .map(r -> toCommand(r, tenantId))
+                .map(r -> toCommand(r, tenantId, createdBy))
                 .toList();
 
         var results = vendorPaymentUseCase.createBatch(commands, tenantId);
 
         List<VendorPaymentResponse> responses = results.stream()
-                .map(this::toResponse)
+                .map(VendorPaymentController::toResponse)
                 .toList();
 
         return ResponseEntity.status(HttpStatus.CREATED).body(responses);
     }
 
     private ManageVendorPaymentUseCase.CreateVendorPaymentCommand toCommand(
-            CreateVendorPaymentRequest request, String tenantId) {
+            CreateVendorPaymentRequest request, String tenantId, String createdBy) {
         return new ManageVendorPaymentUseCase.CreateVendorPaymentCommand(
                 tenantId, request.vendorId(), request.amount(), request.currency(),
                 VendorPaymentMethod.valueOf(request.method()),
-                request.remittanceInfo(), request.scheduledAt());
+                request.remittanceInfo(), request.scheduledAt(), createdBy);
     }
 
-    private VendorPaymentResponse toResponse(ManageVendorPaymentUseCase.VendorPaymentResult result) {
+    // Package-private static so B2bApprovalController (same package) reuses the exact response shape.
+    static VendorPaymentResponse toResponse(ManageVendorPaymentUseCase.VendorPaymentResult result) {
         return new VendorPaymentResponse(
                 result.paymentId(), result.vendorId(), result.amount(), result.currency(),
                 result.method().name(), result.status().name(), result.batchId(),

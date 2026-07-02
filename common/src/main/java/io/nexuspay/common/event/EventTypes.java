@@ -84,6 +84,13 @@ public final class EventTypes {
     public static final String VENDOR_PAYMENT_CREATED = "VendorPaymentCreated";
     public static final String VENDOR_PAYMENT_APPROVED = "VendorPaymentApproved";
     public static final String VENDOR_PAYMENT_BATCH_CREATED = "VendorPaymentBatchCreated";
+    // GAP-068 (b2b maker-checker) lifecycle. INTERNAL-only, like every other b2b event above — none of
+    // the b2b events are in WebhookEventTaxonomy.CANONICAL, so no webhook/SDK-parity drift guard changes.
+    public static final String VENDOR_PAYMENT_APPROVAL_REQUESTED = "VendorPaymentApprovalRequested";
+    public static final String VENDOR_PAYMENT_APPROVAL_REJECTED = "VendorPaymentApprovalRejected";
+    public static final String VENDOR_PAYMENT_PAID = "VendorPaymentPaid";
+    public static final String PURCHASE_ORDER_APPROVAL_REQUESTED = "PurchaseOrderApprovalRequested";
+    public static final String PURCHASE_ORDER_APPROVAL_REJECTED = "PurchaseOrderApprovalRejected";
 
     // Marketplace lifecycle (Sprint 4.2)
     public static final String ACCOUNT_ONBOARDED = "AccountOnboarded";

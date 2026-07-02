@@ -3,8 +3,11 @@ package io.nexuspay.b2b.application.service;
 import io.nexuspay.b2b.application.port.in.ManagePurchaseOrderUseCase;
 import io.nexuspay.b2b.application.port.out.B2bEventPublisher;
 import io.nexuspay.b2b.application.port.out.B2bRepository;
+import io.nexuspay.b2b.config.B2bProperties;
 import io.nexuspay.b2b.domain.*;
 import io.nexuspay.common.exception.ResourceNotFoundException;
+import io.nexuspay.iam.application.ApprovalService;
+import io.nexuspay.iam.domain.PendingApproval;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -12,16 +15,22 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
- * Unit tests for {@link PurchaseOrderService}.
+ * Unit tests for {@link PurchaseOrderService} — GAP-068 threshold maker-checker. GAP-069
+ * PO-commitment decision pin: this service deliberately has NO ledger dependency at all (an
+ * approved PO is an executory commitment, not a money movement), so "posts NOTHING to the
+ * ledger" is enforced structurally — there is no LedgerPort to call.
  *
  * @since 0.4.2 (Sprint 4.3)
  */
@@ -30,12 +39,14 @@ class PurchaseOrderServiceTest {
 
     @Mock private B2bRepository repository;
     @Mock private B2bEventPublisher eventPublisher;
+    @Mock private ApprovalService approvalService;
 
     private PurchaseOrderService service;
 
     @BeforeEach
     void setUp() {
-        service = new PurchaseOrderService(repository, eventPublisher);
+        B2bProperties properties = new B2bProperties(); // default approval-threshold = 50000
+        service = new PurchaseOrderService(repository, eventPublisher, approvalService, properties);
     }
 
     @Test
@@ -44,7 +55,7 @@ class PurchaseOrderServiceTest {
 
         var result = service.createPurchaseOrder(new ManagePurchaseOrderUseCase.CreatePurchaseOrderCommand(
                 "tenant-1", "buyer-1", "seller-1", "PO-001", "USD", PaymentTerms.NET_30, 500,
-                List.of(new LineItem("Widget", 10, 100, "WIDGET-01", "EA"))));
+                List.of(new LineItem("Widget", 10, 100, "WIDGET-01", "EA")), "user-maker"));
 
         assertNotNull(result.poId());
         assertTrue(result.poId().startsWith("po_"));
@@ -55,7 +66,10 @@ class PurchaseOrderServiceTest {
         assertEquals(PurchaseOrderStatus.DRAFT, result.status());
         assertEquals(PaymentTerms.NET_30, result.terms());
 
-        verify(repository).savePurchaseOrder(any());
+        // GAP-068: the creating principal is stamped for the creator != approver review check.
+        ArgumentCaptor<PurchaseOrder> saved = ArgumentCaptor.forClass(PurchaseOrder.class);
+        verify(repository).savePurchaseOrder(saved.capture());
+        assertEquals("user-maker", saved.getValue().getCreatedBy());
         verify(eventPublisher).publishEvent(eq("PurchaseOrder"), any(), eq("PurchaseOrderCreated"), any(), eq("tenant-1"));
     }
 
@@ -67,7 +81,7 @@ class PurchaseOrderServiceTest {
                 "tenant-1", "buyer-1", "seller-1", "PO-002", "USD", PaymentTerms.NET_60, 0,
                 List.of(
                         new LineItem("Item A", 5, 200, null, "EA"),
-                        new LineItem("Item B", 3, 500, "CODE-B", "BX"))));
+                        new LineItem("Item B", 3, 500, "CODE-B", "BX")), null));
 
         assertEquals(2500, result.amount()); // (5*200) + (3*500)
         assertEquals(2, result.lineItems().size());
@@ -104,17 +118,76 @@ class PurchaseOrderServiceTest {
     }
 
     @Test
-    void approvePurchaseOrder_changesStatusAndCalculatesDueDate() {
+    void approvePurchaseOrder_belowThreshold_singleStep_changesStatusAndCalculatesDueDate() {
+        // GAP-068: total (0 + 0) < threshold 50000 → the current single-step approve stands.
+        // GAP-069: nothing ledger-shaped exists in this service to call — the PO-commitment pin.
         PurchaseOrder po = PurchaseOrder.create("tenant-1", "buyer-1", "seller-1", "PO-005", "USD", PaymentTerms.NET_30);
         po.submit();
         when(repository.findPurchaseOrderById(po.getId(), "tenant-1")).thenReturn(Optional.of(po));
         when(repository.savePurchaseOrder(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        var result = service.approvePurchaseOrder(po.getId(), "tenant-1");
+        var outcome = service.approvePurchaseOrder(po.getId(), "tenant-1", "user-maker");
 
-        assertEquals(PurchaseOrderStatus.APPROVED, result.status());
-        assertNotNull(result.dueDate());
+        assertFalse(outcome.requiresApproval());
+        assertEquals(PurchaseOrderStatus.APPROVED, outcome.purchaseOrder().status());
+        assertNotNull(outcome.purchaseOrder().dueDate());
+        verifyNoInteractions(approvalService);
         verify(eventPublisher).publishEvent(eq("PurchaseOrder"), any(), eq("PurchaseOrderApproved"), any(), eq("tenant-1"));
+    }
+
+    @Test
+    void approvePurchaseOrder_atOrAboveThreshold_returnsPending_createsApproval_poStaysSubmitted() {
+        // amount 100 * 1000 = 100000 >= threshold 50000 (compared against amount + taxAmount).
+        PurchaseOrder po = PurchaseOrder.create("tenant-1", "buyer-1", "seller-1", "PO-BIG", "USD", PaymentTerms.NET_30);
+        po.addLineItem(new LineItem("Server", 100, 1000, null, "EA"));
+        po.setCreatedBy("user-creator");
+        po.submit();
+        when(repository.findPurchaseOrderById(po.getId(), "tenant-1")).thenReturn(Optional.of(po));
+        when(approvalService.createApproval(anyString(), anyString(), anyString(), any(), anyString(), anyString()))
+                .thenReturn(new PendingApproval("appr_po_1", "purchase_order_approve", "PurchaseOrder",
+                        po.getId(), Map.of(), "PENDING", "user-maker", null, "tenant-1", Instant.now(), null));
+
+        var outcome = service.approvePurchaseOrder(po.getId(), "tenant-1", "user-maker");
+
+        assertTrue(outcome.requiresApproval());
+        assertEquals("appr_po_1", outcome.pendingApprovalId());
+        assertEquals(PurchaseOrderStatus.SUBMITTED, outcome.purchaseOrder().status()); // NOT approved
+        verify(repository, never()).savePurchaseOrder(any());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> payloadCaptor =
+                ArgumentCaptor.forClass((Class<Map<String, Object>>) (Class<?>) Map.class);
+        verify(approvalService).createApproval(eq("purchase_order_approve"), eq("PurchaseOrder"),
+                eq(po.getId()), payloadCaptor.capture(), eq("user-maker"), eq("tenant-1"));
+        assertEquals("user-creator", payloadCaptor.getValue().get("created_by"));
+        assertEquals(100_000L, payloadCaptor.getValue().get("amount"));
+
+        verify(eventPublisher).publishEvent(eq("PurchaseOrder"), eq(po.getId()),
+                eq("PurchaseOrderApprovalRequested"), any(), eq("tenant-1"));
+        verify(eventPublisher, never()).publishEvent(any(), any(), eq("PurchaseOrderApproved"), any(), any());
+    }
+
+    @Test
+    void approvePurchaseOrder_repeatedRequest_returnsExistingApprovalIdempotently() {
+        // WAVE1 review fix: the PO stays SUBMITTED while its approval is pending, so a retried
+        // approve call must return the EXISTING approval's id instead of stacking a duplicate
+        // PENDING row (duplicates become permanently-stuck poison rows).
+        PurchaseOrder po = PurchaseOrder.create("tenant-1", "buyer-1", "seller-1", "PO-DUP", "USD", PaymentTerms.NET_30);
+        po.addLineItem(new LineItem("Server", 100, 1000, null, "EA"));
+        po.submit();
+        when(repository.findPurchaseOrderById(po.getId(), "tenant-1")).thenReturn(Optional.of(po));
+        when(approvalService.findPendingByActionAndResource("purchase_order_approve", po.getId(), "tenant-1"))
+                .thenReturn(Optional.of(new PendingApproval("appr_existing", "purchase_order_approve",
+                        "PurchaseOrder", po.getId(), Map.of(), "PENDING", "user-maker", null,
+                        "tenant-1", Instant.now(), null)));
+
+        var outcome = service.approvePurchaseOrder(po.getId(), "tenant-1", "user-maker");
+
+        assertTrue(outcome.requiresApproval());
+        assertEquals("appr_existing", outcome.pendingApprovalId());
+        assertEquals(PurchaseOrderStatus.SUBMITTED, outcome.purchaseOrder().status());
+        verify(approvalService, never()).createApproval(anyString(), anyString(), anyString(), any(), anyString(), anyString());
+        verifyNoInteractions(eventPublisher);
     }
 
     @Test

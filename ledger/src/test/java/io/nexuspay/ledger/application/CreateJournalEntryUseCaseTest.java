@@ -153,6 +153,43 @@ class CreateJournalEntryUseCaseTest {
     }
 
     @Test
+    void duplicateFlushNamingOurIdempotencyConstraint_isSwallowedAsBenignNoDoublePost() {
+        // SEC-10/SEC-BATCH-4: the (payment_reference, description) unique-index race is the benign
+        // concurrent-redelivery case — returned as a local no-op, not rethrown.
+        when(ledgerAccountRepository.findById(anyString()))
+                .thenAnswer(inv -> Optional.of(account(inv.getArgument(0), 0, 0)));
+        when(ledgerAccountRepository.updateBalanceWithVersion(anyString(), anyLong(), anyLong()))
+                .thenReturn(true);
+        when(journalEntryRepository.saveAndFlush(org.mockito.ArgumentMatchers.any(JournalEntry.class)))
+                .thenThrow(new org.springframework.dao.DuplicateKeyException(
+                        "duplicate key value violates unique constraint \"uq_journal_entries_payment_ref_desc\""));
+
+        JournalEntry result = useCase.execute(balancedCommand());
+
+        assertThat(result).isNotNull();
+        assertThat(result.getPaymentReference()).isEqualTo("pi_test");
+    }
+
+    @Test
+    void duplicateKeyWithoutOurConstraintName_isRethrown_notMisclassifiedAsBenign() {
+        // WAVE1 review fix pin: this wave moved EnsureAccountsExistUseCase's check-then-act account
+        // creation INSIDE money transactions, so a ledger_accounts PK 23505 can surface at this
+        // flush. A DuplicateKeyException that does NOT name uq_journal_entries_payment_ref_desc must
+        // PROPAGATE — swallowing it would mislabel a genuine integrity signal as "no double-post".
+        when(ledgerAccountRepository.findById(anyString()))
+                .thenAnswer(inv -> Optional.of(account(inv.getArgument(0), 0, 0)));
+        when(ledgerAccountRepository.updateBalanceWithVersion(anyString(), anyLong(), anyLong()))
+                .thenReturn(true);
+        when(journalEntryRepository.saveAndFlush(org.mockito.ArgumentMatchers.any(JournalEntry.class)))
+                .thenThrow(new org.springframework.dao.DuplicateKeyException(
+                        "duplicate key value violates unique constraint \"ledger_accounts_pkey\""));
+
+        assertThatThrownBy(() -> useCase.execute(balancedCommand()))
+                .isInstanceOf(org.springframework.dao.DuplicateKeyException.class)
+                .hasMessageContaining("ledger_accounts_pkey");
+    }
+
+    @Test
     void unbalancedCommand_throwsBeforeAnySaveOrBalanceUpdate() {
         var unbalanced = new CreateJournalEntryCommand(
                 "pi_bad", "Bad", "default", Map.of(),

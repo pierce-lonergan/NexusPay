@@ -49,15 +49,37 @@ public class B2bInvoice {
     }
 
     public void send() {
+        // WAVE1 review fix: only a DRAFT invoice is sendable. Without this guard, send() on a PAID
+        // invoice reopened the markPaid door (PAID -> SENT -> markPaid again), demoting the state
+        // machine from the PRIMARY no-double-book layer to a bypassed one — the V4028 unique journal
+        // index would then stop the second posting only by poisoning the transaction (opaque 500,
+        // invoice wedged in SENT with a PAID ledger entry). The state machine stays primary; the
+        // index stays a concurrency-only backstop.
+        if (this.status != InvoiceStatus.DRAFT) {
+            throw new IllegalStateException("Can only send a DRAFT invoice, current: " + this.status);
+        }
         this.status = InvoiceStatus.SENT;
     }
 
     public void markPaid() {
+        // GAP-069: state guard — the PRIMARY no-double-book defense for the invoice-paid ledger
+        // posting (the V4028 unique journal index is the concurrency backstop). A replayed markPaid
+        // must fail BEFORE any posting is attempted; a cancelled invoice can never be paid.
+        if (this.status == InvoiceStatus.PAID || this.status == InvoiceStatus.CANCELLED) {
+            throw new IllegalStateException("Cannot mark a " + this.status + " invoice as paid");
+        }
         this.status = InvoiceStatus.PAID;
         this.paidAt = Instant.now();
     }
 
     public void markOverdue() {
+        // WAVE1 review fix: only a SENT invoice can go overdue — markOverdue() on a PAID invoice
+        // would reopen the markPaid door exactly like an unguarded send() (see above). markPaid
+        // itself accepts OVERDUE (a late payment is still a payment).
+        if (this.status != InvoiceStatus.SENT) {
+            throw new IllegalStateException(
+                    "Can only mark a SENT invoice as overdue, current: " + this.status);
+        }
         this.status = InvoiceStatus.OVERDUE;
     }
 

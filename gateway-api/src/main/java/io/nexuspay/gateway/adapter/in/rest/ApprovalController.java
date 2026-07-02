@@ -1,5 +1,7 @@
 package io.nexuspay.gateway.adapter.in.rest;
 
+import io.nexuspay.common.exception.ConflictException;
+import io.nexuspay.common.exception.ResourceNotFoundException;
 import io.nexuspay.gateway.adapter.in.rest.dto.ApprovalResponse;
 import io.nexuspay.gateway.adapter.in.rest.dto.RefundApiResponse;
 import io.nexuspay.gateway.application.RefundOrchestrationService;
@@ -52,6 +54,24 @@ public class ApprovalController {
     public ResponseEntity<?> approve(
             @PathVariable String id,
             @AuthenticationPrincipal NexusPayPrincipal principal) {
+        // GAP-068 FAIL-CLOSED stranding guard: this endpoint can only EXECUTE refund approvals.
+        // BEFORE claiming, load the approval (tenant-checked, 404-no-oracle) and refuse (409) any
+        // action it cannot execute — otherwise a b2b approval (vendor_payment_approve /
+        // purchase_order_approve) claimed here would flip APPROVED without ever executing or
+        // booking its ledger entries, permanently stranding it (the B-022 reconciler filters
+        // action='refund' and would never re-drive it). Today only "refund" is ever created via
+        // this module, so no live flow changes; the owning module's review endpoint for b2b is
+        // POST /v1/b2b/approvals/{id}/approve.
+        var pending = approvalService.findById(id)
+                .filter(a -> principal.tenantId().equals(a.getTenantId()))
+                .orElseThrow(() -> new ResourceNotFoundException("Approval not found"));
+        if (!"refund".equals(pending.getAction())) {
+            throw new ConflictException(
+                    "Approval action '" + pending.getAction()
+                            + "' must be reviewed via its owning module's approval endpoint",
+                    "unsupported_approval_action");
+        }
+
         var approval = approvalService.approve(id, principal.userId(), principal.tenantId());
 
         // If this was a refund approval, execute the refund
@@ -79,6 +99,23 @@ public class ApprovalController {
     public ResponseEntity<ApprovalResponse> reject(
             @PathVariable String id,
             @AuthenticationPrincipal NexusPayPrincipal principal) {
+        // GAP-068 review fix: the same action guard as approve(), mirrored. A b2b approval
+        // (vendor_payment_approve / purchase_order_approve) rejected HERE would flip REJECTED
+        // without emitting the b2b taxonomy events (VendorPaymentApprovalRejected /
+        // PurchaseOrderApprovalRejected — B2bApprovalService.reviewReject is their only emitter),
+        // silently bypassing the owning module's review path that GET /v1/approvals naturally leads
+        // a reviewer to. Load tenant-checked (404-no-oracle) and 409 any non-refund action so b2b
+        // rejections must go through POST /v1/b2b/approvals/{id}/reject.
+        var pending = approvalService.findById(id)
+                .filter(a -> principal.tenantId().equals(a.getTenantId()))
+                .orElseThrow(() -> new ResourceNotFoundException("Approval not found"));
+        if (!"refund".equals(pending.getAction())) {
+            throw new ConflictException(
+                    "Approval action '" + pending.getAction()
+                            + "' must be reviewed via its owning module's approval endpoint",
+                    "unsupported_approval_action");
+        }
+
         var approval = approvalService.reject(id, principal.userId(), principal.tenantId());
         return ResponseEntity.ok(ResponseMapper.toApprovalResponse(approval));
     }

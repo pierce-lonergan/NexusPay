@@ -9,7 +9,6 @@ import io.nexuspay.ledger.domain.Posting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -107,19 +106,22 @@ public class CreateJournalEntryUseCase {
 
     /**
      * SEC-10: narrow the dup-key no-op to the SPECIFIC (payment_reference, description) uniqueness race
-     * so an unrelated integrity error is not swallowed as a benign duplicate. Two complementary signals
-     * (mirrors fraud isTenantIdemConstraintViolation):
-     * <ul>
-     *   <li>Spring's {@link DuplicateKeyException} — the dedicated duplicate-key subtype the JPA
-     *       exception translator raises for a unique violation (PostgreSQL SQLSTATE 23505); or</li>
-     *   <li>the {@link #JOURNAL_IDEM_CONSTRAINT} name appearing anywhere in the exception chain.</li>
-     * </ul>
-     * Any other {@link DataIntegrityViolationException} returns {@code false} and is re-thrown.
+     * so an unrelated integrity error is not swallowed as a benign duplicate: the
+     * {@link #JOURNAL_IDEM_CONSTRAINT} name must appear in the exception chain's messages (PostgreSQL
+     * always names the violated constraint — "duplicate key value violates unique constraint
+     * \"uq_journal_entries_payment_ref_desc\"" — and the translated Spring/Hibernate wrappers preserve
+     * the cause chain).
+     *
+     * <p>WAVE1 review fix: a bare {@code instanceof} {@link org.springframework.dao.DuplicateKeyException}
+     * is deliberately NOT accepted anymore. This wave moved {@code EnsureAccountsExistUseCase}'s
+     * check-then-act account creation INSIDE money transactions, so a DIFFERENT 23505 (the
+     * ledger_accounts PK on a currency's first concurrent use) can now surface at this flush — treating
+     * any duplicate-key subtype as "our" idempotency race would mislabel that genuine integrity signal
+     * as a benign no-double-post while the poisoned tx dies at commit anyway. Requiring the constraint
+     * name keeps the swallow exact; everything else re-throws (fail-closed, self-heals on retry once
+     * the accounts exist).</p>
      */
     private static boolean isJournalIdemConstraintViolation(DataIntegrityViolationException ex) {
-        if (ex instanceof DuplicateKeyException) {
-            return true;
-        }
         for (Throwable t = ex; t != null; t = t.getCause()) {
             String msg = t.getMessage();
             if (msg != null && msg.contains(JOURNAL_IDEM_CONSTRAINT)) {

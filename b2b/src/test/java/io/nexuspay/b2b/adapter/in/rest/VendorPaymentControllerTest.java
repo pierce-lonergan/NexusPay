@@ -6,6 +6,7 @@ import io.nexuspay.b2b.domain.VendorPaymentMethod;
 import io.nexuspay.b2b.domain.VendorPaymentStatus;
 import io.nexuspay.common.exception.ResourceNotFoundException;
 import io.nexuspay.common.tenant.TenantPrincipal;
+import io.nexuspay.iam.domain.NexusPayPrincipal;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -32,6 +33,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -59,10 +61,17 @@ class VendorPaymentControllerTest {
                 principal, null, List.of(new SimpleGrantedAuthority("ROLE_" + role)));
     }
 
+    /** GAP-068: approve endpoints require a full NexusPayPrincipal (userId = the maker identity). */
+    private static Authentication principalAuth(String userId, String tenantId, String role) {
+        var principal = new NexusPayPrincipal(userId, tenantId, role, NexusPayPrincipal.AuthMethod.JWT);
+        return new UsernamePasswordAuthenticationToken(
+                principal, null, List.of(new SimpleGrantedAuthority("ROLE_" + role)));
+    }
+
     private static ManageVendorPaymentUseCase.VendorPaymentResult result(String id) {
         return new ManageVendorPaymentUseCase.VendorPaymentResult(
-                id, "vendor-1", 100000, "USD", VendorPaymentMethod.ACH, VendorPaymentStatus.APPROVED,
-                null, null, null, null, null, Instant.now());
+                id, "vendor-1", 100000, "USD", VendorPaymentMethod.ACH, VendorPaymentStatus.PAID,
+                null, null, "ref_stub_1", null, Instant.now(), Instant.now());
     }
 
     @Test
@@ -77,21 +86,51 @@ class VendorPaymentControllerTest {
     }
 
     @Test
-    void approvePayment_usesPrincipalTenant() throws Exception {
-        when(vendorPaymentUseCase.approveVendorPayment(eq("vp_1"), eq("tenant-1"))).thenReturn(result("vp_1"));
+    void approvePayment_belowThreshold_returns200_withPrincipalTenantAndUser() throws Exception {
+        when(vendorPaymentUseCase.approveVendorPayment(eq("vp_1"), eq("tenant-1"), eq("user-maker")))
+                .thenReturn(new ManageVendorPaymentUseCase.ApproveOutcome(result("vp_1"), null));
 
         mockMvc.perform(post("/v1/vendor-payments/vp_1/approve")
-                        .with(authentication(tenantAuth("tenant-1", "admin"))))
-                .andExpect(status().isOk());
+                        .with(authentication(principalAuth("user-maker", "tenant-1", "admin"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PAID"));
 
-        verify(vendorPaymentUseCase).approveVendorPayment("vp_1", "tenant-1");
+        verify(vendorPaymentUseCase).approveVendorPayment("vp_1", "tenant-1", "user-maker");
+    }
+
+    @Test
+    void approvePayment_aboveThreshold_returns202_withApprovalIdAndThreshold() throws Exception {
+        // GAP-068 (INT-2 refund-contract mirror): the pending outcome surfaces as 202 +
+        // requires_approval=true + the approval id + the configured threshold (default 50000).
+        when(vendorPaymentUseCase.approveVendorPayment(eq("vp_big"), eq("tenant-1"), eq("user-maker")))
+                .thenReturn(new ManageVendorPaymentUseCase.ApproveOutcome(null, "appr_1"));
+
+        mockMvc.perform(post("/v1/vendor-payments/vp_big/approve")
+                        .with(authentication(principalAuth("user-maker", "tenant-1", "admin"))))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.requires_approval").value(true))
+                .andExpect(jsonPath("$.approval_id").value("appr_1"))
+                .andExpect(jsonPath("$.status").value("pending_approval"))
+                .andExpect(jsonPath("$.approval_threshold").value(50000));
+    }
+
+    @Test
+    void approvePayment_withoutNexusPayPrincipal_returns403_failClosed() throws Exception {
+        // GAP-068 FAIL-CLOSED: an auth that carries no NexusPayPrincipal (no attributable maker
+        // identity) must be refused BEFORE the use case runs. ResponseStatusException(403) renders
+        // even in this advice-less slice.
+        mockMvc.perform(post("/v1/vendor-payments/vp_1/approve")
+                        .with(authentication(tenantAuth("tenant-1", "admin"))))
+                .andExpect(status().isForbidden());
+
+        verify(vendorPaymentUseCase, never()).approveVendorPayment(any(), any(), any());
     }
 
     @Test
     void approvePayment_crossTenant_invokesServiceWithCallerTenant() throws Exception {
         // SEC-BATCH-1 headline: approving a foreign tenant's payment. Service throws not-found and is
         // invoked with the CALLER's tenant — money-moving approval cannot cross tenants.
-        when(vendorPaymentUseCase.approveVendorPayment(eq("vp_foreign"), eq("tenant-1")))
+        when(vendorPaymentUseCase.approveVendorPayment(eq("vp_foreign"), eq("tenant-1"), eq("user-maker")))
                 .thenThrow(new ResourceNotFoundException("Vendor payment not found"));
 
         // The slice has no @ControllerAdvice (GlobalExceptionHandler lives in gateway-api), so the
@@ -99,9 +138,9 @@ class VendorPaymentControllerTest {
         // the service was invoked with the CALLER's tenant, not the path/header tenant. The →404
         // mapping is a global concern covered by the app-level TenantIsolationIntegrationTest.
         assertThatThrownBy(() -> mockMvc.perform(post("/v1/vendor-payments/vp_foreign/approve")
-                .with(authentication(tenantAuth("tenant-1", "admin")))));
+                .with(authentication(principalAuth("user-maker", "tenant-1", "admin")))));
 
-        verify(vendorPaymentUseCase).approveVendorPayment("vp_foreign", "tenant-1");
+        verify(vendorPaymentUseCase).approveVendorPayment("vp_foreign", "tenant-1", "user-maker");
     }
 
     @Test

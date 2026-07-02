@@ -24,6 +24,12 @@ public class VendorPayment {
     private Instant paidAt;
     private String externalReference;
     private Instant createdAt;
+    /**
+     * GAP-068: the authenticated principal that CREATED this payment, stamped at create. Used by the
+     * maker-checker review path to enforce creator != approver fail-closed (when recorded; nullable
+     * for legacy rows — requester != reviewer is always enforced regardless).
+     */
+    private String createdBy;
 
     public static VendorPayment create(String tenantId, String vendorId, long amount,
                                         String currency, VendorPaymentMethod method) {
@@ -103,4 +109,7 @@ public class VendorPayment {
 
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+
+    public String getCreatedBy() { return createdBy; }
+    public void setCreatedBy(String createdBy) { this.createdBy = createdBy; }
 }
