@@ -1,10 +1,12 @@
 package io.nexuspay.marketplace.application.service;
 
+import io.nexuspay.common.tenant.CallerMode;
 import io.nexuspay.common.tenant.TenantOwnership;
 import io.nexuspay.marketplace.application.port.in.CreateSplitPaymentUseCase.CreateSplitCommand;
 import io.nexuspay.marketplace.application.port.in.CreateSplitPaymentUseCase.SplitPaymentResult;
 import io.nexuspay.marketplace.application.port.in.CreateSplitPaymentUseCase.SplitRuleCommand;
 import io.nexuspay.marketplace.application.port.in.CreateSplitPaymentUseCase.SplitRuleResult;
+import io.nexuspay.marketplace.application.port.out.LedgerPort;
 import io.nexuspay.marketplace.application.port.out.MarketplaceEventPublisher;
 import io.nexuspay.marketplace.application.port.out.MarketplaceRepository;
 import io.nexuspay.marketplace.domain.ConnectedAccount;
@@ -45,10 +47,13 @@ class SplitPaymentWriter {
 
     private final MarketplaceRepository repository;
     private final MarketplaceEventPublisher eventPublisher;
+    private final LedgerPort ledgerPort;
 
-    SplitPaymentWriter(MarketplaceRepository repository, MarketplaceEventPublisher eventPublisher) {
+    SplitPaymentWriter(MarketplaceRepository repository, MarketplaceEventPublisher eventPublisher,
+                       LedgerPort ledgerPort) {
         this.repository = repository;
         this.eventPublisher = eventPublisher;
+        this.ledgerPort = ledgerPort;
     }
 
     /**
@@ -127,6 +132,19 @@ class SplitPaymentWriter {
             fee.setDescription("Platform fee for payment " + command.paymentId());
             repository.savePlatformFee(fee);
         }
+
+        // GAP-063 (CARDINAL RULE): book the balanced split-distribution journal entry INSIDE this
+        // REQUIRES_NEW transaction — same tx as the split row tree, NO try/catch — so a posting failure
+        // rolls the whole split creation back. SplitPaymentService's outer catch is narrowed to the
+        // (tenant, payment) DataIntegrityViolationException and re-throws everything else, so a ledger
+        // failure propagates to the caller rather than being swallowed. Idempotency: keyed by
+        // (splitPaymentId, "Split payment created") under V4028; the SEC-20 read-through + V4034 UNIQUE
+        // guarantee one split per (tenant, payment), so one posting per business creation.
+        List<LedgerPort.Leg> legs = splitPayment.getRules().stream()
+                .map(r -> new LedgerPort.Leg(r.getConnectedAccountId(), r.getCalculatedAmount()))
+                .toList();
+        ledgerPort.postSplitDistribution(command.tenantId(), splitPayment.getId(), command.paymentId(),
+                command.currency(), legs, platformFeeAmount, CallerMode.isLive());
 
         splitPayment.markProcessing();
         repository.saveSplitPayment(splitPayment);

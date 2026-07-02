@@ -28,6 +28,12 @@ public class PurchaseOrder {
     private LocalDate dueDate;
     private Instant createdAt;
     private Instant updatedAt;
+    /**
+     * GAP-068: the authenticated principal that CREATED this PO, stamped at create. Used by the
+     * maker-checker review path to enforce creator != approver fail-closed (when recorded; nullable
+     * for legacy rows — requester != reviewer is always enforced regardless).
+     */
+    private String createdBy;
 
     public static PurchaseOrder create(String tenantId, String buyerId, String sellerId,
                                         String poNumber, String currency, PaymentTerms terms) {
@@ -141,4 +147,7 @@ public class PurchaseOrder {
 
     public Instant getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
+
+    public String getCreatedBy() { return createdBy; }
+    public void setCreatedBy(String createdBy) { this.createdBy = createdBy; }
 }

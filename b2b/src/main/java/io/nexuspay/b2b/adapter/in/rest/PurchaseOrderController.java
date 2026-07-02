@@ -1,16 +1,22 @@
 package io.nexuspay.b2b.adapter.in.rest;
 
+import io.nexuspay.b2b.adapter.in.rest.dto.B2bApprovalPendingResponse;
 import io.nexuspay.b2b.adapter.in.rest.dto.CreatePurchaseOrderRequest;
 import io.nexuspay.b2b.adapter.in.rest.dto.PurchaseOrderResponse;
 import io.nexuspay.b2b.application.port.in.ManagePurchaseOrderUseCase;
+import io.nexuspay.b2b.application.service.PurchaseOrderService;
+import io.nexuspay.b2b.config.B2bProperties;
 import io.nexuspay.b2b.domain.LineItem;
 import io.nexuspay.b2b.domain.PaymentTerms;
 import io.nexuspay.common.tenant.CallerTenant;
+import io.nexuspay.iam.domain.NexusPayPrincipal;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
@@ -24,15 +30,19 @@ import java.util.List;
 public class PurchaseOrderController {
 
     private final ManagePurchaseOrderUseCase purchaseOrderUseCase;
+    private final B2bProperties b2bProperties;
 
-    public PurchaseOrderController(ManagePurchaseOrderUseCase purchaseOrderUseCase) {
+    public PurchaseOrderController(ManagePurchaseOrderUseCase purchaseOrderUseCase,
+                                   B2bProperties b2bProperties) {
         this.purchaseOrderUseCase = purchaseOrderUseCase;
+        this.b2bProperties = b2bProperties;
     }
 
     @PostMapping
     @PreAuthorize("hasAnyRole('admin', 'operator')")
     public ResponseEntity<PurchaseOrderResponse> createPurchaseOrder(
-            @Valid @RequestBody CreatePurchaseOrderRequest request) {
+            @Valid @RequestBody CreatePurchaseOrderRequest request,
+            @AuthenticationPrincipal NexusPayPrincipal principal) {
 
         PaymentTerms terms = request.terms() != null
                 ? PaymentTerms.valueOf(request.terms())
@@ -46,11 +56,13 @@ public class PurchaseOrderController {
                 : List.of();
 
         // SEC-23: tenant resolved from the authenticated principal, never from a client X-Tenant-Id header.
+        // GAP-068: the creating principal is stamped (nullable-lenient for create).
         var result = purchaseOrderUseCase.createPurchaseOrder(
                 new ManagePurchaseOrderUseCase.CreatePurchaseOrderCommand(
                         CallerTenant.require(), request.buyerId(), request.sellerId(),
                         request.poNumber(), request.currency(), terms,
-                        request.taxAmount(), lineItems));
+                        request.taxAmount(), lineItems,
+                        principal != null ? principal.userId() : null));
 
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(result));
     }
@@ -75,11 +87,26 @@ public class PurchaseOrderController {
 
     @PostMapping("/{poId}/approve")
     @PreAuthorize("hasAnyRole('admin', 'operator')")
-    public ResponseEntity<PurchaseOrderResponse> approvePurchaseOrder(
-            @PathVariable String poId) {
+    public ResponseEntity<?> approvePurchaseOrder(
+            @PathVariable String poId,
+            @AuthenticationPrincipal NexusPayPrincipal principal) {
 
-        var result = purchaseOrderUseCase.approvePurchaseOrder(poId, CallerTenant.require());
-        return ResponseEntity.ok(toResponse(result));
+        // GAP-068 FAIL-CLOSED: the maker identity must be attributable (see VendorPaymentController).
+        if (principal == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "approval requires an identifiable principal");
+        }
+
+        var outcome = purchaseOrderUseCase.approvePurchaseOrder(
+                poId, CallerTenant.require(), principal.userId());
+        if (outcome.requiresApproval()) {
+            // INT-2 refund-contract mirror: 202 + requires_approval=true + approval id + threshold.
+            return ResponseEntity.status(HttpStatus.ACCEPTED).body(new B2bApprovalPendingResponse(
+                    Boolean.TRUE, outcome.pendingApprovalId(), "pending_approval",
+                    PurchaseOrderService.ACTION_PURCHASE_ORDER_APPROVE, poId,
+                    b2bProperties.getApprovalThreshold()));
+        }
+        return ResponseEntity.ok(toResponse(outcome.purchaseOrder()));
     }
 
     @PostMapping("/{poId}/cancel")
@@ -91,7 +118,8 @@ public class PurchaseOrderController {
         return ResponseEntity.noContent().build();
     }
 
-    private PurchaseOrderResponse toResponse(ManagePurchaseOrderUseCase.PurchaseOrderResult result) {
+    // Package-private static so B2bApprovalController (same package) reuses the exact response shape.
+    static PurchaseOrderResponse toResponse(ManagePurchaseOrderUseCase.PurchaseOrderResult result) {
         List<PurchaseOrderResponse.LineItemDto> lineItems = result.lineItems() != null
                 ? result.lineItems().stream()
                     .map(li -> new PurchaseOrderResponse.LineItemDto(

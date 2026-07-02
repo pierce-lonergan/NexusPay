@@ -3,9 +3,11 @@ package io.nexuspay.b2b.application.service;
 import io.nexuspay.b2b.application.port.in.ManageB2bInvoiceUseCase;
 import io.nexuspay.b2b.application.port.out.B2bEventPublisher;
 import io.nexuspay.b2b.application.port.out.B2bRepository;
+import io.nexuspay.b2b.application.port.out.LedgerPort;
 import io.nexuspay.b2b.domain.B2bInvoice;
 import io.nexuspay.b2b.domain.PurchaseOrder;
 import io.nexuspay.b2b.domain.PurchaseOrderStatus;
+import io.nexuspay.common.tenant.CallerMode;
 import io.nexuspay.common.tenant.TenantOwnership;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,10 +29,13 @@ public class B2bInvoiceService implements ManageB2bInvoiceUseCase {
 
     private final B2bRepository repository;
     private final B2bEventPublisher eventPublisher;
+    private final LedgerPort ledgerPort;
 
-    public B2bInvoiceService(B2bRepository repository, B2bEventPublisher eventPublisher) {
+    public B2bInvoiceService(B2bRepository repository, B2bEventPublisher eventPublisher,
+                             LedgerPort ledgerPort) {
         this.repository = repository;
         this.eventPublisher = eventPublisher;
+        this.ledgerPort = ledgerPort;
     }
 
     @Override
@@ -94,11 +99,31 @@ public class B2bInvoiceService implements ManageB2bInvoiceUseCase {
 
         // Also mark the associated PO as paid. SEC-23: tenant-scoped finder as defence-in-depth
         // (the id comes from an already-tenant-verified invoice; a foreign PO simply no-ops).
+        // GAP-069: the PO markPaid posts NOTHING to the ledger — the invoice entry below IS the money
+        // record; a PO-side entry would double-count the same cash movement.
         if (invoice.getPurchaseOrderId() != null) {
             repository.findPurchaseOrderById(invoice.getPurchaseOrderId(), tenantId).ifPresent(po -> {
                 po.markPaid();
                 repository.savePurchaseOrder(po);
             });
+        }
+
+        // GAP-069 (CARDINAL RULE): book DR accounts payable / CR cash clearing for amount + tax INSIDE
+        // this @Transactional — dispute DisputeLifecycleService mirror, NO try/catch — so a posting
+        // failure rolls the invoice/PO transition back. No-double-book: B2bInvoice.markPaid's state
+        // guard (above) is the primary layer; the V4028 (invoiceId, "B2B invoice paid") unique index
+        // is the concurrency backstop.
+        //
+        // WAVE1 review fix: a ZERO-total invoice is reachable (a PO with no line items and tax 0) and
+        // was payable before this wave. Zero money moved = honestly nothing to book (a 0-amount
+        // PostingLine is unconstructible anyway) — this is a documented no-op on the LedgerPort
+        // contract, NOT a catch around the posting; any non-zero total still posts atomically.
+        long totalAmount = invoice.getAmount() + invoice.getTaxAmount();
+        if (totalAmount > 0) {
+            ledgerPort.postInvoicePaid(tenantId, invoiceId, totalAmount, invoice.getCurrency(),
+                    CallerMode.isLive());
+        } else {
+            log.info("Invoice {} has a zero total — no money moved, no journal entry booked", invoiceId);
         }
 
         eventPublisher.publishEvent("B2bInvoice", invoiceId, "InvoicePaid",

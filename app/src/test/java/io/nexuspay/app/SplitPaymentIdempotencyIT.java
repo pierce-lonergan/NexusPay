@@ -4,6 +4,7 @@ import io.nexuspay.marketplace.application.port.in.CreateSplitPaymentUseCase;
 import io.nexuspay.marketplace.application.port.in.CreateSplitPaymentUseCase.CreateSplitCommand;
 import io.nexuspay.marketplace.application.port.in.CreateSplitPaymentUseCase.SplitPaymentResult;
 import io.nexuspay.marketplace.application.port.in.CreateSplitPaymentUseCase.SplitRuleCommand;
+import io.nexuspay.ledger.application.port.JournalEntryRepository;
 import io.nexuspay.marketplace.application.port.out.MarketplaceRepository;
 import io.nexuspay.marketplace.domain.ConnectedAccount;
 import io.nexuspay.marketplace.domain.KycStatus;
@@ -42,6 +43,9 @@ class SplitPaymentIdempotencyIT extends IntegrationTestBase {
 
     @Autowired
     private MarketplaceRepository repository;
+
+    @Autowired
+    private JournalEntryRepository journalEntries;
 
     private String tenant;
     private String accountA;
@@ -92,6 +96,14 @@ class SplitPaymentIdempotencyIT extends IntegrationTestBase {
                 .isPresent()
                 .get()
                 .satisfies(sp -> assertThat(sp.getId()).isEqualTo(first.splitPaymentId()));
+
+        // GAP-063 NO-DOUBLE-BOOK: the split idempotency COMPOSES with the ledger posting — the
+        // retried create (which short-circuited on the read-through) must NOT have booked a second
+        // (splitId, "Split payment created") journal entry. Exactly one entry exists.
+        assertThat(journalEntries.findByPaymentReferenceAndTenantId(first.splitPaymentId(), tenant))
+                .as("exactly ONE 'Split payment created' journal entry after the retried create")
+                .hasSize(1)
+                .allSatisfy(e -> assertThat(e.getDescription()).isEqualTo("Split payment created"));
     }
 
     @Test

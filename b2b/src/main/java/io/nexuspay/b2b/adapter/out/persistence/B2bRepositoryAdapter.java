@@ -154,6 +154,7 @@ public class B2bRepositoryAdapter implements B2bRepository {
         e.setDueDate(po.getDueDate());
         e.setCreatedAt(po.getCreatedAt());
         e.setUpdatedAt(po.getUpdatedAt());
+        e.setCreatedBy(po.getCreatedBy());
         return e;
     }
 
@@ -177,6 +178,7 @@ public class B2bRepositoryAdapter implements B2bRepository {
         po.setDueDate(e.getDueDate());
         po.setCreatedAt(e.getCreatedAt());
         po.setUpdatedAt(e.getUpdatedAt());
+        po.setCreatedBy(e.getCreatedBy());
         return po;
     }
 
@@ -279,6 +281,7 @@ public class B2bRepositoryAdapter implements B2bRepository {
         e.setPaidAt(vp.getPaidAt());
         e.setExternalReference(vp.getExternalReference());
         e.setCreatedAt(vp.getCreatedAt());
+        e.setCreatedBy(vp.getCreatedBy());
         return e;
     }
 
@@ -297,6 +300,7 @@ public class B2bRepositoryAdapter implements B2bRepository {
         vp.setPaidAt(e.getPaidAt());
         vp.setExternalReference(e.getExternalReference());
         vp.setCreatedAt(e.getCreatedAt());
+        vp.setCreatedBy(e.getCreatedBy());
         return vp;
     }
 }

@@ -128,6 +128,22 @@ public class ApprovalService {
         return approvalRepository.findById(id).map(this::toDomain);
     }
 
+    /**
+     * WAVE1 (GAP-068 review fix): idempotent-re-request seam. Returns the oldest still-PENDING
+     * approval for (action, resource, tenant) so a caller can hand back the EXISTING approval id
+     * on a repeated maker request instead of stacking duplicate PENDING rows (which turn into
+     * permanently-stuck poison rows once one of them executes). Tenant-scoped by parameter — the
+     * caller passes its server-authoritative tenant.
+     */
+    @Transactional(readOnly = true)
+    public Optional<PendingApproval> findPendingByActionAndResource(String action, String resourceId,
+                                                                    String tenantId) {
+        return approvalRepository
+                .findFirstByActionAndResourceIdAndTenantIdAndStatusOrderByCreatedAtAsc(
+                        action, resourceId, tenantId, "PENDING")
+                .map(this::toDomain);
+    }
+
     // ----------------------------------------------------------------------------
     // B-022: stuck-APPROVED refund reconciler support.
     //

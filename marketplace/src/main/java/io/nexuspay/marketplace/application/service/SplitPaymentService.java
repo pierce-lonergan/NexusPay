@@ -7,7 +7,6 @@ import io.nexuspay.marketplace.domain.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -82,22 +81,24 @@ public class SplitPaymentService implements CreateSplitPaymentUseCase {
 
     /**
      * SEC-BATCH-5c: narrow the SEC-20 backstop catch to the SPECIFIC unique-constraint race so an
-     * unrelated integrity error is not swallowed as a benign duplicate (mirrors
-     * {@code FraudAssessmentService.isTenantIdemConstraintViolation}). Two complementary signals:
-     * <ul>
-     *   <li>Spring's {@link DuplicateKeyException} — the dedicated duplicate-key subtype the JPA
-     *       exception translator raises for a unique violation (PostgreSQL SQLSTATE 23505); or</li>
-     *   <li>the {@link #TENANT_PAYMENT_CONSTRAINT} name appearing anywhere in the exception chain's
-     *       messages — covers a bare {@link DataIntegrityViolationException} carrying the constraint
-     *       name.</li>
-     * </ul>
-     * Any other {@link DataIntegrityViolationException} (a different unique index, a NOT-NULL/FK
-     * violation, ...) returns {@code false} and is re-thrown by the caller.
+     * unrelated integrity error is not swallowed as a benign duplicate: the
+     * {@link #TENANT_PAYMENT_CONSTRAINT} name must appear in the exception chain's messages
+     * (PostgreSQL always names the violated constraint, and the Spring/Hibernate wrappers preserve
+     * the cause chain).
+     *
+     * <p>WAVE1 review fix: a bare {@code instanceof} {@link org.springframework.dao.DuplicateKeyException}
+     * is deliberately NOT accepted anymore. The GAP-063 ledger posting moved
+     * {@code EnsureAccountsExistUseCase}'s check-then-act account creation inside the writer's
+     * REQUIRES_NEW transaction, so a DIFFERENT 23505 (the ledger_accounts PK on a currency's first
+     * concurrent use) can now reach this catch — accepting any duplicate-key subtype would
+     * misclassify it as the (tenant, payment) race, re-fetch an empty Optional, and return a
+     * spurious 404 on a legitimate create. Requiring the constraint name re-throws it instead
+     * (a correct 500 naming the real error; self-heals on retry once the accounts exist).</p>
+     *
+     * <p>Any other {@link DataIntegrityViolationException} (a different unique index, a NOT-NULL/FK
+     * violation, ...) returns {@code false} and is re-thrown by the caller.</p>
      */
     private static boolean isTenantPaymentConstraintViolation(DataIntegrityViolationException ex) {
-        if (ex instanceof DuplicateKeyException) {
-            return true;
-        }
         for (Throwable t = ex; t != null; t = t.getCause()) {
             String msg = t.getMessage();
             if (msg != null && msg.contains(TENANT_PAYMENT_CONSTRAINT)) {

@@ -1,6 +1,9 @@
 package io.nexuspay.app.config;
 
 import io.nexuspay.iam.domain.NexusPayPrincipal;
+import io.nexuspay.ledger.application.CreateJournalEntryUseCase;
+import io.nexuspay.ledger.application.port.JournalEntryRepository;
+import io.nexuspay.ledger.application.port.LedgerAccountRepository;
 import io.nexuspay.reconciliation.application.port.out.LedgerQueryPort;
 import io.nexuspay.reconciliation.application.port.out.PaymentQueryPort;
 import io.nexuspay.reconciliation.application.service.ThreeWayMatchingService;
@@ -37,6 +40,21 @@ public class TestSecurityConfig {
     public ThreeWayMatchingService faultInjectableMatchingService(PaymentQueryPort paymentQueryPort,
                                                                   LedgerQueryPort ledgerQueryPort) {
         return new FaultInjectableThreeWayMatchingService(paymentQueryPort, ledgerQueryPort);
+    }
+
+    /**
+     * WAVE1-money-ledger: armable fault-injection seam over {@link CreateJournalEntryUseCase},
+     * {@code @Primary} so every ledger-posting adapter (marketplace/b2b/dispute) autowires it.
+     * Same shared-context rationale as {@link #faultInjectableMatchingService} (no @MockBean context
+     * fork). Inert unless a test arms a per-thread fault via
+     * {@link FaultInjectableCreateJournalEntryUseCase#armFault} (cleared in a finally).
+     */
+    @Bean
+    @Primary
+    public CreateJournalEntryUseCase faultInjectableCreateJournalEntryUseCase(
+            JournalEntryRepository journalEntryRepository,
+            LedgerAccountRepository ledgerAccountRepository) {
+        return new FaultInjectableCreateJournalEntryUseCase(journalEntryRepository, ledgerAccountRepository);
     }
 
     @Bean

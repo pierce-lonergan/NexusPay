@@ -56,6 +56,10 @@ public class VendorPaymentEntity {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    /** GAP-068 (V4043): creating principal, nullable for legacy rows. */
+    @Column(name = "created_by", length = 64)
+    private String createdBy;
+
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
     public String getTenantId() { return tenantId; }
@@ -82,4 +86,6 @@ public class VendorPaymentEntity {
     public void setExternalReference(String externalReference) { this.externalReference = externalReference; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+    public String getCreatedBy() { return createdBy; }
+    public void setCreatedBy(String createdBy) { this.createdBy = createdBy; }
 }

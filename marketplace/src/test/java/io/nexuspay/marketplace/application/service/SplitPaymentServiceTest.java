@@ -1,10 +1,13 @@
 package io.nexuspay.marketplace.application.service;
 
+import io.nexuspay.common.exception.LedgerException;
 import io.nexuspay.common.exception.ResourceNotFoundException;
 import io.nexuspay.marketplace.application.port.in.CreateSplitPaymentUseCase;
+import io.nexuspay.marketplace.application.port.out.LedgerPort;
 import io.nexuspay.marketplace.application.port.out.MarketplaceEventPublisher;
 import io.nexuspay.marketplace.application.port.out.MarketplaceRepository;
 import io.nexuspay.marketplace.domain.*;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -31,6 +34,7 @@ class SplitPaymentServiceTest {
 
     @Mock private MarketplaceRepository repository;
     @Mock private MarketplaceEventPublisher eventPublisher;
+    @Mock private LedgerPort ledgerPort;
 
     private SplitPaymentService service;
 
@@ -43,7 +47,8 @@ class SplitPaymentServiceTest {
         // through the service, while the service's read-through dedup + unique-race re-fetch are unit
         // tested directly. (Propagation is a no-op without a real tx manager — the throw from the mocked
         // save still propagates synchronously into the service's catch, which is what we assert.)
-        SplitPaymentWriter writer = new SplitPaymentWriter(repository, eventPublisher);
+        // GAP-063: the writer now also books the split-distribution ledger entry through LedgerPort.
+        SplitPaymentWriter writer = new SplitPaymentWriter(repository, eventPublisher, ledgerPort);
         service = new SplitPaymentService(repository, writer);
     }
 
@@ -114,6 +119,57 @@ class SplitPaymentServiceTest {
 
         verify(repository, never()).saveSplitRule(any());
         verify(repository, never()).savePlatformFee(any());
+    }
+
+    @Test
+    void createSplitPayment_postsResolvedDistributionToLedger() {
+        // GAP-063: the writer books the split-distribution entry with the RESOLVED (post-fee) leg
+        // amounts, the caller tenant, and the platform fee — inside the create flow.
+        ConnectedAccount merchant = createAccount("merchant-1", new BigDecimal("15"), 0);
+        when(repository.findAccountById("merchant-1", TENANT)).thenReturn(Optional.of(merchant));
+        when(repository.saveAndFlushSplitPayment(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(repository.saveSplitPayment(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(repository.saveSplitRule(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(repository.savePlatformFee(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        var result = service.createSplitPayment(new CreateSplitPaymentUseCase.CreateSplitCommand(
+                TENANT, "pi_ledger1", 10000, "USD",
+                List.of(new CreateSplitPaymentUseCase.SplitRuleCommand(
+                        "merchant-1", SplitType.REMAINDER, 0, null))));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<LedgerPort.Leg>> legsCaptor =
+                ArgumentCaptor.forClass((Class<List<LedgerPort.Leg>>) (Class<?>) List.class);
+        verify(ledgerPort).postSplitDistribution(
+                eq(TENANT), eq(result.splitPaymentId()), eq("pi_ledger1"), eq("USD"),
+                legsCaptor.capture(), eq(1500L), anyBoolean());
+        // The single REMAINDER leg carries the resolved (total - fee) amount.
+        assertEquals(1, legsCaptor.getValue().size());
+        assertEquals("merchant-1", legsCaptor.getValue().get(0).connectedAccountId());
+        assertEquals(8500L, legsCaptor.getValue().get(0).amount());
+    }
+
+    @Test
+    void createSplitPayment_ledgerFailure_propagates_notSwallowed() {
+        // GAP-063 ANTI-BEST-EFFORT PIN (unit level): a LedgerPort throw must PROPAGATE out of
+        // createSplitPayment. SplitPaymentService's catch is narrowed to DataIntegrityViolationException
+        // (SEC-BATCH-5c), so a ledger failure is NOT swallowed/relabelled — the split creation fails.
+        ConnectedAccount merchant = createAccount("merchant-1", BigDecimal.ZERO, 0);
+        when(repository.findAccountById("merchant-1", TENANT)).thenReturn(Optional.of(merchant));
+        when(repository.saveAndFlushSplitPayment(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(repository.saveSplitRule(any())).thenAnswer(inv -> inv.getArgument(0));
+        doThrow(LedgerException.accountNotFound("la_platform_clearing_usd"))
+                .when(ledgerPort).postSplitDistribution(any(), any(), any(), any(), any(), anyLong(), anyBoolean());
+
+        assertThrows(LedgerException.class, () ->
+                service.createSplitPayment(new CreateSplitPaymentUseCase.CreateSplitCommand(
+                        TENANT, "pi_ledgerfail", 10000, "USD",
+                        List.of(new CreateSplitPaymentUseCase.SplitRuleCommand(
+                                "merchant-1", SplitType.REMAINDER, 0, null)))));
+
+        // The posting failure aborts the flow BEFORE markProcessing/event — the split never advances.
+        verify(repository, never()).saveSplitPayment(any());
+        verify(eventPublisher, never()).publishEvent(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -231,6 +287,28 @@ class SplitPaymentServiceTest {
         assertTrue(thrown.getMessage().contains("fk violation"));
         // The unrelated DIVE must NOT trigger the idempotent re-fetch path: only the pre-check read ran.
         verify(repository, times(1)).findSplitPaymentByTenantAndPaymentId(TENANT, "pi_fk");
+    }
+
+    @Test
+    void createSplitPayment_bareDuplicateKeyWithoutOurConstraintName_isRethrown_notMisclassified() {
+        // WAVE1 review fix pin: a DuplicateKeyException that does NOT name
+        // uq_split_payments_tenant_payment (e.g. the ledger_accounts PK race from
+        // EnsureAccountsExistUseCase's check-then-act, now inside the writer tx via the GAP-063
+        // posting) must PROPAGATE — misclassifying it as the (tenant, payment) race would re-fetch
+        // an empty Optional and 404 a legitimate create while masking a real integrity signal.
+        when(repository.findSplitPaymentByTenantAndPaymentId(TENANT, "pi_acct_race"))
+                .thenReturn(Optional.empty());
+        when(repository.saveAndFlushSplitPayment(any()))
+                .thenThrow(new org.springframework.dao.DuplicateKeyException(
+                        "duplicate key value violates unique constraint \"ledger_accounts_pkey\""));
+
+        assertThrows(org.springframework.dao.DuplicateKeyException.class, () ->
+                service.createSplitPayment(new CreateSplitPaymentUseCase.CreateSplitCommand(
+                        TENANT, "pi_acct_race", 10_000, "USD",
+                        List.of(new CreateSplitPaymentUseCase.SplitRuleCommand(
+                                "merchant-1", SplitType.REMAINDER, 0, null)))));
+        // Only the pre-check read ran — the benign re-fetch path was never entered.
+        verify(repository, times(1)).findSplitPaymentByTenantAndPaymentId(TENANT, "pi_acct_race");
     }
 
     @Test

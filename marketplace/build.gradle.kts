@@ -4,6 +4,9 @@ plugins {
 
 dependencies {
     implementation(project(":common"))
+    // GAP-063: split-payment journal postings go through the ledger module's use cases
+    // (LedgerSplitDistributionAdapter), mirroring dispute's SEC-24 edge.
+    implementation(project(":ledger"))
 
     implementation(rootProject.libs.spring.boot.starter.web)
     implementation(rootProject.libs.spring.boot.starter.data.jpa)
@@ -17,6 +20,9 @@ dependencies {
     // version catalog has no redis alias. Lifting the lock to :common stays forbidden (it would force
     // spring-data-redis onto the foundational :common module — see GatewaySchedulerLock javadoc).
     implementation("org.springframework.boot:spring-boot-starter-data-redis")
+
+    // GAP-063: the @ApplicationModule declaration in package-info.java (mirror dispute/build.gradle.kts).
+    implementation("org.springframework.modulith:spring-modulith-starter-core")
 
     runtimeOnly(rootProject.libs.postgresql)
 

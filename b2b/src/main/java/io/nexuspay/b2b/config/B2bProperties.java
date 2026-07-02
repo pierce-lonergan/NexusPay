@@ -17,8 +17,22 @@ public class B2bProperties {
     private VendorPaymentConfig vendorPayment = new VendorPaymentConfig();
     private Level23Config level23 = new Level23Config();
 
+    /**
+     * GAP-068 maker-checker threshold in MINOR units, bound to
+     * {@code nexuspay.b2b.approval-threshold} (relaxed binding). A vendor-payment approval or a
+     * purchase-order approval whose (total) amount is {@code >=} this threshold requires a SECOND
+     * principal: the approve call creates a PENDING approval (202) and a DIFFERENT admin must
+     * review it via {@code POST /v1/b2b/approvals/{id}/approve} (requester != reviewer AND
+     * creator != approver, both fail-closed). Below the threshold the single-step approve stands.
+     * Default 50000 mirrors {@code nexuspay.iam.refund-approval-threshold}.
+     */
+    private long approvalThreshold = 50_000;
+
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+    public long getApprovalThreshold() { return approvalThreshold; }
+    public void setApprovalThreshold(long approvalThreshold) { this.approvalThreshold = approvalThreshold; }
 
     public CardIssuingConfig getCardIssuing() { return cardIssuing; }
     public void setCardIssuing(CardIssuingConfig cardIssuing) { this.cardIssuing = cardIssuing; }
