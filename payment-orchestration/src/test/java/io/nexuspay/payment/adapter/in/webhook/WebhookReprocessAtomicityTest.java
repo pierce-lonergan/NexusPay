@@ -61,7 +61,7 @@ class WebhookReprocessAtomicityTest {
     void outboxInsertThrows_inboundRowStaysFailed_andStatusFlipNeverPersisted() {
         InboundWebhook w = new InboundWebhook("wh_1", "evt_orig", "payment_succeeded", RAW_PAYLOAD);
         w.markFailed();
-        when(webhookRepository.findById("wh_1")).thenReturn(Optional.of(w));
+        when(webhookRepository.findByIdForUpdate("wh_1")).thenReturn(Optional.of(w));
         when(screeningOrigins.find("pay_123"))
                 .thenReturn(Optional.of(new ScreeningOriginService.Origin("tenant-A", ScreeningMode.INTERACTIVE)));
         // The outbox insert fails (e.g. a DB constraint / connection error).
