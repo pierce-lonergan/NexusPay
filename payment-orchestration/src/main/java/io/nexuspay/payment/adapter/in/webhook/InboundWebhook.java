@@ -36,14 +36,16 @@ public class InboundWebhook {
     private Instant processedAt;
 
     /**
-     * GAP-015: server-authoritative owning tenant, persisted since V1301 (DEFAULT 'default') but never
-     * surfaced by this entity until now. The LIVE webhook path does NOT stamp this at persist time — the
-     * tenant is resolved later at outbox-write from {@code ScreeningOriginService.find(paymentId)} (SEC-09),
-     * so RECEIVED rows carry the DB default 'default'. Mapped read-only-ish: the ctor leaves it unset so the
-     * DB default applies; the reprocess path resolves tenant the SAME way the live path does (via the
-     * origin store), NEVER by trusting this column. Kept nullable in JPA so the DB default governs.
+     * GAP-015: server-authoritative owning tenant, persisted since V1301 ({@code NOT NULL DEFAULT 'default'})
+     * but never surfaced by this entity until now. The LIVE webhook path does NOT stamp this at persist time —
+     * the tenant is resolved later at outbox-write from {@code ScreeningOriginService.find(paymentId)} (SEC-09),
+     * so RECEIVED rows carry the DB default 'default'. Mapped {@code insertable=false, updatable=false} (READ-ONLY):
+     * Hibernate OMITS the column from INSERT/UPDATE so the DB default governs on insert — a plain mapped-but-null
+     * field would instead emit {@code tenant_id=NULL} and violate the NOT NULL column (which broke the inbound
+     * dedup guard). The reprocess path resolves tenant the SAME way the live path does (via the origin store),
+     * NEVER by trusting this column.
      */
-    @Column(name = "tenant_id")
+    @Column(name = "tenant_id", insertable = false, updatable = false)
     private String tenantId;
 
     /**
