@@ -39,10 +39,69 @@ const PROVIDER_LABELS: Record<BnplProvider, string> = {
   affirm: 'Affirm',
 };
 
-const PROVIDER_SCRIPTS: Record<BnplProvider, string> = {
-  klarna: 'https://x.klarnacdn.net/kp/lib/v1/api.js',
-  afterpay: 'https://js.afterpay.com/afterpay-1.x.js',
-  affirm: 'https://cdn1.affirm.com/js/v2/affirm.js',
+/**
+ * GAP-052 — supply-chain hardening of the BNPL provider loader scripts.
+ *
+ * Descriptor per provider instead of a bare URL, so each loader `<script>` carries an explicit,
+ * per-provider security posture. See {@link PROVIDER_SCRIPTS} for the per-provider rationale.
+ *
+ * `integrity` is intentionally OPTIONAL and currently UNSET for all three providers (see below). The
+ * field exists so a Subresource Integrity hash can be added later for any provider that ships a
+ * stable, immutable, versioned artifact — WITHOUT a refactor — but is not populated today because
+ * all three URLs are auto-updating loaders (a pinned hash would break the load on the provider's
+ * next push).
+ */
+interface ProviderScriptDescriptor {
+  src: string;
+  /** CORS mode for the request. 'anonymous' => no credentials, non-opaque errors, SRI-ready. */
+  crossorigin: 'anonymous' | 'use-credentials';
+  /** Referrer policy — 'no-referrer' so the merchant checkout URL is not leaked to the CDN. */
+  referrerpolicy: ReferrerPolicy;
+  /** Optional SRI hash — only set for an immutable, pinned versioned artifact. Omitted for loaders. */
+  integrity?: string;
+}
+
+/**
+ * GAP-052 posture: all three providers publish AUTO-UPDATING loader entry points (a floating
+ * major-version URL the provider re-publishes new bytes under), NOT immutable versioned artifacts.
+ * Subresource Integrity (SRI) only works for immutable resources: pinning an `integrity` hash on an
+ * auto-updating loader BREAKS the load the moment the provider ships a new build under the same URL,
+ * and several BNPL providers explicitly advise against SRI on their loader URLs. So we do NOT add a
+ * brittle SRI hash; instead we harden with `crossorigin="anonymous"` + `referrerpolicy` and rely on
+ * the merchant page's CSP `script-src` allowlist + PCI DSS 6.4.3 script monitoring for tamper
+ * detection. (`integrity` stays available in the descriptor for any provider that later ships a
+ * pinnable versioned URL.)
+ *
+ *  - klarna:   https://x.klarnacdn.net/kp/lib/v1/api.js — `/v1/` is a floating major-version on-demand
+ *              loader; Klarna serves updated bytes under it. Posture: crossorigin + no-referrer, NO
+ *              SRI. Residual risk mitigated page-side by CSP `script-src x.klarnacdn.net`.
+ *  - afterpay: https://js.afterpay.com/afterpay-1.x.js — the literal `-1.x` advertises that it floats
+ *              minor/patch within major 1 (the most explicitly auto-updating of the three); an SRI
+ *              hash is guaranteed to break on the next 1.x push. Posture: crossorigin + no-referrer,
+ *              NO SRI. CSP `script-src js.afterpay.com`.
+ *  - affirm:   https://cdn1.affirm.com/js/v2/affirm.js — `/v2/` floating major loader (same shape as
+ *              Klarna `/v1/`). Posture: crossorigin + no-referrer, NO SRI. CSP `script-src
+ *              cdn1.affirm.com`.
+ */
+const PROVIDER_SCRIPTS: Record<BnplProvider, ProviderScriptDescriptor> = {
+  klarna: {
+    src: 'https://x.klarnacdn.net/kp/lib/v1/api.js',
+    crossorigin: 'anonymous',
+    referrerpolicy: 'no-referrer',
+    // integrity intentionally omitted — auto-updating loader; rely on CSP + PCI 6.4.3 monitoring.
+  },
+  afterpay: {
+    src: 'https://js.afterpay.com/afterpay-1.x.js',
+    crossorigin: 'anonymous',
+    referrerpolicy: 'no-referrer',
+    // integrity intentionally omitted — `-1.x` floats within major 1; SRI would break on every push.
+  },
+  affirm: {
+    src: 'https://cdn1.affirm.com/js/v2/affirm.js',
+    crossorigin: 'anonymous',
+    referrerpolicy: 'no-referrer',
+    // integrity intentionally omitted — `/v2/` floating major loader; rely on CSP + PCI 6.4.3.
+  },
 };
 
 const loadedScripts = new Set<string>();
@@ -65,18 +124,16 @@ export class BnplHandler extends EventEmitter<BnplEvents> {
    * Only loads when needed (e.g., when the BNPL tab is selected).
    */
   async loadProviderScript(): Promise<void> {
-    const url = PROVIDER_SCRIPTS[this.config.provider];
-    if (!url || loadedScripts.has(url)) {
+    const descriptor = PROVIDER_SCRIPTS[this.config.provider];
+    if (!descriptor || loadedScripts.has(descriptor.src)) {
       this.scriptLoaded = true;
       return;
     }
 
     return new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = url;
-      script.async = true;
+      const script = this.buildProviderScript(descriptor);
       script.onload = () => {
-        loadedScripts.add(url);
+        loadedScripts.add(descriptor.src);
         this.scriptLoaded = true;
         resolve();
       };
@@ -84,6 +141,37 @@ export class BnplHandler extends EventEmitter<BnplEvents> {
         reject(new Error(`Failed to load ${this.getLabel()} SDK`));
       document.head.appendChild(script);
     });
+  }
+
+  /**
+   * GAP-052: builds the loader `<script>` element with the provider's decided supply-chain posture.
+   * Exposed as an overridable seam (rather than inlined) so tests can assert the attributes
+   * synchronously without depending on the network `onload` firing.
+   *
+   * Sets `crossOrigin='anonymous'` (CORS request, no credentials, non-opaque errors, SRI-ready) and
+   * `referrerPolicy` (default 'no-referrer' — don't leak the checkout URL to the CDN). SRI
+   * (`integrity`) is applied ONLY if the descriptor carries a hash; it is intentionally unset for the
+   * auto-updating provider loaders (see {@link PROVIDER_SCRIPTS}).
+   */
+  private buildProviderScript(descriptor: ProviderScriptDescriptor): HTMLScriptElement {
+    const script = document.createElement('script');
+    script.src = descriptor.src;
+    script.async = true;
+    script.crossOrigin = descriptor.crossorigin;
+    script.referrerPolicy = descriptor.referrerpolicy;
+    if (descriptor.integrity) {
+      script.integrity = descriptor.integrity;
+    }
+    return script;
+  }
+
+  /**
+   * GAP-052 test seam: the frozen provider-script descriptor for the configured provider, so tests
+   * can assert the decided per-provider posture (src / crossorigin / referrerpolicy / absence of SRI)
+   * without reaching into module internals.
+   */
+  get __test__(): { descriptor: ProviderScriptDescriptor } {
+    return { descriptor: PROVIDER_SCRIPTS[this.config.provider] };
   }
 
   /**

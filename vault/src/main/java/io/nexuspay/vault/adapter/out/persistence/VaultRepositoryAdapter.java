@@ -2,6 +2,7 @@ package io.nexuspay.vault.adapter.out.persistence;
 
 import io.nexuspay.vault.application.port.out.VaultRepository;
 import io.nexuspay.vault.domain.*;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -52,6 +53,14 @@ public class VaultRepositoryAdapter implements VaultRepository {
     @Override
     public List<VaultedCard> findCardsByEncryptionKeyId(String keyId) {
         return cardRepo.findByEncryptionKeyId(keyId).stream().map(this::toDomain).toList();
+    }
+
+    @Override
+    public List<VaultedCard> findCardsByEncryptionKeyId(String keyId, int limit) {
+        // GAP-059: bounded page (offset 0) — the rotation job re-queries after each page and rotated
+        // cards drop off the retired key, so page 0 always yields the next un-rotated batch.
+        return cardRepo.findByEncryptionKeyId(keyId, PageRequest.of(0, limit))
+                .stream().map(this::toDomain).toList();
     }
 
     @Override
