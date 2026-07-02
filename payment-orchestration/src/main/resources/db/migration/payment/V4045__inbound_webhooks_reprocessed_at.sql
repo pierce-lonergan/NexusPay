@@ -1,0 +1,17 @@
+-- GAP-015 (reliability, payment-orchestration): inbound webhook operator reprocess.
+--
+-- A webhook that FAILED after HMAC verification (e.g. a post-persist outbox write threw) currently
+-- needs manual SQL recovery. POST /v1/admin/webhooks/reprocess/{id} re-inserts the persisted
+-- payload into event_outbox in ONE transaction and marks the inbound row PROCESSED. This column is the
+-- audit stamp of WHEN that operator-initiated reprocess happened, distinct from the original
+-- processed_at (which stamps the first RECEIVED->PROCESSED|FAILED attempt).
+--
+-- Nullable: NULL for every row that reached PROCESSED via the normal live path; set only on rows the
+-- reprocess endpoint drives from FAILED->PROCESSED. Idempotent DDL (ADD COLUMN IF NOT EXISTS) so a
+-- re-applied migration on an already-patched DB is a no-op.
+--
+-- NO tenant_id add: inbound_webhooks.tenant_id already exists (V1301, DEFAULT 'default').
+-- NO livemode add: event_outbox has no livemode column; the reprocess path does not stamp one.
+-- inbound_webhooks already has RLS enabled + policy from the V2001 era (app module) — no new
+-- dormant-RLS idiom is needed for a column added to an existing tenant-scoped table.
+ALTER TABLE inbound_webhooks ADD COLUMN IF NOT EXISTS reprocessed_at TIMESTAMP;

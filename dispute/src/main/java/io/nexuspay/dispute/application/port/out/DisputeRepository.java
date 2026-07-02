@@ -4,6 +4,7 @@ import io.nexuspay.dispute.domain.Dispute;
 import io.nexuspay.dispute.domain.DisputeEvidence;
 import io.nexuspay.dispute.domain.DisputeEvent;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -45,6 +46,29 @@ public interface DisputeRepository {
     List<Dispute> findByPaymentId(String paymentId);
 
     List<Dispute> findByStatus(String tenantId, String status, int limit, int offset);
+
+    /**
+     * GAP-033: CROSS-TENANT discovery finder for the evidence-deadline expiry sweep. Returns disputes
+     * whose evidence deadline has passed AND that are still in a PRE-TERMINAL EVIDENCE state
+     * ({@code OPENED} or {@code EVIDENCE_NEEDED}), i.e. genuinely overdue with no response.
+     *
+     * <p>Predicate: {@code evidence_due_date < now AND status IN ('OPENED','EVIDENCE_NEEDED')}, ordered
+     * by {@code evidence_due_date} ASC for determinism, bounded by {@code limit} so a large backlog
+     * cannot OOM the sweep.</p>
+     *
+     * <p>DELIBERATELY EXCLUDES:
+     * <ul>
+     *   <li>{@code EVIDENCE_SUBMITTED} — evidence is already with the network awaiting a WON/LOST
+     *       decision; force-expiring it would finalise a chargeback the merchant is actively defending;</li>
+     *   <li>the terminal set {@code WON/LOST/EXPIRED} — already resolved (a re-selected terminal dispute
+     *       would double-post the chargeback expense).</li>
+     * </ul>
+     *
+     * <p>Takes NO tenantId argument because the sweep runs as SYSTEM ({@code @SystemTransactional}) and
+     * must see EVERY tenant's overdue disputes; each per-dispute expire is then bound to that dispute's
+     * OWN tenant via {@code TenantWorkRunner} so RLS WITH CHECK scopes the write on activation.</p>
+     */
+    List<Dispute> findExpirable(Instant now, int limit);
 
     // -- Evidence --
 
