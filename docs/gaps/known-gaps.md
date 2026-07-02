@@ -398,12 +398,14 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Risk**: Cannot disburse real funds to connected accounts.
 - **Resolution**: Phase 5 — integrate with banking/card push providers.
 
-### GAP-063: Marketplace Module — No Ledger Integration for Split Payments
+### ~~GAP-063: Marketplace Module — No Ledger Integration for Split Payments~~ — ✅ DELIVERED 2026-07-01 (WAVE-1, ADR-067)
 - **Identified**: Sprint 4.2
-- **Status**: Deferred to Phase 4
-- **Description**: Split payments calculate distributions but do not create actual ledger entries (DR customer liability, CR merchant receivable, CR platform revenue). The ledger module integration is needed for true double-entry accounting of splits.
-- **Risk**: Split payment amounts are tracked but not reflected in the general ledger.
-- **Resolution**: Sprint 4.2b — wire SplitPaymentService to ledger module for journal entry creation.
+- **Status**: ✅ **DELIVERED** — split creation now books one balanced journal entry ATOMICALLY inside the split
+  writer's transaction (a posting failure rolls the whole split back): DR `platform_clearing` = sum(leg credits)+fee,
+  CR `connected_payable` per leg (leg identity in metadata), CR `platform_fee_revenue` when fee>0. Idempotent via the
+  SEC-BATCH-4 journal constraint; composes with SEC-BATCH-5c split idempotency. New marketplace→ledger Modulith edge
+  (dispute→ledger mirror). Platform-shared ledger singletons are `DEFAULT_TENANT`-stamped (never visible cross-tenant).
+- **Original description (superseded)**: split payments calculated distributions but created no ledger entries.
 
 ### GAP-064: Marketplace Module — No 1099-K Reporting
 - **Identified**: Sprint 4.2
@@ -433,19 +435,26 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Risk**: Cannot disburse real funds to vendors.
 - **Resolution**: Phase 5 — integrate with payment rail providers (Modern Treasury, Column, or direct bank APIs).
 
-### GAP-068: B2B Module — No Approval Workflow for POs and Vendor Payments
+### GAP-068: B2B Module — No Approval Workflow for POs and Vendor Payments — ✅ core DELIVERED 2026-07-01 (WAVE-1, ADR-067)
 - **Identified**: Sprint 4.3
-- **Status**: Deferred to Phase 4
-- **Description**: PO approval and vendor payment approval are single-step operations. Production B2B workflows typically require multi-level approval chains (e.g., manager → finance → CFO for amounts above threshold), delegation rules, and approval deadline enforcement.
-- **Risk**: Insufficient controls for large B2B transactions.
-- **Resolution**: Sprint 4.4 or Phase 5 — integrate with workflow module for configurable approval chains.
+- **Status**: ✅ **Core control DELIVERED** — threshold-gated maker-checker now guards PO approval and vendor payments,
+  reusing the iam `ApprovalService` through a proper module edge: `nexuspay.b2b.approval-threshold` (default 50000
+  minor units); at/above → 202 + PENDING approval reviewed by a DIFFERENT principal via
+  `POST /v1/b2b/approvals/{id}/approve|reject`; requester≠reviewer AND creator≠approver fail-closed BEFORE any claim
+  (V4043 `created_by`); execute-once via the atomic claim (B-009); stale approvals convert to terminal REJECTED.
+  *Remaining (true Phase-5 scope, not the control gap)*: multi-LEVEL chains (manager→finance→CFO), delegation rules,
+  approval deadline enforcement via the workflow module.
+- **Original risk (mitigated)**: a single API key could both create and approve a large vendor payment.
 
-### GAP-069: B2B Module — No Ledger Integration
+### ~~GAP-069: B2B Module — No Ledger Integration~~ — ✅ DELIVERED 2026-07-01 (WAVE-1, ADR-067)
 - **Identified**: Sprint 4.3
-- **Status**: Deferred to Phase 4
-- **Description**: B2B payment flows (PO approval, invoice payment, vendor disbursement) do not create ledger journal entries. Double-entry accounting entries (DR accounts payable, CR vendor payable, etc.) are needed for complete financial tracking.
-- **Risk**: B2B transactions not reflected in the general ledger.
-- **Resolution**: Sprint 4.4 — wire B2bInvoiceService and VendorPaymentService to ledger module.
+- **Status**: ✅ **DELIVERED** — B2B money transitions now post ATOMICALLY (a posting failure rolls the transition
+  back): invoice paid = DR `accounts_payable` / CR `cash_clearing` (amount+tax; zero-total = honest no-op); vendor
+  payment approved = accrual DR `vendor_expense` / CR `vendor_payable`; vendor disbursement CONFIRMED (stub
+  `externalReference`, never intent) = DR `vendor_payable` / CR `cash_clearing`. **PO approval deliberately books
+  NOTHING** — an approved PO is an executory commitment (no asset/liability to recognize); the invoice entry is the
+  money record. New b2b→ledger Modulith edge; idempotent per (entity, transition) via the SEC-BATCH-4 constraint.
+- **Original description (superseded)**: B2B flows created no journal entries.
 
 ### GAP-070: B2B Module — No Integration Tests
 - **Identified**: Sprint 4.3
