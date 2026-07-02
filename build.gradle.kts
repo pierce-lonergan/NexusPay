@@ -56,7 +56,16 @@ subprojects {
         // In-gate soak/fuzz are deliberately UNTAGGED so they keep running and raise the ratchet
         // floors. See docs/simulation/README.md for the flip-to-gating plan.
         useJUnitPlatform { excludeTags("redteam", "simulation") }
+        // The forked test JVM previously inherited the default max heap (~1/4 of runner RAM). As the
+        // @SpringBootTest + Testcontainers integration suite grew, that ceiling was hit on the GitHub-hosted
+        // runner and surfaced as an intermittent OutOfMemoryError cascade (seen across PRs #61/#64 as a
+        // one-of-two green flake). Pin an explicit, generous fork heap + metaspace so the growing suite has
+        // headroom, and recycle the fork JVM periodically so accumulated Spring context caches cannot creep
+        // the process toward the ceiling over a long module test run. Leaves ample room for the Docker
+        // (Testcontainers) containers + the Gradle process on the runner.
+        maxHeapSize = "3g"
         jvmArgs("-XX:+EnableDynamicAgentLoading")
+        setForkEvery(60)
         finalizedBy(tasks.named("jacocoTestReport"))
     }
 
