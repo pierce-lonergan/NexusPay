@@ -1582,3 +1582,51 @@ DECISION (scout -> Blueprint -> Implement -> 5 lenses -> Fix):
    LIVE isolation (a live charge ignores the clock) + tenant isolation (A's clock doesn't bleed to B) + clear/get +
    400 + gate (live->404, no-test:write->403, unrestricted->pass). Flyway global max now V4042. No SDK change.
    GAP-078 CLOSED -> critique-v3 is now FULLY delivered (GAP-076..079 all shipped). CI is the oracle.
+
+## ADR-067 | 2026-07-01 | WAVE-1: marketplace + B2B money transitions into the ledger, atomically + B2B maker-checker (T3 money)
+STATUS: Accepted (T3 — new money postings + a new approval control; via PR). The money-safety batch (ranks 1-3) from
+the 2026-07-01 code-verified 45-gap register audit (9 parallel verifiers; also corrected 3 stale register entries:
+GAP-026 delivered by DX-5c, GAP-015/GAP-008 partial).
+DECISION (Blueprint -> Implement -> 5 adversarial lenses -> Fix; the review pass initially died on a session limit and
+was RESUMED via Workflow resumeFromRunId with Blueprint/Implement served from the journal — money code never merges
+unreviewed):
+ - THE CARDINAL RULE (deliberate inverse of GAP-076): the ledger is MONEY TRUTH, not a cache. Every journal posting is
+   ATOMIC with its state transition — same transaction, NO try/catch-swallow, NO @Async, NO REQUIRES_NEW isolation; a
+   posting failure rolls the transition back. Rollback-proof tests exist at every posting site (posting throws ->
+   state provably does not advance). Guard this distinction: best-effort is for projections, never for postings.
+ - GAP-063 (marketplace->ledger, new Modulith edge mirroring dispute->ledger): split creation books ONE balanced entry
+   inside the split writer's tx: DR platform_clearing = sum(leg credits)+fee (balances by construction under FIXED
+   under-allocation), CR connected_payable per leg (leg identity in entry metadata — ledger accounts are per-currency
+   singletons), CR platform_fee_revenue when fee>0; zero-amount legs emit no line. Idempotency = paymentReference
+   <splitId> via the SEC-BATCH-4 unique journal constraint, composing with SEC-BATCH-5c split idempotency.
+ - GAP-069 (b2b->ledger, new edge): invoice paid = DR accounts_payable / CR cash_clearing (amount+tax; zero-total =
+   honest no-op, not a catch); vendor approved = accrual DR vendor_expense / CR vendor_payable; disbursement CONFIRMED
+   (stub externalReference, never intent) = DR vendor_payable / CR cash_clearing — a DELIBERATE reorientation of the
+   audit sketch, which would have booked outbound money backwards. PO approval books NOTHING: an approved PO is an
+   executory commitment (encumbrance entries = governmental-fund practice = fake accounting on a payments GL); the
+   invoice entry IS the money record. Documented in the LedgerPort javadoc against future 'helpful' additions.
+ - GAP-068 (B2B maker-checker): REUSE iam ApprovalService through a proper b2b->iam edge (the gateway already uses it)
+   rather than a b2b-owned mirror table — iam owns maker-checker, and its battle-tested pieces (atomic
+   transitionFromPending execute-once B-009, requester!=reviewer, tenant-checked 404-no-oracle, RLS'd
+   pending_approvals) are exactly what the gap needs. nexuspay.b2b.approval-threshold (default 50000 minor units);
+   at/above -> 202 + PENDING (refund-contract mirror) reviewed via POST /v1/b2b/approvals/{id}/approve|reject; ALSO
+   creator!=approver fail-closed BEFORE any claim (V4043 created_by columns, b2b-owned migration); stale approvals
+   (resource left the approvable state) convert to terminal REJECTED + 409 with commit-the-reject semantics
+   (@Transactional(noRollbackFor=ConflictException) — nothing money-related has run pre-claim; money paths throw other
+   types and roll back fully). Companion fail-closed fix: gateway ApprovalController approve AND reject now 409 any
+   action they cannot execute (non-refund) BEFORE claiming, so the generic endpoint can never strand a b2b approval.
+   B-022 reconciler untouched (filters action='refund').
+ - REVIEW: 5 lenses, 22 findings, 11 actionable, all fixed. HEADLINE BLOCKER: the 7 new platform-shared ledger
+   singletons (platform_clearing, connected_payable, fee_revenue, accounts_payable, cash_clearing, vendor_payable,
+   vendor_expense) were first-writer tenant-stamped -> visible in a tenant's GET /v1/ledger/accounts = cross-tenant
+   balance exposure. Fixed STRONGER than suggested: AccountSpec.platformShared -> ALWAYS DEFAULT_TENANT inside
+   EnsureAccountsExistUseCase (covers every creation path, not just the new adapters). Also: idempotency dup-catches
+   now require OUR constraint name in the exception chain (a bare DuplicateKeyException no longer masks real errors —
+   and dup-tolerance inside the same Postgres tx is UNACHIEVABLE since the failed statement aborts the tx; documented);
+   repeat approve requests return the existing PENDING approval idempotently; B2bInvoice state machine hardened
+   (send/markOverdue guards); b2b postings carry metadata.livemode.
+ - Flyway global max now V4043. No SDK/OpenAPI change (b2b endpoints not in the static spec). GAP-063 + GAP-069
+   DELIVERED, GAP-068 core control DELIVERED (multi-level chains/delegation stay Phase-5) in known-gaps.md. Remaining
+   wave slots (4-8): small-security batch (GAP-028 DB self-approval constraint, GAP-059 vault key-rotation job,
+   GAP-052 BNPL SRI pinning), GAP-015 inbound webhook reprocess, schedulers (GAP-033 dispute deadlines + GAP-027 audit
+   retention), analytics pipeline (GAP-054/053), observability dashboards (GAP-008/055/021). CI is the oracle.
