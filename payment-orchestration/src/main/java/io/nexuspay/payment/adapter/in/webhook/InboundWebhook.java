@@ -35,6 +35,25 @@ public class InboundWebhook {
     @Column(name = "processed_at")
     private Instant processedAt;
 
+    /**
+     * GAP-015: server-authoritative owning tenant, persisted since V1301 (DEFAULT 'default') but never
+     * surfaced by this entity until now. The LIVE webhook path does NOT stamp this at persist time — the
+     * tenant is resolved later at outbox-write from {@code ScreeningOriginService.find(paymentId)} (SEC-09),
+     * so RECEIVED rows carry the DB default 'default'. Mapped read-only-ish: the ctor leaves it unset so the
+     * DB default applies; the reprocess path resolves tenant the SAME way the live path does (via the
+     * origin store), NEVER by trusting this column. Kept nullable in JPA so the DB default governs.
+     */
+    @Column(name = "tenant_id")
+    private String tenantId;
+
+    /**
+     * GAP-015 (V4045): audit stamp of an operator-initiated reprocess (FAILED -> PROCESSED via
+     * {@code POST /v1/admin/webhooks/reprocess/{id}}). NULL on rows that reached PROCESSED via the
+     * normal live path; set by {@link #markReprocessed()} only on a successful reprocess.
+     */
+    @Column(name = "reprocessed_at")
+    private Instant reprocessedAt;
+
     @Column(nullable = false, length = 16)
     private String status;
 
@@ -64,6 +83,19 @@ public class InboundWebhook {
         this.status = STATUS_FAILED;
     }
 
+    /**
+     * GAP-015: marks a FAILED inbound webhook PROCESSED after an operator reprocess re-drove its outbox
+     * write. Sets the {@code reprocessed_at} audit stamp and flips status to PROCESSED (mirrors
+     * {@link #markProcessed()}). Called INSIDE the reprocess {@code @Transactional} AFTER the outbox
+     * re-insert, so the status flip and the outbox row commit atomically — a re-insert failure rolls the
+     * flip back and the row stays FAILED, re-drivable.
+     */
+    public void markReprocessed() {
+        this.reprocessedAt = Instant.now();
+        this.processedAt = Instant.now();
+        this.status = STATUS_PROCESSED;
+    }
+
     // Getters
     public String getId() { return id; }
     public String getEventId() { return eventId; }
@@ -71,5 +103,7 @@ public class InboundWebhook {
     public String getRawPayload() { return rawPayload; }
     public Instant getReceivedAt() { return receivedAt; }
     public Instant getProcessedAt() { return processedAt; }
+    public String getTenantId() { return tenantId; }
+    public Instant getReprocessedAt() { return reprocessedAt; }
     public String getStatus() { return status; }
 }

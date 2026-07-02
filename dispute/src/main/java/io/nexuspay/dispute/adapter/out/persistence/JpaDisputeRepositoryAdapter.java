@@ -9,6 +9,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -76,6 +78,17 @@ public class JpaDisputeRepositoryAdapter implements DisputeRepository {
     public List<Dispute> findByStatus(String tenantId, String status, int limit, int offset) {
         return jpaDisputeRepo.findByTenantIdAndStatusOrderByCreatedAtDesc(
                         tenantId, status, PageRequest.of(offset / limit, limit))
+                .stream().map(this::toDomain).toList();
+    }
+
+    @Override
+    public List<Dispute> findExpirable(Instant now, int limit) {
+        // GAP-033: cross-tenant, status stored as the enum NAME (see toEntity: e.setStatus(status.name())).
+        // Pre-terminal EVIDENCE states only; ordered by due date asc; bounded by limit (first page).
+        List<String> preTerminalEvidenceStates = List.of(
+                DisputeState.OPENED.name(), DisputeState.EVIDENCE_NEEDED.name());
+        return jpaDisputeRepo.findByStatusInAndEvidenceDueDateBeforeOrderByEvidenceDueDateAsc(
+                        preTerminalEvidenceStates, now, PageRequest.of(0, limit))
                 .stream().map(this::toDomain).toList();
     }
 
@@ -229,6 +242,11 @@ public class JpaDisputeRepositoryAdapter implements DisputeRepository {
         Optional<DisputeEntity> findByTenantIdAndExternalDisputeId(String tenantId, String externalDisputeId);
         // SEC-27: tenant-scoped by-id finder backing the REST read/mutation control.
         Optional<DisputeEntity> findByIdAndTenantId(String id, String tenantId);
+
+        // GAP-033: cross-tenant expiry-sweep finder. Status is stored as the enum NAME; the IN-list is the
+        // pre-terminal EVIDENCE states. Bounded by the PageRequest (first page) so a backlog cannot OOM.
+        List<DisputeEntity> findByStatusInAndEvidenceDueDateBeforeOrderByEvidenceDueDateAsc(
+                Collection<String> statuses, Instant now, PageRequest page);
     }
 
     interface JpaEvidenceRepo extends JpaRepository<DisputeEvidenceEntity, String> {
