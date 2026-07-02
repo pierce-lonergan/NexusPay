@@ -1663,3 +1663,37 @@ converts an application-level or absent control into a hard/structural one.
    GAP-052 HARDENED (provider-limited) in known-gaps.md. NOTE: the CI OOM flake that dogged PRs #61/#64 was
    root-caused + fixed first (PR #65: forked test-JVM maxHeapSize=3g + setForkEvery(60) in build.gradle.kts) — PR #66
    was the first clean single-green run confirming the flake is gone. CI is the oracle.
+
+## ADR-069 | 2026-07-02 | WAVE-1 slots 5+6: reliability batch (T3)
+STATUS: Accepted (PR #67). Reliability items from the gap audit — a reprocess endpoint + two scheduled jobs.
+ - GAP-015 (payment-orchestration): inbound webhook reprocess completes the end-to-end at-least-once webhook story.
+   POST /v1/admin/webhooks/reprocess/{id} (admin-role, moved OFF the /internal permitAll tree to /v1/admin so it
+   picks up the per-principal rate limit like DeadLetterController — a review finding). Loads the InboundWebhook with
+   a PESSIMISTIC_WRITE lock (findByIdForUpdate — a review finding: the plain findById allowed a concurrent-reprocess
+   double-insert race), requires status==FAILED, and in ONE @Transactional re-inserts the payload into event_outbox
+   (shared WebhookOutboxWriter; SEC-09 tenant resolved from the screening origin, never client input) + markReprocessed
+   + stamp reprocessed_at (V4045). Idempotent + concurrency-safe.
+ - GAP-033 (dispute): DisputeDeadlineScheduler (@Scheduled, on by default) finds disputes past evidence_due_date in a
+   pre-terminal evidence state and calls the EXISTING expire(disputeId) once per dispute under its own
+   TenantWorkRunner tx. KEY FINDING (the blueprint resolved it first): expire() TOUCHES MONEY — it calls
+   finaliseChargebackExpense (DR chargeback_expense / CR chargeback_reserve) and is ALREADY atomic (single
+   @Transactional) + idempotent (no-op on terminal; posts only when it actually transitioned). So the scheduler is a
+   thin per-tenant driver that preserves both by calling expire() as-is and per-item-isolating the failure AROUND
+   expire (never inside), and NEVER bulk-expiring in one transaction (which would couple N ledger postings — one
+   failure rolls back all).
+ - GAP-027 (iam): AuditLogRetentionJobService (@Scheduled cron, staggered after analytics retention) hard-deletes
+   audit_log rows strictly older than nexuspay.iam.audit-retention-days (default 2555 = 7 years, deliberately
+   conservative for a compliance/audit trail — deliberately longer than analytics), in bounded ctid-batched pages so a
+   large table is never a single long-lock DELETE; metered; @SystemTransactional cross-tenant system sweep. A
+   category-filtered longer-retention path for security-critical events is documented, not built.
+ - REVIEW: 5 lenses, 6 findings, 2 actionable — both GAP-015 (the rate-limit-skip + the concurrent double-insert
+   race), both fixed. GAP-033 + GAP-027 clean. ⚠ TWO LATENT TEST FAILURES surfaced only on the AUTHORITATIVE full
+   perpetua-gates run (the 5-lens review had reviewed the NEW paths, not the entity change's effect on the EXISTING
+   dedup path): (1) L-073 — mapping inbound_webhooks.tenant_id as a plain @Column emitted tenant_id=NULL in the INSERT
+   (Hibernate does NOT omit an unset mapped field), violating the NOT NULL DEFAULT column and breaking
+   HyperSwitchWebhookGuardTest's dedup; FIXED with insertable=false, updatable=false (DB default governs). (2) the
+   review's findById->findByIdForUpdate lock swap updated one reprocess test but missed WebhookReprocessAtomicityTest's
+   stub, so the controller no-op'd instead of propagating the outbox failure; FIXED. Both were FAST real fails
+   (~8-11min, not the ~20min OOM — the heap fix held), diagnosed to root cause, fixed minimally; the feature LOGIC was
+   sound. Flyway global max now V4045. GAP-015 + GAP-033 + GAP-027 DELIVERED. CI is the oracle even after adversarial
+   review — the full gate catches what per-path lenses miss.

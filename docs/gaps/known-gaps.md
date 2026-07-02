@@ -99,10 +99,14 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
   plus an overlap deadline that shortens (never extends) the old key's life. Per-key scopes landed in DX-5c-ii.
 - **Original description (superseded)**: API keys have no expiration date; no built-in rotation mechanism.
 
-### GAP-027: No Audit Log Retention Policy
+### ~~GAP-027: No Audit Log Retention Policy~~ — ✅ DELIVERED 2026-07-02 (WAVE-1 slot 6, ADR-069)
 - **Identified**: Sprint 1.5
-- **Status**: Open
-- **Description**: The `audit_log` table grows unboundedly. No archival, partitioning, or retention policy.
+- **Status**: ✅ **DELIVERED** — `AuditLogRetentionJobService` (`@Scheduled` cron, staggered after analytics retention)
+  hard-deletes `audit_log` rows strictly older than `nexuspay.iam.audit-retention-days` (default **2555 = 7 years**,
+  deliberately conservative for a compliance/audit trail), in bounded `ctid`-batched pages so a large table is never
+  deleted in one long-lock statement; metered; cross-tenant system sweep. A category-filtered longer/never-retention
+  path (for security-critical events) is documented as a follow-up, not built.
+- **Original description (superseded)**: `audit_log` grew unboundedly with no retention.
 - **Risk**: Storage growth, query performance degradation over time.
 - **Resolution**: Phase 2 — partition by timestamp, archive to cold storage after 90 days.
 
@@ -120,14 +124,15 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Status**: Resolved
 - **Description**: `OutboxRelay` now has `@PreDestroy` shutdown hook that sets `shuttingDown` flag and waits up to 5 seconds for the in-flight relay cycle to complete. Also releases the Valkey leader lock on shutdown.
 
-### GAP-015: No Webhook Retry / Reprocessing — PARTIAL (register corrected 2026-07-01 audit)
+### ~~GAP-015: No Webhook Retry / Reprocessing~~ — ✅ DELIVERED 2026-07-02 (WAVE-1 slot 5, ADR-069)
 - **Identified**: Sprint 1.2
-- **Status**: **PARTIAL** — the register was stale. The INT wave delivered most of this: outbound webhook retry with
-  exponential backoff + DLQ + admin replay exists (`POST /v1/webhook-deliveries/{id}/replay`), and inbound
-  HyperSwitch webhooks are persisted to `inbound_webhooks` with Valkey replay-dedup. The ONLY remaining piece is an
-  inbound reprocess endpoint (`POST /internal/webhooks/reprocess/{id}`) to re-inject a FAILED inbound webhook into
-  `event_outbox` — scheduled in the 2026-07 enhancement wave (slot 5).
-- **Risk (remaining)**: a FAILED inbound webhook currently requires manual-SQL recovery.
+- **Status**: ✅ **DELIVERED** (completes the end-to-end at-least-once webhook story). Outbound retry+backoff+DLQ+
+  replay shipped in the INT wave; the final piece — inbound reprocess — is now `POST /v1/admin/webhooks/reprocess/{id}`
+  (admin-role, under the per-principal rate limit). It loads the `InboundWebhook` with a `PESSIMISTIC_WRITE` lock,
+  requires status==FAILED, and in ONE tx re-inserts the payload into `event_outbox` (tenant resolved via
+  `ScreeningOriginService`, never client input) + marks PROCESSED + stamps `reprocessed_at` (V4045). Idempotent +
+  concurrency-safe (a second reprocess blocks on the lock, re-reads PROCESSED, no-ops — never a second outbox row).
+- **Risk (mitigated)**: a FAILED inbound webhook no longer requires manual-SQL recovery.
 
 ### ~~GAP-016: No API Versioning Implementation~~ (RESOLVED Sprint 1.6)
 - **Identified**: Sprint 1.2
@@ -204,10 +209,14 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Risk**: Low — architecture guard in Spring Modulith verification test prevents accidental circular deps.
 - **Resolution**: If needed, introduce a shared `billing-api` interface module or use event-based communication.
 
-### GAP-033: Dispute Deadline Tracking Not Automated
+### ~~GAP-033: Dispute Deadline Tracking Not Automated~~ — ✅ DELIVERED 2026-07-02 (WAVE-1 slot 6, ADR-069)
 - **Identified**: Sprint 2.4
-- **Status**: Open
-- **Description**: The `evidence_due_date` field is stored on disputes but no automated scheduler or Temporal workflow monitors deadlines and triggers EXPIRED transitions. Expiration currently requires explicit API call or webhook.
+- **Status**: ✅ **DELIVERED** — `DisputeDeadlineScheduler` (`@Scheduled`, on by default) finds disputes past
+  `evidence_due_date` in a pre-terminal evidence state and calls the existing `expire(disputeId)` once per dispute,
+  each under its own `TenantWorkRunner` tx (per-item failure isolation *around* `expire`, never inside it). Money-safe:
+  `expire()` finalises the chargeback expense to the ledger and is already atomic + idempotent, and the scheduler
+  never bulk-expires in one transaction (which would couple N ledger postings).
+- **Original description (superseded)**: expiration required an explicit API call or webhook.
 - **Risk**: Disputes may miss evidence deadlines silently.
 - **Resolution**: Phase 3 — Temporal workflow with timer-based deadline monitoring and reminder notifications.
 
