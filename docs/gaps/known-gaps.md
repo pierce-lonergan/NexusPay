@@ -106,11 +106,13 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Risk**: Storage growth, query performance degradation over time.
 - **Resolution**: Phase 2 — partition by timestamp, archive to cold storage after 90 days.
 
-### GAP-028: Self-Approval Prevention is Application-Level Only
+### ~~GAP-028: Self-Approval Prevention is Application-Level Only~~ — ✅ DELIVERED 2026-07-02 (WAVE-1 slot 4, ADR-068)
 - **Identified**: Sprint 1.5
-- **Status**: Accepted for Phase 1
-- **Description**: The maker-checker flow prevents the requester from approving their own request at the application level (`ApprovalService.approve()` checks `requestedBy != reviewerId`). No database-level constraint.
-- **Risk**: A bug in the application layer could allow self-approval.
+- **Status**: ✅ **DELIVERED** — V4044 adds `CHECK (requested_by IS DISTINCT FROM reviewed_by)` to `pending_approvals`,
+  making self-approval impossible at the storage layer (defense-in-depth — the app-level `requestedBy != reviewerId`
+  checks in ApprovalService + B2bApprovalService STAY). Null-safe (a PENDING row with `reviewed_by` NULL passes);
+  safe against existing rows. An IT proves the constraint fires on a direct self-approval write.
+- **Original risk (mitigated)**: a bug in the application layer could allow self-approval.
 - **Resolution**: Low priority — application-level check is sufficient for Phase 1. Consider DB trigger in Phase 2.
 
 ### ~~GAP-014: No Graceful Shutdown for Outbox Relay~~ (RESOLVED Sprint 1.7)
@@ -321,11 +323,16 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Risk**: Payment token mapping or merchant validation may fail in real Apple/Google sandbox environments.
 - **Resolution**: Obtain Apple Pay sandbox merchant ID and Google Pay test merchant ID for integration testing.
 
-### GAP-052: Checkout SDK — BNPL Provider SDK Versions Unpinned
+### GAP-052: Checkout SDK — BNPL Provider SDK Versions Unpinned — ✅ HARDENED 2026-07-02 (WAVE-1 slot 4, ADR-068)
 - **Identified**: Sprint 3.5
-- **Status**: Open
-- **Description**: Klarna, Afterpay, and Affirm SDKs are loaded dynamically from provider CDNs without version pinning. SDK breaking changes could silently break the BNPL flow.
-- **Risk**: Provider SDK updates could cause runtime failures without warning.
+- **Status**: ✅ **HARDENED (honest posture)** — all three provider URLs (Klarna `/kp/lib/v1/`, Afterpay `-1.x.`,
+  Affirm `/js/v2/`) are **auto-updating major-version loaders**, so a pinned SRI hash would *break* on the provider's
+  next push. Rather than a brittle SRI, the loader tags now carry `crossorigin="anonymous"` + `referrerpolicy=
+  "no-referrer"` (don't leak the checkout URL to the CDN), with per-provider comments documenting the posture and the
+  reliance on the merchant CSP `script-src` allowlist + PCI 6.4.3 monitoring. The descriptor keeps an optional
+  `integrity` field so SRI can be added per provider if one ever ships a stable versioned URL. (True version-pinning
+  isn't possible against an auto-updating loader; that's a provider limitation, not a NexusPay gap.)
+- **Original risk (mitigated where possible)**: provider SDK updates could break the BNPL flow silently.
 - **Resolution**: Pin SDK versions in script URLs and add integration smoke tests.
 
 ### GAP-053: Analytics Module — No Integration Tests for Kafka Consumers
@@ -370,11 +377,15 @@ This document tracks known gaps, technical debt, and deferred decisions in the N
 - **Risk**: Merchants cannot migrate existing card-on-file data into NexusPay vault.
 - **Resolution**: Sprint 4.2 or later — add migration ingestion consumer with provider-specific API clients.
 
-### GAP-059: Vault Module — Key Rotation Background Job Not Implemented
+### ~~GAP-059: Vault Module — Key Rotation Background Job Not Implemented~~ — ✅ DELIVERED 2026-07-02 (WAVE-1 slot 4, ADR-068)
 - **Identified**: Sprint 4.1
-- **Status**: Open
-- **Description**: `EncryptionPort` supports multiple key IDs and `VaultRepository.findCardsByEncryptionKeyId()` enables querying by key, but no scheduled job exists to re-encrypt cards from old keys to the current key.
-- **Risk**: Key rotation requires manual intervention. Compromised keys cannot be rotated automatically.
+- **Status**: ✅ **DELIVERED** — `KeyRotationJobService` (`@ConditionalOnProperty(nexuspay.vault.key-rotation.enabled=
+  true)`, OFF by default) pages `findCardsByEncryptionKeyId(retired, batch)` and re-encrypts each onto the current
+  active key. `CardVaultService.rotateCardKey` is `@Transactional` + ATOMIC (idempotent skip; decrypt→encrypt→
+  verify-decrypt-after→single save of ciphertext+keyId together, so a card is never left with a mismatch; plaintext
+  zeroed in `finally`, never logged; keys via `EncryptionPort.currentKeyId()` + config). Page-bounded, per-card
+  tenant-scoped, per-card failure isolation, metered.
+- **Original risk (mitigated)**: key rotation required manual intervention.
 - **Resolution**: Sprint 4.2 — add `KeyRotationJobService` with `@Scheduled` background re-encryption.
 
 ### GAP-060: Vault Module — Not Independently Deployable

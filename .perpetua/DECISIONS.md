@@ -1630,3 +1630,36 @@ unreviewed):
    wave slots (4-8): small-security batch (GAP-028 DB self-approval constraint, GAP-059 vault key-rotation job,
    GAP-052 BNPL SRI pinning), GAP-015 inbound webhook reprocess, schedulers (GAP-033 dispute deadlines + GAP-027 audit
    retention), analytics pipeline (GAP-054/053), observability dashboards (GAP-008/055/021). CI is the oracle.
+
+## ADR-068 | 2026-07-02 | WAVE-1 slot 4: three structural-security hardenings (T3)
+STATUS: Accepted (T3 — security controls; via PR #66). The small-security batch (slot 4) from the gap audit — each
+converts an application-level or absent control into a hard/structural one.
+ - GAP-028 (iam): DB-level maker-checker. V4044 (iam) adds CHECK (requested_by IS DISTINCT FROM reviewed_by) on
+   pending_approvals — a direct SQL write or future code path can no longer approve a row by its own requester. IS
+   DISTINCT FROM is null-safe (PENDING/reviewed_by NULL passes); ADD CONSTRAINT validates existing rows at apply time
+   (the app already blocked self-approval, so none violate). The app-level checks STAY (defense-in-depth). An IT proves
+   the constraint fires (a direct saveAndFlush with reviewed_by==requested_by throws DataIntegrityViolation).
+ - GAP-059 (vault): encryption key-rotation job, activated SAFELY. KeyRotationJobService is
+   @ConditionalOnProperty(nexuspay.vault.key-rotation.enabled=true) so the bean is not created unless enabled; no-ops
+   without a configured retiredKeyId. Pages findCardsByEncryptionKeyId(retired, batch), per-card TenantWorkRunner-
+   scoped, per-card try/catch (log id/tenant/keys ONLY, continue), forward-progress guard, metered
+   (rotated/skipped/failed). ★ ATOMICITY (PCI-critical): CardVaultService.rotateCardKey is @Transactional and does
+   idempotent-skip-if-not-on-retired-key -> decrypt(retired) -> encrypt(active) -> VERIFY-DECRYPT-AFTER (byte-compare
+   under the active key) -> single saveCard writing encryptedPan+encryptionKeyId TOGETHER, so a card is never left with
+   a ciphertext/keyId mismatch; a failure rolls back and leaves the card valid on the retired key. Plaintext is a local
+   byte[] zeroed in finally, never logged. Keys via EncryptionPort.currentKeyId() + config, never hardcoded.
+ - GAP-052 (checkout-sdk js): BNPL loader supply-chain hardening — HONEST CALL. All three PROVIDER_SCRIPTS (Klarna
+   /kp/lib/v1/, Afterpay -1.x., Affirm /js/v2/) are AUTO-UPDATING major-version loaders, so a pinned SRI integrity hash
+   would BREAK on the provider's next push (SRI only works for immutable resources; providers advise against it on
+   loaders). So NO brittle SRI: add crossorigin="anonymous" + referrerpolicy="no-referrer" + per-provider comments
+   documenting the posture + reliance on the merchant CSP script-src allowlist + PCI 6.4.3 monitoring. The descriptor
+   keeps an optional integrity field for any provider that later ships a stable versioned URL. No public API change; no
+   SDK version bump. This is a 'no fake fidelity' call: a brittle SRI that looks secure but breaks on update is worse
+   than honest crossorigin+CSP.
+ - REVIEW: 5 lenses, 4 findings, 1 actionable — a tautological no-PAN-in-logs test (signature-guaranteed) replaced with
+   a real Logback ListAppender capture test that drives a genuine encrypt failure through an unmocked CardVaultService
+   and asserts no PAN-shaped 13-19-digit run appears in any log line. Production code was PAN-safe already; this closed
+   a coverage gap. SDK build+test green locally (140 tests). Flyway global max now V4044. GAP-028 + GAP-059 DELIVERED,
+   GAP-052 HARDENED (provider-limited) in known-gaps.md. NOTE: the CI OOM flake that dogged PRs #61/#64 was
+   root-caused + fixed first (PR #65: forked test-JVM maxHeapSize=3g + setForkEvery(60) in build.gradle.kts) — PR #66
+   was the first clean single-green run confirming the flake is gone. CI is the oracle.
