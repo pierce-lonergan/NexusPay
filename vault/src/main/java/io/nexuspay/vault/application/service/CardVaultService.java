@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Map;
 
 /**
@@ -140,6 +141,100 @@ public class CardVaultService implements VaultCardUseCase {
                 tenantId);
 
         log.info("Card deleted: token={}, tenant={}", vaultTokenId, tenantId);
+    }
+
+    /**
+     * GAP-059: outcome of an atomic single-card key rotation.
+     */
+    public enum RotationOutcome {
+        /** The card was re-encrypted from the retired key onto the active key and persisted. */
+        ROTATED,
+        /** The card was NOT on the retired key (already rotated / on a third key) — no-op, idempotent. */
+        SKIPPED
+    }
+
+    /**
+     * GAP-059: ATOMICALLY re-encrypts one card from {@code retiredKeyId} onto the CURRENT active key.
+     *
+     * <p><b>Atomicity — a card is never left half-rotated.</b> The whole method runs in ONE
+     * {@code @Transactional} unit: decrypt (retired) → encrypt (active) → verify-decrypt-after →
+     * single {@code saveCard} that writes BOTH {@code encryptedPan} (new ciphertext) AND
+     * {@code encryptionKeyId} (new key id). Those are two columns of the SAME {@code vaulted_cards}
+     * row, so one UPDATE commits them together — there is no window where the ciphertext and the
+     * stamped key id disagree. Any failure (encrypt, verify, persist, or a crash mid-tx) rolls the
+     * whole thing back and the card stays fully valid on the RETIRED key, to be re-selected next
+     * cycle.</p>
+     *
+     * <p><b>Verify-decrypt-after.</b> Before persisting, the freshly-produced ciphertext is decrypted
+     * again under the ACTIVE key and byte-compared to the original plaintext; only on an exact match
+     * is {@code saveCard} called. This proves the row about to be stamped with the active key id is
+     * actually readable under that key — a mismatched card can never commit. (AES-GCM is authenticated
+     * so a corrupt ciphertext throws on decrypt anyway; this is cheap belt-and-suspenders.)</p>
+     *
+     * <p><b>Idempotency.</b> If the card is not currently on {@code retiredKeyId} (already rotated, or
+     * on some third key) the method returns {@link RotationOutcome#SKIPPED} WITHOUT decrypting — so a
+     * re-run, a racing replica, or an already-current card is a safe no-op.</p>
+     *
+     * <p><b>No PAN leak.</b> The decrypted PAN lives only in a local {@code byte[]} used immediately
+     * for re-encrypt + verify, and is zeroed in a {@code finally}. It is never logged, never put in an
+     * exception message, never a metric tag. Logs carry only card id, tenant id, and key ids.</p>
+     *
+     * @param cardId        the card to rotate
+     * @param retiredKeyId  the key id being retired; the card is only touched if it is currently on it
+     * @return {@link RotationOutcome#ROTATED} if re-encrypted, {@link RotationOutcome#SKIPPED} if already off the retired key
+     * @throws IllegalStateException if the card id is not found
+     */
+    @Transactional
+    public RotationOutcome rotateCardKey(String cardId, String retiredKeyId) {
+        VaultedCard card = repository.findCardById(cardId)
+                .orElseThrow(() -> new IllegalStateException("Vaulted card not found for rotation: " + cardId));
+
+        // Idempotent guard: only cards CURRENTLY on the retired key are rotated. A card already on the
+        // active key (or any other key) is skipped without ever decrypting it.
+        if (!retiredKeyId.equals(card.getEncryptionKeyId())) {
+            return RotationOutcome.SKIPPED;
+        }
+
+        String activeKeyId = encryption.currentKeyId();
+        // Defensive: if the "retired" key IS the active key there is nothing to rotate.
+        if (activeKeyId.equals(retiredKeyId)) {
+            return RotationOutcome.SKIPPED;
+        }
+
+        byte[] plaintext = null;
+        try {
+            // 1. Decrypt under the EXPLICIT retired key id.
+            plaintext = encryption.decrypt(card.getEncryptedPan(), retiredKeyId);
+
+            // 2. Re-encrypt under the CURRENT active key.
+            EncryptionPort.EncryptionResult reEncrypted = encryption.encrypt(plaintext, activeKeyId);
+
+            // 3. VERIFY-DECRYPT-AFTER: the new ciphertext must decrypt under the active key back to the
+            //    original plaintext BEFORE we persist — so a card can never be stamped with a key id its
+            //    ciphertext is not actually readable under.
+            byte[] roundTrip = encryption.decrypt(reEncrypted.ciphertext(), reEncrypted.keyId());
+            try {
+                if (!Arrays.equals(plaintext, roundTrip)) {
+                    throw new IllegalStateException(
+                            "Key rotation verify-decrypt mismatch for card " + cardId + " — aborting (card left on retired key)");
+                }
+            } finally {
+                Arrays.fill(roundTrip, (byte) 0);
+            }
+
+            // 4. Persist BOTH new ciphertext AND new key id in ONE row update (atomic in this tx).
+            card.setEncryptedPan(reEncrypted.ciphertext());
+            card.setEncryptionKeyId(reEncrypted.keyId());
+            repository.saveCard(card);
+
+            log.info("Card key rotated: card={}, tenant={}, from={}, to={}",
+                    cardId, card.getTenantId(), retiredKeyId, activeKeyId);
+            return RotationOutcome.ROTATED;
+        } finally {
+            if (plaintext != null) {
+                Arrays.fill(plaintext, (byte) 0);
+            }
+        }
     }
 
     static CardBrand detectBrand(String panBin) {

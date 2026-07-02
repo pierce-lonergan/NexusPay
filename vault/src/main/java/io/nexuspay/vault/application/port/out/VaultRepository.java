@@ -20,6 +20,13 @@ public interface VaultRepository {
     Optional<VaultedCard> findCardById(String id);
     Optional<VaultedCard> findCardByFingerprint(String tenantId, String fingerprint);
     List<VaultedCard> findCardsByEncryptionKeyId(String keyId);
+    /**
+     * GAP-059: page-BOUNDED variant for the key-rotation job — returns at most {@code limit} cards
+     * still encrypted under {@code keyId}. Bounded so a huge vault cannot OOM the rotation loop; the
+     * job re-queries after each page (a rotated card flips off the retired key and drops out of the
+     * result), so successive pages drain the set without offset bookkeeping.
+     */
+    List<VaultedCard> findCardsByEncryptionKeyId(String keyId, int limit);
     void deleteCard(String id);
 
     // VaultToken

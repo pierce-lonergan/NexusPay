@@ -1,0 +1,31 @@
+-- GAP-028: DB-level maker-checker — structural self-approval prevention.
+--
+-- Today requester != reviewer is enforced ONLY in application code (ApprovalService.approve()
+-- and B2bApprovalService, both fail-closed). A direct SQL write, a future code path, or a bug
+-- could bypass maker-checker and let a row be approved by its own requester. This CHECK constraint
+-- makes that impossible at the storage layer (defense-in-depth — the app checks STAY, belt AND
+-- suspenders).
+--
+-- IS DISTINCT FROM (not =) is REQUIRED for correctness against the NULLable reviewed_by:
+--   * a PENDING row has reviewed_by NULL: 'alice' IS DISTINCT FROM NULL => TRUE  => passes.
+--   * a reviewed row with reviewer != requester:                          TRUE  => passes.
+--   * a reviewed row with reviewer == requester (self-approval):          FALSE => REJECTED.
+-- A plain `requested_by <> reviewed_by` would evaluate to NULL (not FALSE) for a PENDING row and,
+-- while CHECK admits NULL, IS DISTINCT FROM states the intent unambiguously and is null-safe.
+-- Columns: requested_by VARCHAR(128) NOT NULL (V1103:9), reviewed_by VARCHAR(128) NULL (V1103:10).
+--
+-- SAFE AGAINST EXISTING ROWS: ADD CONSTRAINT validates every existing row at apply time. No row can
+-- violate it because self-approval is already blocked app-side in BOTH review paths, so every
+-- reviewed row has reviewer != requester and every PENDING row has reviewed_by NULL. If a violating
+-- row somehow existed the ADD fails LOUDLY (correct fail-closed) rather than silently. No backfill is
+-- bundled (none is needed). Additive + baseline-on-migrate:true => safe on a non-empty prod DB (same
+-- posture V4025/V4043 document).
+--
+-- NUMBERING: Flyway versions are GLOBAL across all leaf locations (out-of-order DISABLED — B-011 /
+-- L-023): a duplicate Vnnnn in ANY module is a boot failure; gaps are tolerated. V4043 (b2b
+-- created_by) is the current global max, so this is V4044. Lives in the `classpath:db/migration/iam`
+-- leaf — the OWNING module's dir, since pending_approvals is an iam table (created V1103, extended
+-- V4025) per the V4043 owning-module rule.
+
+ALTER TABLE pending_approvals
+    ADD CONSTRAINT chk_no_self_approval CHECK (requested_by IS DISTINCT FROM reviewed_by);
